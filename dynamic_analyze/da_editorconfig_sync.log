@@ -1,0 +1,92 @@
+Source path:... F:\pycode\psql\postgres\dynamic_analyze.py
+17:32:32.672060 call        15 def analyze_editorconfig_sync():
+17:32:32.673061 line        17     target_script = "src/tools/generate_editorconfig.py"
+New var:....... target_script = 'src/tools/generate_editorconfig.py'
+17:32:32.673061 line        18     if os.path.exists(target_script):
+    Source path:... <frozen genericpath>
+    Starting var:.. path = 'src/tools/generate_editorconfig.py'
+    17:32:32.673061 call        16 SOURCE IS UNAVAILABLE
+    17:32:32.673061 line        18 SOURCE IS UNAVAILABLE
+    17:32:32.674063 line        19 SOURCE IS UNAVAILABLE
+    17:32:32.674063 line        22 SOURCE IS UNAVAILABLE
+    17:32:32.674063 return      22 SOURCE IS UNAVAILABLE
+    Return value:.. True
+Source path:... F:\pycode\psql\postgres\dynamic_analyze.py
+17:32:32.675461 line        19         print(f"正在追踪: {target_script}")
+17:32:32.675461 line        21         result = subprocess.run([sys.executable, target_script], capture_output=True, text=True)
+    Source path:... D:\Anaconda\Lib\subprocess.py
+    Starting var:.. input = None
+    Starting var:.. capture_output = True
+    Starting var:.. timeout = None
+    Starting var:.. check = False
+    Starting var:.. popenargs = (['D:\\Anaconda\\python.exe', 'src/tools/generate_editorconfig.py'],)
+    Starting var:.. kwargs = {'text': True}
+    17:32:32.675461 call       506 def run(*popenargs,
+    17:32:32.677481 line       536     if input is not None:
+    17:32:32.677481 line       541     if capture_output:
+    17:32:32.678487 line       542         if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+    17:32:32.678487 line       545         kwargs['stdout'] = PIPE
+    Modified var:.. kwargs = {'text': True, 'stdout': -1}
+    17:32:32.678487 line       546         kwargs['stderr'] = PIPE
+    Modified var:.. kwargs = {'text': True, 'stdout': -1, 'stderr': -1}
+    17:32:32.678487 line       548     with Popen(*popenargs, **kwargs) as process:
+    New var:....... process = <Popen: returncode: None args: ['D:\\Anaconda\\python.exe', 'src/tools/gener...>
+    17:32:32.686717 line       549         try:
+    17:32:32.687721 line       550             stdout, stderr = process.communicate(input, timeout=timeout)
+    Modified var:.. process = <Popen: returncode: 0 args: ['D:\\Anaconda\\python.exe', 'src/tools/generate...>
+    New var:....... stdout = ''
+    New var:....... stderr = ''
+    17:32:32.724209 line       569         retcode = process.poll()
+    New var:....... retcode = 0
+    17:32:32.725223 line       570         if check and retcode:
+    17:32:32.725223 line       548     with Popen(*popenargs, **kwargs) as process:
+    17:32:32.725711 line       573     return CompletedProcess(process.args, retcode, stdout, stderr)
+    17:32:32.725711 return     573     return CompletedProcess(process.args, retcode, stdout, stderr)
+    Return value:.. CompletedProcess(args=['D:\\Anaconda\\python.exe...rconfig.py'], returncode=0, stdout='', stderr='')
+    Starting var:.. self = <Popen: returncode: 0 args: ['D:\\Anaconda\\python.exe', 'src/tools/generate...>
+    Starting var:.. _maxsize = 9223372036854775807
+    Starting var:.. _warn = <built-in function warn>
+    17:32:32.725711 call      1120     def __del__(self, _maxsize=sys.maxsize, _warn=warnings.warn):
+    17:32:32.725711 line      1121         if not self._child_created:
+    17:32:32.725711 line      1124         if self.returncode is None:
+    17:32:32.726711 line      1130         self._internal_poll(_deadstate=_maxsize)
+    17:32:32.726711 line      1131         if self.returncode is None and _active is not None:
+    17:32:32.726711 return    1131         if self.returncode is None and _active is not None:
+    Return value:.. None
+    Starting var:.. self = Handle(364)
+    Starting var:.. CloseHandle = <built-in function CloseHandle>
+    17:32:32.726711 call       218         def Close(self, CloseHandle=_winapi.CloseHandle):
+    17:32:32.726711 line       219             if not self.closed:
+    17:32:32.726711 line       220                 self.closed = True
+    17:32:32.726711 line       221                 CloseHandle(self)
+    17:32:32.728039 return     221                 CloseHandle(self)
+    Return value:.. None
+    Source path:... D:\Anaconda\Lib\_weakrefset.py
+    Starting var:.. item = <weakref at 0x000001F529341760; dead>
+    Starting var:.. selfref = <weakref at 0x000001F5290720C0; to 'WeakSet' at 0x000001F52907AC50>
+    17:32:32.728039 call        39         def _remove(item, selfref=ref(self)):
+    17:32:32.729218 line        40             self = selfref()
+    New var:....... self = {<weakref at 0x000001F529341760; dead>, <weakref...9071C60; to '_MainThread' at 0x000001F52907AA50>}
+    17:32:32.729218 line        41             if self is not None:
+    17:32:32.730311 line        42                 if self._iterating:
+    17:32:32.730311 line        45                     self.data.discard(item)
+    Modified var:.. self = {<weakref at 0x000001F529341940; to 'Thread' at ...9071C60; to '_MainThread' at 0x000001F52907AA50>}
+    17:32:32.730311 return      45                     self.data.discard(item)
+    Return value:.. None
+    Starting var:.. item = <weakref at 0x000001F529341940; dead>
+    Starting var:.. selfref = <weakref at 0x000001F5290720C0; to 'WeakSet' at 0x000001F52907AC50>
+    17:32:32.730311 call        39         def _remove(item, selfref=ref(self)):
+    17:32:32.730311 line        40             self = selfref()
+    New var:....... self = {<weakref at 0x000001F529341940; dead>, <weakref...9071C60; to '_MainThread' at 0x000001F52907AA50>}
+    17:32:32.730311 line        41             if self is not None:
+    17:32:32.730311 line        42                 if self._iterating:
+    17:32:32.730311 line        45                     self.data.discard(item)
+    Modified var:.. self = {<weakref at 0x000001F529071C60; to '_MainThread' at 0x000001F52907AA50>}
+    17:32:32.731686 return      45                     self.data.discard(item)
+    Return value:.. None
+Source path:... F:\pycode\psql\postgres\dynamic_analyze.py
+New var:....... result = CompletedProcess(args=['D:\\Anaconda\\python.exe...rconfig.py'], returncode=0, stdout='', stderr='')
+17:32:32.731686 line        22         return result.stdout
+17:32:32.731686 return      22         return result.stdout
+Return value:.. ''
+Elapsed time: 00:00:00.059626

@@ -1,0 +1,12 @@
+Source path:... F:\pycode\psql\postgres\dynamic_analyze.py
+17:32:32.732759 call        28 def analyze_unaccent_rules():
+17:32:32.732759 line        29     target_script = "contrib/unaccent/generate_unaccent_rules.py"
+New var:....... target_script = 'contrib/unaccent/generate_unaccent_rules.py'
+17:32:32.732759 line        30     if os.path.exists(target_script):
+17:32:32.733847 line        31         print(f"正在追踪: {target_script}")
+17:32:32.733847 line        32         result = subprocess.run([sys.executable, target_script], capture_output=True, text=True)
+New var:....... result = CompletedProcess(args=['D:\\Anaconda\\python.exe...g arguments are required: --unicode-data-file\n')
+17:32:32.806443 line        33         return result.stdout
+17:32:32.811067 return      33         return result.stdout
+Return value:.. ''
+Elapsed time: 00:00:00.078308
