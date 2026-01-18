@@ -35,7 +35,7 @@ current_implementation = If(Or(FileType == 1, FileType == 2),
 
 ### 验证结果：`SAT` (Satisfiable)
 
-![image-20260118193244355](D:\project\test\PostgreSQL-commit-analyis\z3-solver\屏幕截图 2026-01-18 193230.png)
+![屏幕截图 2026-01-18 193230](屏幕截图 2026-01-18 193230.png)
 
 运行结果为 **SAT**，意味着求解器找到了一个满足“违规条件”的反例。
 
@@ -66,7 +66,7 @@ corrected_implementation = If(Or(FileType == 1, FileType == 2),
 
 ### 验证结果：`UNSAT` (Unsatisfiable)
 
-![image-20260118193308364](D:\project\test\PostgreSQL-commit-analyis\z3-solver\屏幕截图 2026-01-18 193301.png)
+![image-20260118193308364](屏幕截图 2026-01-18 193301.png)
 
 运行结果为 **UNSAT**，意味着求解器**无法**找到任何反例。
 
