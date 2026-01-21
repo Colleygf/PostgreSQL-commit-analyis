@@ -1,6 +1,6 @@
-# Bug 修复提交识别规则（成员二）
+# Bug 修复提交识别与标注规则
 
-目的：在 PostgreSQL master 分支（2022–2025）中半自动识别 Bug 修复提交，用于后续标注与统计。
+目的：在 PostgreSQL master 分支（2022–2025）中半自动识别并标注 Bug 修复提交，用于后续统计与分析。
 
 ## 1. 优先级排序的判定信号
 - 强关键词（提交信息，命中即高置信）：fix|bug|issue|crash|segfault|leak|overflow|deadlock|race|corrupt|assert|regress|incorrect|wrong|mishandled|panic|hang|memory leak。
@@ -51,5 +51,13 @@
 - CSV/JSON 字段：`hash, date, author, message, is_bugfix (Y/M/N), signals (list), modules, files, loc_add, loc_del`。
 - 保留 git show 摘要文本以便复查（可存入 markdown）。
 
-## 7. 分工对应产出
-- 成员二产出：候选清单 + 规则命中的理由 + 示例 commit（每类 2–3 个），供团队后续静态/动态/形式化分析使用。
+## 7. 标注操作步骤
+1) 拉取候选：`git log --since=2022-01-01 --until=2025-12-31 --grep='fix\|bug\|crash\|segfault\|overflow\|deadlock\|race\|corrupt\|assert\|regress\|panic\|leak' --extended-regexp --no-merges > tmp_bugfix_candidates.log`。
+2) 逐条查看：`git show -U3 <hash>`，按第 1–5 节的信号判定。
+3) 标注到表（推荐 csv）：字段 `hash,is_bugfix(Y/M/N),signals(modules|keywords|tests),reason(loc summary),paths(located modules),loc_add,loc_del,date,author`。
+4) 示例行：`abcd1234,Y,keywords+structure+tests,"msg contains 'Fix crash'; touched storage/buffer; added if+ereport",storage/buffer,25,3,2023-05-02,alice@example.com`。
+5) 对高风险路径（storage/replication/WAL/locking）优先人工复核。
+
+## 8. 产出与复用
+- 交付物：候选清单 + 已标注表（csv/json/md 均可）+ 每类示例 commit（高置信/待复核/否定各 2–3 个）。
+- 供后续静态/动态/形式化分析直接消费，避免重复筛查。
