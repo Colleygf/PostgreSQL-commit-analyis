@@ -1,0 +1,21 @@
+hash,author,modules,lines_added,lines_deleted
+d3c0cc4447307a2ffbcff8274573b544294e583c,Michael Paquier,['src'],11,15
+1f0019de2fe374fa54fca277f36c2e754894db30,Thomas Munro,['src'],16,0
+eb706fde8302c32267518663032905556db21f57,David Rowley,['src'],11,7
+5e9b1220599946621984ec95f1cb80989f7c76d6,Peter Eisentraut,['src'],5,5
+71cb84ec69a38444c48bd8d3b5451b2da157848b,Michael Paquier,['src'],18,10
+fe12f2f8fa608156c2d3c027cdd6aa9af0788e3a,Tom Lane,['src'],14,2
+8c954168cff4630ae94df649b458f4a3aad6d9a7,Andres Freund,['src'],14,10
+fccaf259f22f4aedc02033516c561ca86903077d,Tom Lane,['src'],20,9
+e848be60b5cf9a883765ea8e98c411e7fef0c1c6,Amit Kapila,['src'],9,6
+45d5ecab49f6c0df607d3ca2ce1995229f416d1a,Peter Eisentraut,['src'],5,5
+36e545cd051ffe58064c1f38faeb64f4feef4aec,Amit Kapila,['src'],12,10
+4f981df8e0b7bc00d22ab0db65579589c9d4bb8c,Tom Lane,['src'],20,7
+b5621b66e778112c78d381414dff8917320f71d2,Peter Eisentraut,['src'],14,14
+d7744d50a5394db8d973d1cfa034ed6640aec13c,Michael Paquier,['src'],14,1
+0e758ae89a20f233bb1c20a0f52ac7c81b2ef1b8,Tom Lane,['src'],12,6
+dea83493800563d9f78b68bf9717988dd272c7c9,Tom Lane,['src'],15,5
+26ee7fb3684e5809d663f74847fb405f5a84d1af,Tom Lane,['src'],13,6
+f4857082bc16f36a5cdc6f8328cdc8071bb1715e,Tom Lane,['src'],18,4
+4517358ee78213cd2ca18270ab4d32cd69b0b19d,Thomas Munro,['src'],13,13
+f71007fbb3b83fba21daae9144cc07e205f2365c,Thomas Munro,['src'],14,3

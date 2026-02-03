@@ -1,0 +1,11 @@
+year,hash,author,msg
+2025,dfd8e6c73eeaa8a4d53851ba01e8d7b1c0bef0e3,Masahiko Sawada,Fix an issue with index scan using pg_trgm due to char signedness on different architectures.
+2022,9e283fc85d66f6e4d355c6996e863afb026866d4,Etsuro Fujita,postgres_fdw: Fix handling of a pending asynchronous request in postgresReScanForeignScan().
+2022,8c7146790811ac4eee23fab2226db14b636e1ac5,Etsuro Fujita,Correct error message for row-level triggers with transition tables on partitioned tables.
+2025,d87d07b7ad3b782cb74566cd771ecdb2823adf6a,Masahiko Sawada,Fix re-distributing previously distributed invalidation messages during logical decoding.
+2023,54ccfd65868c013a8c6906bc894bc5ea3640740a,Amit Kapila,Fix the misuse of origin filter across multiple pg_logical_slot_get_changes() calls.
+2025,38506f55fd4ac5ee4fe6b21bc2a380a14e7b2089,Peter Eisentraut,formatting.c cleanup: Remove unnecessary extra line breaks in error message literals
+2025,f4290f20dd4d6f75e01fbb87304c3b8f31d1cfea,Masahiko Sawada,Fix assertion failure in parallel vacuum with minimal maintenance_work_mem setting.
+2024,d56cb42b54381d414f1f30929ca267e4768313c8,Peter Eisentraut,Activate perlcritic InputOutput::RequireCheckedSyscalls and fix resulting warnings
+2022,6c07f9ebce1579612c4ed9076159f9e942e50f9d,Etsuro Fujita,postgres_fdw: Fix subabort cleanup of connections used in asynchronous execution.
+2024,099ca50bd41c1a72fe5a086bb095858ea74c88de,Michael Paquier,"Revert ""Fix parallel-safety check of expressions and predicate for index builds"""
