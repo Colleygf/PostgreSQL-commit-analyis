@@ -63,4 +63,4 @@ def verify_editorconfig_logic():
         print("验证通过：逻辑完备。")
 
 if __name__ == "__main__":
-    verify_editorconfig_logic()
+    verify_editorconfig_logic() 
