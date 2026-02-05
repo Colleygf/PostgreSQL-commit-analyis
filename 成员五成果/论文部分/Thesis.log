@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999997 (TeX Live 2025) (preloaded format=xelatex 2026.2.4)  4 FEB 2026 22:13
+This is XeTeX, Version 3.141592653-2.6-0.999997 (TeX Live 2025) (preloaded format=xelatex 2026.2.4)  5 FEB 2026 13:15
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -1499,21 +1499,14 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                \hskip 14.05249pt
 (hyperref)                replaced by space on input line 16.
 
-LaTeX Font Info:    Font shape `TU/XITSMath-Regular(2)/m/n' will be
-(Font)              scaled to size 12.04628pt on input line 20.
-LaTeX Font Info:    Font shape `TU/XITSMath-Regular(2)/m/n' will be
-(Font)              scaled to size 9.03471pt on input line 20.
-LaTeX Font Info:    Font shape `TU/XITSMath-Regular(2)/m/n' will be
-(Font)              scaled to size 7.22777pt on input line 20.
-LaTeX Font Info:    Font shape `TU/XITSMath-Regular(3)/m/n' will be
-(Font)              scaled to size 12.0437pt on input line 20.
-LaTeX Font Info:    Font shape `TU/XITSMath-Regular(3)/m/n' will be
-(Font)              scaled to size 9.03278pt on input line 20.
-LaTeX Font Info:    Font shape `TU/XITSMath-Regular(3)/m/n' will be
-(Font)              scaled to size 7.22623pt on input line 20.
 [1
 
-]) [2
+]
+Overfull \hbox (1.88303pt too wide) in paragraph at lines 28--29
+[]\TU/entextrm/m/n/12.045 This thesis builds a multi-layer analysis pipeline over the PostgreSQL master branch
+ []
+
+) [2
 
 ]
 
@@ -1521,7 +1514,20 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 (hyperref)                \hskip 12.045pt
 (hyperref)                replaced by space on input line 63.
 
-(./Thesis.toc)
+(./Thesis.toc
+LaTeX Font Info:    Font shape `TU/XITSMath-Regular(2)/m/n' will be
+(Font)              scaled to size 12.04628pt on input line 2.
+LaTeX Font Info:    Font shape `TU/XITSMath-Regular(2)/m/n' will be
+(Font)              scaled to size 9.03471pt on input line 2.
+LaTeX Font Info:    Font shape `TU/XITSMath-Regular(2)/m/n' will be
+(Font)              scaled to size 7.22777pt on input line 2.
+LaTeX Font Info:    Font shape `TU/XITSMath-Regular(3)/m/n' will be
+(Font)              scaled to size 12.0437pt on input line 2.
+LaTeX Font Info:    Font shape `TU/XITSMath-Regular(3)/m/n' will be
+(Font)              scaled to size 9.03278pt on input line 2.
+LaTeX Font Info:    Font shape `TU/XITSMath-Regular(3)/m/n' will be
+(Font)              scaled to size 7.22623pt on input line 2.
+)
 \tf@toc=\write5
 \openout5 = `Thesis.toc'.
 
@@ -1544,8 +1550,13 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 
 ] [6
 
-]) [7] (./Tex/Mainmatter.tex (./Tex/Chap_Intro.tex
+]) [7] (./Tex/Mainmatter.tex (./Tex/Chap_01_Introduction.tex
 第1章
+) (./Tex/Chap_02_DatasetAndBugFixIdentification.tex [1
+
+
+]
+第2章
 
 Package fontspec Info: 
 (fontspec)             Could not resolve font "FangSong/BI" (it probably
@@ -1572,138 +1583,29 @@ Package fontspec Info:
 (fontspec)             - 'normal' (m/n) with NFSS spec.:
 (fontspec)             <->"FangSong/OT:script=hani;language=dflt;"
 
-[1
+) (./Tex/Chap_03_StaticEvolutionAnalysis.tex [2
 
+]
+第3章
+) (./Tex/Chap_04_DynamicTraceAndCaseStudy.tex [3
 
-]) (./Tex/Chap_Guide.tex [2]
-第2章
+]
+第4章
+) (./Tex/Chap_05_FormalModelingAndVerification.tex [4
 
-Package natbib Warning: Citation `wikibook2014latex' on page 3 undefined on input line 3.
+]
+第5章
+) (./Tex/Chap_06_Discussion.tex [5
 
-LaTeX Font Info:    Font shape `TU/XITSMath-Regular(2)/m/n' will be
-(Font)              scaled to size 9.0347pt on input line 31.
-LaTeX Font Info:    Font shape `TU/XITSMath-Regular(2)/m/n' will be
-(Font)              scaled to size 6.00064pt on input line 31.
-LaTeX Font Info:    Font shape `TU/XITSMath-Regular(2)/m/n' will be
-(Font)              scaled to size 5.00053pt on input line 31.
-LaTeX Font Info:    Font shape `TU/XITSMath-Regular(3)/m/n' will be
-(Font)              scaled to size 9.03276pt on input line 31.
-LaTeX Font Info:    Font shape `TU/XITSMath-Regular(3)/m/n' will be
-(Font)              scaled to size 5.99936pt on input line 31.
-LaTeX Font Info:    Font shape `TU/XITSMath-Regular(3)/m/n' will be
-(Font)              scaled to size 4.99947pt on input line 31.
-[3
+]
+第6章
+) (./Tex/Chap_07_ConclusionAndFutureWork.tex [6
 
-] [4] [5]
-File: Img/c06h06.png Graphic file (type bmp)
-<Img/c06h06.png>
-File: Img/c06h06.png Graphic file (type bmp)
-<Img/c06h06.png>
-File: Img/oaspl_a.pdf Graphic file (type pdf)
-<use Img/oaspl_a.pdf>
-File: Img/oaspl_b.pdf Graphic file (type pdf)
-<use Img/oaspl_b.pdf>
-File: Img/oaspl_c.pdf Graphic file (type pdf)
-<use Img/oaspl_c.pdf>
-File: Img/oaspl_d.pdf Graphic file (type pdf)
-<use Img/oaspl_d.pdf>
- [6]
-Package hyperref Info: bookmark level for unknown algorithm defaults to 0 on input line 221.
-LaTeX Font Info:    Font shape `TU/XITSMath-Regular(2)/m/n' will be
-(Font)              scaled to size 7.00075pt on input line 223.
-LaTeX Font Info:    Font shape `TU/XITSMath-Regular(3)/m/n' will be
-(Font)              scaled to size 6.99925pt on input line 223.
+]
+第7章
+)) [7
 
-Overfull \hbox (1.83298pt too wide) in paragraph at lines 237--238
-[]\TU/SimSun(1)/m/n/12.045 参 考 文 献 引 用 过 程 以 实 例 进 行 介 绍，|  假 设 需 要 引 用 名 为\TU/entexttt/m/n/12.045 ”Document Preparation
- []
-
-[7] [8]
-
-Package natbib Warning: Citation `lamport1986document' on page 9 undefined on input line 243.
-
-
-Package natbib Warning: Citation `lamport1986document' on page 9 undefined on input line 245.
-
-
-Package natbib Warning: Citation `lamport1986document' on page 9 undefined on input line 249.
-
-
-Package natbib Warning: Citation `chu2004tushu' on page 9 undefined on input line 249.
-
-
-Package natbib Warning: Citation `chen2005zhulu' on page 9 undefined on input line 249.
-
-
-Package natbib Warning: Citation `walls2013drought' on page 9 undefined on input line 253.
-
-
-Package natbib Warning: Citation `betts2005aging' on page 9 undefined on input line 253.
-
-
-Package natbib Warning: Citation `walls2013drought' on page 9 undefined on input line 253.
-
-
-Package natbib Warning: Citation `betts2005aging' on page 9 undefined on input line 253.
-
-
-Package natbib Warning: Citation `chen1980zhongguo' on page 9 undefined on input line 253.
-
-
-Package natbib Warning: Citation `bravo1990comparative' on page 9 undefined on input line 253.
-
-
-Package natbib Warning: Citation `yuan2012lana' on page 9 undefined on input line 254.
-
-
-Package natbib Warning: Citation `yuan2012lanb' on page 9 undefined on input line 254.
-
-
-Package natbib Warning: Citation `yuan2012lanc' on page 9 undefined on input line 254.
-
-
-Package natbib Warning: Citation `yuan2012lana' on page 9 undefined on input line 254.
-
-
-Package natbib Warning: Citation `yuan2012lanb' on page 9 undefined on input line 254.
-
-
-Package natbib Warning: Citation `yuan2012lanc' on page 9 undefined on input line 254.
-
-
-Package natbib Warning: Citation `chen1980zhongguo' on page 9 undefined on input line 254.
-
-
-Package natbib Warning: Citation `stamerjohanns2009mathml' on page 9 undefined on input line 254.
-
-
-Package natbib Warning: Citation `hls2012jinji' on page 9 undefined on input line 254.
-
-
-Package natbib Warning: Citation `niu2013zonghe' on page 9 undefined on input line 254.
-
-
-Package natbib Warning: Citation `niu2013zonghe' on page 9 undefined on input line 256.
-
-
-Package natbib Warning: Citation `Bohan1928' on page 9 undefined on input line 256.
-
-
-Package natbib Warning: Citation `stamerjohanns2009mathml' on page 9 undefined on input line 256.
-
-
-Package natbib Warning: Citation `Dubrovin1906' on page 9 undefined on input line 256.
-
-[9] [10]
-
-LaTeX Font Warning: Font shape `TU/FangSong(0)/b/n' undefined
-(Font)              using `TU/FangSong(0)/m/n' instead on input line 312.
-
-
-LaTeX Font Warning: Font shape `TU/SimSun(1)/b/it' undefined
-(Font)              using `TU/SimSun(1)/b/n' instead on input line 314.
-
-)) [11] (./Tex/Appendix.tex
+] (./Tex/Appendix.tex
 附录 A
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
@@ -1739,27 +1641,18 @@ Overfull \hbox (30.26967pt too wide) in paragraph at lines 36--37
 []\TU/entexttt/m/n/12.045 mathcal: $[][] [][] [][] [][] [][] [][] []$, mathscr: $[][] [][] [][] [][] [][] [][] []$, boldsymbol: $[][] [][] [][] [][] [][] [][] []$. 
  []
 
-) [12
+) [8
 
 
-] [13]
+] [9]
 No file Thesis.bbl.
-(./Tex/Backmatter.tex
-Overfull \hbox (7.1275pt too wide) in paragraph at lines 11--12
-\TU/SimSun(1)/m/n/12.045 云 云 老 师 为 代 表 的 国 科 大 学 位 办 公 室 老 师 们 制 定 的 官 方 指 导 文 件 和 众 多 \TU/entexttt/m/n/12.045 ucasthesis
- []
-
-[14
+(./Tex/Backmatter.tex [10
 
 
 
-] [15
+] [11
 
-])
-
-Package natbib Warning: There were undefined citations.
-
-[16
+]) [12
 
 ] (./Thesis.aux)
  ***********
@@ -1770,16 +1663,25 @@ L3 programming layer <2022/08/05>
 
 LaTeX Font Warning: Some font shapes were not available, defaults substituted.
 
-Package rerunfilecheck Info: File `Thesis.out' has not changed.
-(rerunfilecheck)             Checksum: 7ED3C8DD85B71160C3F5EEED1907D21F;4368.
+
+LaTeX Warning: Label(s) may have changed. Rerun to get cross-references right.
+
+
+Package rerunfilecheck Warning: File `Thesis.out' has changed.
+(rerunfilecheck)                Rerun to get outlines right
+(rerunfilecheck)                or use package `bookmark'.
+
+Package rerunfilecheck Info: Checksums for `Thesis.out':
+(rerunfilecheck)             Before: 7ED3C8DD85B71160C3F5EEED1907D21F;4368
+(rerunfilecheck)             After:  05B39E860D33B4F9F8DB71071C9F7934;7713.
  ) 
 Here is how much of TeX's memory you used:
- 38594 strings out of 468174
- 800441 string characters out of 5436369
- 1306180 words of memory out of 5000000
- 66618 multiletter control sequences out of 15000+600000
- 641134 words of font info for 190 fonts, out of 8000000 for 9000
+ 38344 strings out of 468174
+ 791877 string characters out of 5436369
+ 1305184 words of memory out of 5000000
+ 66395 multiletter control sequences out of 15000+600000
+ 637158 words of font info for 144 fonts, out of 8000000 for 9000
  1348 hyphenation exceptions out of 8191
- 118i,20n,125p,1221b,2936s stack positions out of 10000i,1000n,20000p,200000b,200000s
+ 118i,20n,125p,1676b,2936s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on Thesis.pdf (27 pages).
+Output written on Thesis.pdf (23 pages).

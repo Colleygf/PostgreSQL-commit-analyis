@@ -17,15 +17,16 @@
 \setcounter{page}{1}% 开始页码
 \pagenumbering{Roman}% 页码符号
 
-本文是中国科学院大学学位论文模板ucasthesis的使用说明文档。主要内容为介绍\LaTeX{}文档类ucasthesis的用法，以及如何使用\LaTeX{}快速高效地撰写学位论文。
+本项目围绕 PostgreSQL master 分支（2022–2025）的提交历史，构建“提交行为统计—Bug 修复识别—静态结构演化—动态执行追踪—形式化验证”的多层分析链路，系统刻画 Bug 修复行为规律与代码演化特征，并对关键修复进行可验证性证明。在提交层面，基于规则化标注与时间/作者/模块统计，发现修复节奏与发布周期相关，高风险模块（storage/replication/WAL 等）长期高占比，且核心开发者承担关键模块的修复工作。在静态结构层面，Bug 修复呈现出一致的结构性演化模式：前置条件显式化、控制流分裂、错误路径显式化与条件语义增强等，体现防御式编程的系统性强化。在动态分析层面，通过 PySnooper 追踪 PostgreSQL Python 工具脚本，定位出配置同步脚本的“静默逻辑失效”，并通过回归测试验证修复有效性，建立了从异常发现到验证的闭环流程。在形式化验证层面，使用 Z3 对该修复进行约束建模，证明原逻辑存在反例（SAT），修复后逻辑在规约域内无反例（UNSAT），从而实现“证明修复有效”的强结论。整体而言，本研究以统计分析、结构分析、动态追踪与形式化建模互证，为理解大型系统的 Bug 修复规律与提升修复可信度提供了可复用的方法框架。
 
-\keywords{中国科学院大学，学位论文，\LaTeX{}模板}% 中文关键词
+\keywords{PostgreSQL，提交历史分析，Bug 修复识别，代码结构演化，动态追踪，形式化验证}% 中文关键词
 %-
 %-> 英文摘要
 %-
 \intobmk\chapter*{Abstract}% 显示在书签但不显示在目录
 
-This paper is a help documentation for the \LaTeX{} class ucasthesis, which is  a thesis template for the University of Chinese Academy of Sciences. The main content is about how to use the ucasthesis, as well as how to write thesis efficiently by using \LaTeX{}.
+This thesis builds a multi-layer analysis pipeline over the PostgreSQL master branch commit history (2022--2025), integrating commit-level statistics, bug-fix identification, static structural evolution analysis, dynamic execution tracing, and formal verification. At the commit level, using rule-based labeling and statistics by time, author, and subsystem, we observe that fix activity correlates with release cycles; high-risk subsystems (e.g., storage, replication, and WAL) consistently account for a large share of fixes, and core developers contribute disproportionately to critical-module maintenance. At the static level, bug fixes exhibit recurring structural evolution patterns, including explicit preconditions, control-flow splitting, explicit error paths, and enriched conditional semantics, reflecting systematic strengthening of defensive programming. At the dynamic level, we trace PostgreSQL Python utility scripts with PySnooper to pinpoint a silent logic failure in a configuration synchronization script, validate the fix via regression tests, and close the loop from anomaly discovery to verification. Finally, we model the fix in Z3: the original logic admits counterexamples (SAT), whereas the repaired logic has no counterexample within the specification domain (UNSAT), yielding a strong, proof-backed validity claim. Overall, the proposed framework triangulates statistical analysis, structural analysis, dynamic tracing, and formal modeling to provide reusable methods for understanding bug-fix behaviors in large systems and improving the trustworthiness of fixes.
 
-\KEYWORDS{University of Chinese Academy of Sciences (UCAS), Thesis, \LaTeX{} Template}% 英文关键词
+
+\KEYWORDS{PostgreSQL, commit history mining, bug-fix identification, structural evolution, dynamic tracing, formal verification}% 英文关键词
 %---------------------------------------------------------------------------%

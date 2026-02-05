@@ -1,30 +1,40 @@
-\contentsline {chapter}{\numberline {第1章\hspace {.3em}}引言}{1}{chapter.1}%
-\contentsline {section}{\numberline {1.1}研究背景}{1}{section.1.1}%
-\contentsline {section}{\numberline {1.2}系统要求}{1}{section.1.2}%
-\contentsline {section}{\numberline {1.3}问题反馈}{2}{section.1.3}%
-\contentsline {section}{\numberline {1.4}模板下载}{2}{section.1.4}%
-\contentsline {chapter}{\numberline {第2章\hspace {.3em}}\LaTeX {}使用说明}{3}{chapter.2}%
-\contentsline {section}{\numberline {2.1}先试试效果}{3}{section.2.1}%
-\contentsline {section}{\numberline {2.2}文档目录简介}{3}{section.2.2}%
-\contentsline {subsection}{\numberline {2.2.1}Thesis.tex}{3}{subsection.2.2.1}%
-\contentsline {subsection}{\numberline {2.2.2}编译脚本}{4}{subsection.2.2.2}%
-\contentsline {subsection}{\numberline {2.2.3}Tmp文件夹}{4}{subsection.2.2.3}%
-\contentsline {subsection}{\numberline {2.2.4}Style文件夹}{4}{subsection.2.2.4}%
-\contentsline {subsection}{\numberline {2.2.5}Tex文件夹}{4}{subsection.2.2.5}%
-\contentsline {subsection}{\numberline {2.2.6}Img文件夹}{5}{subsection.2.2.6}%
-\contentsline {subsection}{\numberline {2.2.7}Biblio文件夹}{5}{subsection.2.2.7}%
-\contentsline {section}{\numberline {2.3}数学公式、图表、参考文献等功能}{5}{section.2.3}%
-\contentsline {subsection}{\numberline {2.3.1}数学公式}{5}{subsection.2.3.1}%
-\contentsline {subsection}{\numberline {2.3.2}数学环境}{6}{subsection.2.3.2}%
-\contentsline {subsection}{\numberline {2.3.3}表格}{6}{subsection.2.3.3}%
-\contentsline {subsection}{\numberline {2.3.4}图片插入}{6}{subsection.2.3.4}%
-\contentsline {subsection}{\numberline {2.3.5}算法}{7}{subsection.2.3.5}%
-\contentsline {subsection}{\numberline {2.3.6}参考文献引用}{9}{subsection.2.3.6}%
-\contentsline {section}{\numberline {2.4}常见使用问题}{10}{section.2.4}%
-\contentsline {chapter}{\numberline {附录 A\hspace {.3em}}中国科学院大学学位论文撰写要求}{12}{appendix.A}%
-\contentsline {section}{\numberline {A.1}论文无附录者无需附录部分}{12}{section.A.1}%
-\contentsline {section}{\numberline {A.2}测试公式编号 $\mitLambda ,\mitlambda ,\mittheta ,\bar {\mitLambda },\sqrt {S_{NN}}$}{12}{section.A.2}%
-\contentsline {section}{\numberline {A.3}测试生僻字}{13}{section.A.3}%
-\contentsline {chapter}{参考文献}{14}{section*.20}%
-\contentsline {chapter}{致谢}{14}{appendix*.21}%
-\contentsline {chapter}{作者简历及攻读学位期间发表的学术论文与研究成果}{15}{appendix*.22}%
+\contentsline {chapter}{\numberline {第1章\hspace {.3em}}绪论}{1}{chapter.1}%
+\contentsline {section}{\numberline {1.1}研究背景与问题定义}{1}{section.1.1}%
+\contentsline {section}{\numberline {1.2}研究目标与贡献}{1}{section.1.2}%
+\contentsline {section}{\numberline {1.3}研究方法与技术路线}{1}{section.1.3}%
+\contentsline {section}{\numberline {1.4}论文结构}{1}{section.1.4}%
+\contentsline {chapter}{\numberline {第2章\hspace {.3em}}数据集构建与 Bug 修复识别}{2}{chapter.2}%
+\contentsline {section}{\numberline {2.1}PostgreSQL 提交数据范围与来源（2022--2025）}{2}{section.2.1}%
+\contentsline {section}{\numberline {2.2}Bug 修复提交识别规则（关键词/结构/测试信号）}{2}{section.2.2}%
+\contentsline {section}{\numberline {2.3}标注流程与质量控制（Y/M/N 与复核机制）}{2}{section.2.3}%
+\contentsline {section}{\numberline {2.4}描述性统计（时间、作者、模块、规模）}{2}{section.2.4}%
+\contentsline {chapter}{\numberline {第3章\hspace {.3em}}Bug 修复结构演化分析（静态）}{3}{chapter.3}%
+\contentsline {section}{\numberline {3.1}AST 与 libcst 分析方法}{3}{section.3.1}%
+\contentsline {section}{\numberline {3.2}典型修复模式：前置条件显式化与错误路径显式化}{3}{section.3.2}%
+\contentsline {section}{\numberline {3.3}控制流与条件复杂度变化}{3}{section.3.3}%
+\contentsline {section}{\numberline {3.4}静态分析小结}{3}{section.3.4}%
+\contentsline {chapter}{\numberline {第4章\hspace {.3em}}动态执行轨迹与案例复现}{4}{chapter.4}%
+\contentsline {section}{\numberline {4.1}动态分析对象与实验环境}{4}{section.4.1}%
+\contentsline {section}{\numberline {4.2}\texttt {generate\_editorconfig.py} 的异常定位（Silent Failure）}{4}{section.4.2}%
+\contentsline {section}{\numberline {4.3}修复策略与回归测试结果}{4}{section.4.3}%
+\contentsline {section}{\numberline {4.4}动态证据对静态结论的补充价值}{4}{section.4.4}%
+\contentsline {chapter}{\numberline {第5章\hspace {.3em}}形式化建模与修复正确性验证}{5}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Z3 建模对象与状态抽象}{5}{section.5.1}%
+\contentsline {section}{\numberline {5.2}修复前模型：反例可满足性（SAT）}{5}{section.5.2}%
+\contentsline {section}{\numberline {5.3}修复后模型：反例不可满足性（UNSAT）}{5}{section.5.3}%
+\contentsline {section}{\numberline {5.4}从“测试发现”到“证明正确”的方法提升}{5}{section.5.4}%
+\contentsline {chapter}{\numberline {第6章\hspace {.3em}}综合讨论}{6}{chapter.6}%
+\contentsline {section}{\numberline {6.1}三类证据链（静态--动态--形式化）的互证关系}{6}{section.6.1}%
+\contentsline {section}{\numberline {6.2}高风险模块治理启示（storage/replication/WAL）}{6}{section.6.2}%
+\contentsline {section}{\numberline {6.3}方法局限与有效性威胁}{6}{section.6.3}%
+\contentsline {chapter}{\numberline {第7章\hspace {.3em}}结论与未来工作}{7}{chapter.7}%
+\contentsline {section}{\numberline {7.1}主要研究结论}{7}{section.7.1}%
+\contentsline {section}{\numberline {7.2}工程实践建议}{7}{section.7.2}%
+\contentsline {section}{\numberline {7.3}后续工作（自动检测、自动修复、CI 集成）}{7}{section.7.3}%
+\contentsline {chapter}{\numberline {附录 A\hspace {.3em}}中国科学院大学学位论文撰写要求}{8}{appendix.A}%
+\contentsline {section}{\numberline {A.1}论文无附录者无需附录部分}{8}{section.A.1}%
+\contentsline {section}{\numberline {A.2}测试公式编号 $\mitLambda ,\mitlambda ,\mittheta ,\bar {\mitLambda },\sqrt {S_{NN}}$}{8}{section.A.2}%
+\contentsline {section}{\numberline {A.3}测试生僻字}{9}{section.A.3}%
+\contentsline {chapter}{参考文献}{10}{section*.16}%
+\contentsline {chapter}{致谢}{10}{appendix*.17}%
+\contentsline {chapter}{作者简历及攻读学位期间发表的学术论文与研究成果}{11}{appendix*.18}%
