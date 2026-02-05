@@ -1,0 +1,73 @@
+commit f0b7ab7251390544c5e79d1d9c96da254181fc4f
+Author: Andres Freund <andres@anarazel.de>
+Date:   Fri Jan 24 17:00:10 2025 -0500
+
+    postmaster: Don't repeatedly transition to crashing state
+    
+    Previously HandleChildCrash() skipped logging and signalling child exits if
+    already in an immediate shutdown or in FatalError state, but still
+    transitioned server state in response to a crash. That's redundant.
+    
+    In the other place we transition to FatalError, we do take care to not do so
+    when already in FatalError state.
+    
+    To make it easier to combine different paths for entering FatalError state,
+    only do so once in HandleChildCrash().
+    
+    Reviewed-by: Bertrand Drouvot <bertranddrouvot.pg@gmail.com>
+    Discussion: https://postgr.es/m/kgng5nrvnlv335evmsuvpnh354rw7qyazl73kdysev2cr2v5zu@m3cfzxicm5kp
+
+diff --git a/src/backend/postmaster/postmaster.c b/src/backend/postmaster/postmaster.c
+index ea92fb56c80..a24c0385fe6 100644
+--- a/src/backend/postmaster/postmaster.c
++++ b/src/backend/postmaster/postmaster.c
+@@ -2683,41 +2683,35 @@ CleanupBackend(PMChild *bp,
+  * The caller has already released its PMChild slot.
+  */
+ static void
+ HandleChildCrash(int pid, int exitstatus, const char *procname)
+ {
+-	bool		take_action;
+-
+ 	/*
+ 	 * We only log messages and send signals if this is the first process
+ 	 * crash and we're not doing an immediate shutdown; otherwise, we're only
+ 	 * here to update postmaster's idea of live processes.  If we have already
+ 	 * signaled children, nonzero exit status is to be expected, so don't
+ 	 * clutter log.
+ 	 */
+-	take_action = !FatalError && Shutdown != ImmediateShutdown;
++	if (FatalError || Shutdown == ImmediateShutdown)
++		return;
+ 
+-	if (take_action)
+-	{
+-		LogChildExit(LOG, procname, pid, exitstatus);
+-		ereport(LOG,
+-				(errmsg("terminating any other active server processes")));
+-		SetQuitSignalReason(PMQUIT_FOR_CRASH);
+-	}
++	LogChildExit(LOG, procname, pid, exitstatus);
++	ereport(LOG,
++			(errmsg("terminating any other active server processes")));
++	SetQuitSignalReason(PMQUIT_FOR_CRASH);
+ 
+ 	/*
+ 	 * Signal all other child processes to exit.  The crashed process has
+ 	 * already been removed from ActiveChildList.
+ 	 *
+ 	 * We could exclude dead-end children here, but at least when sending
+ 	 * SIGABRT it seems better to include them.
+ 	 */
+-	if (take_action)
+-		TerminateChildren(send_abort_for_crash ? SIGABRT : SIGQUIT);
++	TerminateChildren(send_abort_for_crash ? SIGABRT : SIGQUIT);
+ 
+-	if (Shutdown != ImmediateShutdown)
+-		FatalError = true;
++	FatalError = true;
+ 
+ 	/* We now transit into a state of waiting for children to die */
+ 	if (pmState == PM_RECOVERY ||
+ 		pmState == PM_HOT_STANDBY ||
+ 		pmState == PM_RUN ||

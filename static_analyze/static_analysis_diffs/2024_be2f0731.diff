@@ -1,0 +1,70 @@
+commit be2f0731006300876b008fd78a265471984cbcd9
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Wed Apr 3 17:49:44 2024 +0200
+
+    Fix zeroing of pg_serial page without SLRU bank lock
+    
+    Bug in commit 53c2a97a9266: we failed to acquire the correct SLRU bank
+    lock when iterating to zero-out intermediate pages in predicate.c.
+    Rewrite the code block so that we follow the locking protocol correctly.
+    
+    Also update an outdated comment in the same file -- SerialSLRULock
+    exists no more.
+    
+    Reported-by: Alexander Lakhin <exclusion@gmail.com>
+    Reviewed-by: Dilip Kumar <dilipbalaut@gmail.com>
+    Discussion: https://postgr.es/m/2a25eaf4-a3a4-5fd1-6241-9d7c73142085@gmail.com
+
+diff --git a/src/backend/storage/lmgr/predicate.c b/src/backend/storage/lmgr/predicate.c
+index 3f378c0099b..d5bbfbd4c6f 100644
+--- a/src/backend/storage/lmgr/predicate.c
++++ b/src/backend/storage/lmgr/predicate.c
+@@ -135,11 +135,11 @@
+  *		- Protects both PredXact and SerializableXidHash.
+  *
+  *	SerialControlLock
+  *		- Protects SerialControlData members
+  *
+- *	SerialSLRULock
++ *	SLRU per-bank locks
+  *		- Protects SerialSlruCtl
+  *
+  * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
+  * Portions Copyright (c) 1994, Regents of the University of California
+  *
+@@ -906,24 +906,29 @@ SerialAdd(TransactionId xid, SerCommitSeqNo minConflictCommitSeqNo)
+ 		|| TransactionIdFollows(xid, serialControl->headXid))
+ 		serialControl->headXid = xid;
+ 	if (isNewPage)
+ 		serialControl->headPage = targetPage;
+ 
+-	LWLockAcquire(lock, LW_EXCLUSIVE);
+-
+ 	if (isNewPage)
+ 	{
+-		/* Initialize intervening pages. */
+-		while (firstZeroPage != targetPage)
++		/* Initialize intervening pages; might involve trading locks */
++		for (;;)
+ 		{
+-			(void) SimpleLruZeroPage(SerialSlruCtl, firstZeroPage);
++			lock = SimpleLruGetBankLock(SerialSlruCtl, firstZeroPage);
++			LWLockAcquire(lock, LW_EXCLUSIVE);
++			slotno = SimpleLruZeroPage(SerialSlruCtl, firstZeroPage);
++			if (firstZeroPage == targetPage)
++				break;
+ 			firstZeroPage = SerialNextPage(firstZeroPage);
++			LWLockRelease(lock);
+ 		}
+-		slotno = SimpleLruZeroPage(SerialSlruCtl, targetPage);
+ 	}
+ 	else
++	{
++		LWLockAcquire(lock, LW_EXCLUSIVE);
+ 		slotno = SimpleLruReadPage(SerialSlruCtl, targetPage, true, xid);
++	}
+ 
+ 	SerialValue(slotno, xid) = minConflictCommitSeqNo;
+ 	SerialSlruCtl->shared->page_dirty[slotno] = true;
+ 
+ 	LWLockRelease(lock);

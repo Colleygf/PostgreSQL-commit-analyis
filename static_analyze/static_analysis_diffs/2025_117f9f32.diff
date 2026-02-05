@@ -1,0 +1,60 @@
+commit 117f9f328e0f146a4b6de517501f4d5d994040a9
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Fri Jan 24 08:11:29 2025 +0530
+
+    Doc: Fix column name in pg_publication catalog.
+    
+    Commit e65dbc9927 incorrectly spelled the column name in the
+    pg_publication catalog. In passing make the order of columns in the doc
+    match the actual catalog.
+    
+    Author: Shinoda, Noriyoshi <noriyoshi.shinoda@hpe.com>
+    Reviewed-by: Peter Smith <smithpb2250@gmail.com>
+    Discussion: https://postgr.es/m/DM4PR84MB1734F8F140E4477580761F93EEE02@DM4PR84MB1734.NAMPRD84.PROD.OUTLOOK.COM
+
+diff --git a/doc/src/sgml/catalogs.sgml b/doc/src/sgml/catalogs.sgml
+index c88bcaa7df9..8ad0ed10b3a 100644
+--- a/doc/src/sgml/catalogs.sgml
++++ b/doc/src/sgml/catalogs.sgml
+@@ -6394,30 +6394,30 @@ SCRAM-SHA-256$<replaceable>&lt;iteration count&gt;</replaceable>:<replaceable>&l
+       </para></entry>
+      </row>
+ 
+      <row>
+       <entry role="catalog_table_entry"><para role="column_definition">
+-       <structfield>pubgencols</structfield> <type>char</type>
++       <structfield>pubviaroot</structfield> <type>bool</type>
+       </para>
+       <para>
+-       Controls how to handle generated column replication when there is no
+-       publication column list:
+-       <literal>n</literal> = generated columns in the tables associated with
+-       the publication should not be replicated,
+-       <literal>s</literal> = stored generated columns in the tables associated
+-       with the publication should be replicated.
++       If true, operations on a leaf partition are replicated using the
++       identity and schema of its topmost partitioned ancestor mentioned in the
++       publication instead of its own.
+       </para></entry>
+      </row>
+ 
+      <row>
+       <entry role="catalog_table_entry"><para role="column_definition">
+-       <structfield>pubviaroot</structfield> <type>bool</type>
++       <structfield>pubgencols_type</structfield> <type>char</type>
+       </para>
+       <para>
+-       If true, operations on a leaf partition are replicated using the
+-       identity and schema of its topmost partitioned ancestor mentioned in the
+-       publication instead of its own.
++       Controls how to handle generated column replication when there is no
++       publication column list:
++       <literal>n</literal> = generated columns in the tables associated with
++       the publication should not be replicated,
++       <literal>s</literal> = stored generated columns in the tables associated
++       with the publication should be replicated.
+       </para></entry>
+      </row>
+     </tbody>
+    </tgroup>
+   </table>

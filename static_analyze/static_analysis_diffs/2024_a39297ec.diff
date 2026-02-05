@@ -1,0 +1,68 @@
+commit a39297ec026c556b1bf2963dde766db31a2c3d2d
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Tue Oct 8 18:23:43 2024 +0900
+
+    Move check for binary mode and on_error option to the appropriate location.
+    
+    Commit 9e2d870119 placed the check for binary mode and on_error
+    before default values were inserted, which was not ideal.
+    This commit moves the check to a more appropriate position
+    after default values are set.
+    
+    Additionally, the comment incorrectly mentioned two checks before
+    inserting defaults, when there are actually three. This commit corrects
+    that comment.
+    
+    Author: Atsushi Torikoshi
+    Reviewed-by: Fujii Masao
+    Discussion: https://postgr.es/m/8830518a-28ac-43a2-8a11-1676d9a3cdf8@oss.nttdata.com
+
+diff --git a/src/backend/commands/copy.c b/src/backend/commands/copy.c
+index befab92074e..0b093dbb2a3 100644
+--- a/src/backend/commands/copy.c
++++ b/src/backend/commands/copy.c
+@@ -670,11 +670,11 @@ ProcessCopyOptions(ParseState *pstate,
+ 							defel->defname),
+ 					 parser_errposition(pstate, defel->location)));
+ 	}
+ 
+ 	/*
+-	 * Check for incompatible options (must do these two before inserting
++	 * Check for incompatible options (must do these three before inserting
+ 	 * defaults)
+ 	 */
+ 	if (opts_out->binary && opts_out->delim)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_SYNTAX_ERROR),
+@@ -689,15 +689,10 @@ ProcessCopyOptions(ParseState *pstate,
+ 	if (opts_out->binary && opts_out->default_print)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_SYNTAX_ERROR),
+ 				 errmsg("cannot specify %s in BINARY mode", "DEFAULT")));
+ 
+-	if (opts_out->binary && opts_out->on_error != COPY_ON_ERROR_STOP)
+-		ereport(ERROR,
+-				(errcode(ERRCODE_SYNTAX_ERROR),
+-				 errmsg("only ON_ERROR STOP is allowed in BINARY mode")));
+-
+ 	/* Set defaults for omitted options */
+ 	if (!opts_out->delim)
+ 		opts_out->delim = opts_out->csv_mode ? "," : "\t";
+ 
+ 	if (!opts_out->null_print)
+@@ -898,10 +893,15 @@ ProcessCopyOptions(ParseState *pstate,
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+ 					 errmsg("NULL specification and DEFAULT specification cannot be the same")));
+ 	}
+ 	/* Check on_error */
++	if (opts_out->binary && opts_out->on_error != COPY_ON_ERROR_STOP)
++		ereport(ERROR,
++				(errcode(ERRCODE_SYNTAX_ERROR),
++				 errmsg("only ON_ERROR STOP is allowed in BINARY mode")));
++
+ 	if (opts_out->reject_limit && !opts_out->on_error)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+ 		/*- translator: first and second %s are the names of COPY option, e.g.
+ 		 * ON_ERROR, third is the value of the COPY option, e.g. IGNORE */

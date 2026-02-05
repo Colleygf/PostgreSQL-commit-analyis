@@ -1,0 +1,87 @@
+commit d38ad8e31dee1a69f4f6d4b6bb4e007e3751a93c
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Tue Jul 25 09:12:29 2023 +0530
+
+    Fix the display of UNKNOWN message type in apply worker.
+    
+    We include the message type while displaying an error context in the
+    apply worker. Now, while retrieving the message type string if the
+    message type is unknown we throw an error that will hide the original
+    error. So, instead, we need to simply return the string indicating an
+    unknown message type.
+    
+    Reported-by: Ashutosh Bapat
+    Author: Euler Taveira, Amit Kapila
+    Reviewed-by: Ashutosh Bapat
+    Backpatch-through: 15
+    Discussion: https://postgr.es/m/CAExHW5suAEDW-mBZt_qu4RVxWZ1vL54-L+ci2zreYWebpzxYsA@mail.gmail.com
+
+diff --git a/src/backend/replication/logical/proto.c b/src/backend/replication/logical/proto.c
+index f3087132758..504f94d4a77 100644
+--- a/src/backend/replication/logical/proto.c
++++ b/src/backend/replication/logical/proto.c
+@@ -1211,13 +1211,15 @@ logicalrep_read_stream_abort(StringInfo in,
+ }
+ 
+ /*
+  * Get string representing LogicalRepMsgType.
+  */
+-char *
++const char *
+ logicalrep_message_type(LogicalRepMsgType action)
+ {
++	static char	err_unknown[20];
++
+ 	switch (action)
+ 	{
+ 		case LOGICAL_REP_MSG_BEGIN:
+ 			return "BEGIN";
+ 		case LOGICAL_REP_MSG_COMMIT:
+@@ -1256,9 +1258,14 @@ logicalrep_message_type(LogicalRepMsgType action)
+ 			return "STREAM ABORT";
+ 		case LOGICAL_REP_MSG_STREAM_PREPARE:
+ 			return "STREAM PREPARE";
+ 	}
+ 
+-	elog(ERROR, "invalid logical replication message type \"%c\"", action);
++	/*
++	 * This message provides context in the error raised when applying a
++	 * logical message. So we can't throw an error here. Return an unknown
++	 * indicator value so that the original error is still reported.
++	 */
++	snprintf(err_unknown, sizeof(err_unknown), "??? (%d)", action);
+ 
+-	return NULL;				/* keep compiler quiet */
++	return err_unknown;
+ }
+diff --git a/src/backend/replication/logical/worker.c b/src/backend/replication/logical/worker.c
+index dd353fd1cb0..cb6659fc619 100644
+--- a/src/backend/replication/logical/worker.c
++++ b/src/backend/replication/logical/worker.c
+@@ -3365,11 +3365,11 @@ apply_dispatch(StringInfo s)
+ 			break;
+ 
+ 		default:
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+-					 errmsg("invalid logical replication message type \"%c\"", action)));
++					 errmsg("invalid logical replication message type \"??? (%d)\"", action)));
+ 	}
+ 
+ 	/* Reset the current command */
+ 	apply_error_callback_arg.command = saved_command;
+ }
+diff --git a/src/include/replication/logicalproto.h b/src/include/replication/logicalproto.h
+index 0ea2df50889..c5be981eae6 100644
+--- a/src/include/replication/logicalproto.h
++++ b/src/include/replication/logicalproto.h
+@@ -267,8 +267,8 @@ extern void logicalrep_write_stream_abort(StringInfo out, TransactionId xid,
+ 										  TimestampTz abort_time,
+ 										  bool write_abort_info);
+ extern void logicalrep_read_stream_abort(StringInfo in,
+ 										 LogicalRepStreamAbortData *abort_data,
+ 										 bool read_abort_info);
+-extern char *logicalrep_message_type(LogicalRepMsgType action);
++extern const char *logicalrep_message_type(LogicalRepMsgType action);
+ 
+ #endif							/* LOGICAL_PROTO_H */

@@ -1,0 +1,76 @@
+commit cb943054f3f6d67c858dd63192afaa488f8cb51e
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Sep 20 09:26:15 2023 +0900
+
+    psql: Reset query buffer of \e, \ef and \ev on error
+    
+    If any of these commands fail during editing or pre-processing, the
+    command stored in the query buffer would remain around without being
+    executed immediately as PSQL_CMD_ERROR is returned as status.  The next
+    command provided by the user would run it, likely causing failures as
+    this could include silently some of the contents generated automatically
+    for views or functions.
+    
+    The problems would be different depending on the psql meta-command used:
+    - For \ev and \ef, some errors can happen in a predictable way while
+    doing an object lookup or while creating an object command.  A failure
+    while editing is equally problematic, but the class of failures
+    happening in the code path of do_edit() are unlikely.  The query reset
+    is kept in exec_command_ef_ev() as a query may be unchanged.
+    - For \e, error can happen while editing.
+    
+    In both cases, the query buffer is reset on error for an incorrect file
+    number provided, whose value check is done before filling up the query
+    buffer.
+    
+    This is a slight change of behavior compared to the past for some of the
+    predictable error patterns for \ev and \ef, so for now I have made the
+    choice to not backpatch this commit (argument particularly available for
+    v11 that's going to be EOL'd soon).  Perhaps this could be revisited
+    later depending on the feedback of this new behavior.
+    
+    Author: Ryoga Yoshida, Michael Paquier
+    Reviewed-by: Aleksander Alekseev, Kyotaro Horiguchi
+    Discussion: https://postgr.es/m/01419622d84ef093fd4fe585520bf03c@oss.nttdata.com
+
+diff --git a/src/bin/psql/command.c b/src/bin/psql/command.c
+index bcd8eb35387..4dfcf04fe03 100644
+--- a/src/bin/psql/command.c
++++ b/src/bin/psql/command.c
+@@ -1125,10 +1125,18 @@ exec_command_edit(PsqlScanState scan_state, bool active_branch,
+ 				if (do_edit(fname, query_buf, lineno, discard_on_quit, NULL))
+ 					status = PSQL_CMD_NEWEDIT;
+ 				else
+ 					status = PSQL_CMD_ERROR;
+ 			}
++
++			/*
++			 * On error while editing or if specifying an incorrect line
++			 * number, reset the query buffer.
++			 */
++			if (status == PSQL_CMD_ERROR)
++				resetPQExpBuffer(query_buf);
++
+ 			free(fname);
+ 			free(ln);
+ 		}
+ 	}
+ 	else
+@@ -1237,10 +1245,17 @@ exec_command_ef_ev(PsqlScanState scan_state, bool active_branch,
+ 				puts(_("No changes"));
+ 			else
+ 				status = PSQL_CMD_NEWEDIT;
+ 		}
+ 
++		/*
++		 * On error while doing object lookup or while editing, or if
++		 * specifying an incorrect line number, reset the query buffer.
++		 */
++		if (status == PSQL_CMD_ERROR)
++			resetPQExpBuffer(query_buf);
++
+ 		free(obj_desc);
+ 	}
+ 	else
+ 		ignore_slash_whole_line(scan_state);
+ 

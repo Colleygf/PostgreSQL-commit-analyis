@@ -1,0 +1,63 @@
+commit 0839fbe400d7807196d1442f4c781f9234ac2a4c
+Author: Noah Misch <noah@leadboat.com>
+Date:   Mon Dec 15 12:19:49 2025 -0800
+
+    Correct comments of "Fix data loss at inplace update after heap_update()".
+    
+    This corrects commit a07e03fd8fa7daf4d1356f7cb501ffe784ea6257.
+    
+    Reported-by: Paul A Jungwirth <pj@illuminatedcomputing.com>
+    Reported-by: Surya Poondla <s_poondla@apple.com>
+    Reviewed-by: Paul A Jungwirth <pj@illuminatedcomputing.com>
+    Discussion: https://postgr.es/m/CA+renyWCW+_2QvXERBQ+mna6ANwAVXXmHKCA-WzL04bZRsjoBA@mail.gmail.com
+
+diff --git a/src/backend/access/heap/heapam.c b/src/backend/access/heap/heapam.c
+index 9636bb53ddd..3be8fabd7fb 100644
+--- a/src/backend/access/heap/heapam.c
++++ b/src/backend/access/heap/heapam.c
+@@ -6347,14 +6347,17 @@ heap_abort_speculative(Relation relation, const ItemPointerData *tid)
+  * transactions to end, and return false.
+  *
+  * Since this is intended for system catalogs and SERIALIZABLE doesn't cover
+  * DDL, this doesn't guarantee any particular predicate locking.
+  *
+- * One could modify this to return true for tuples with delete in progress,
+- * All inplace updaters take a lock that conflicts with DROP.  If explicit
+- * "DELETE FROM pg_class" is in progress, we'll wait for it like we would an
+- * update.
++ * heap_delete() is a rarer source of blocking transactions (xwait).  We'll
++ * wait for such a transaction just like for the normal heap_update() case.
++ * Normal concurrent DROP commands won't cause that, because all inplace
++ * updaters take some lock that conflicts with DROP.  An explicit SQL "DELETE
++ * FROM pg_class" can cause it.  By waiting, if the concurrent transaction
++ * executed both "DELETE FROM pg_class" and "INSERT INTO pg_class", our caller
++ * can find the successor tuple.
+  *
+  * Readers of inplace-updated fields expect changes to those fields are
+  * durable.  For example, vac_truncate_clog() reads datfrozenxid from
+  * pg_database tuples via catalog snapshots.  A future snapshot must not
+  * return a lower datfrozenxid for the same database OID (lower in the
+diff --git a/src/backend/access/index/genam.c b/src/backend/access/index/genam.c
+index 707c25289cd..b7f10a1aed0 100644
+--- a/src/backend/access/index/genam.c
++++ b/src/backend/access/index/genam.c
+@@ -779,14 +779,15 @@ systable_endscan_ordered(SysScanDesc sysscan)
+ 
+ /*
+  * systable_inplace_update_begin --- update a row "in place" (overwrite it)
+  *
+  * Overwriting violates both MVCC and transactional safety, so the uses of
+- * this function in Postgres are extremely limited.  Nonetheless we find some
+- * places to use it.  See README.tuplock section "Locking to write
+- * inplace-updated tables" and later sections for expectations of readers and
+- * writers of a table that gets inplace updates.  Standard flow:
++ * this function in Postgres are extremely limited.  This makes no effort to
++ * support updating cache key columns or other indexed columns.  Nonetheless
++ * we find some places to use it.  See README.tuplock section "Locking to
++ * write inplace-updated tables" and later sections for expectations of
++ * readers and writers of a table that gets inplace updates.  Standard flow:
+  *
+  * ... [any slow preparation not requiring oldtup] ...
+  * systable_inplace_update_begin([...], &tup, &inplace_state);
+  * if (!HeapTupleIsValid(tup))
+  *	elog(ERROR, [...]);

@@ -1,0 +1,97 @@
+commit 7597cc3083f8b3607123f71bc6432afc5a655d6e
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Apr 11 16:36:25 2022 +0900
+
+    Fix the dates of some copyright notices
+    
+    0ad8032 and 4e34747 are at the origin of that.  Julien has found the one
+    in parse_jsontable.c, while I have spotted the rest.
+    
+    Author: Julien Rouhaud, Michael Paquier
+    Discussion: https://postgr.es/m/20220411060838.ftnzyvflpwu6f74w@jrouhaud
+
+diff --git a/src/backend/parser/parse_jsontable.c b/src/backend/parser/parse_jsontable.c
+index c7dcefa11cb..0dea7c998e6 100644
+--- a/src/backend/parser/parse_jsontable.c
++++ b/src/backend/parser/parse_jsontable.c
+@@ -1,11 +1,11 @@
+ /*-------------------------------------------------------------------------
+  *
+  * parse_jsontable.c
+  *	  parsing of JSON_TABLE
+  *
+- * Portions Copyright (c) 1996-2021, PostgreSQL Global Development Group
++ * Portions Copyright (c) 1996-2022, PostgreSQL Global Development Group
+  * Portions Copyright (c) 1994, Regents of the University of California
+  *
+  *
+  * IDENTIFICATION
+  *	  src/backend/parser/parse_jsontable.c
+diff --git a/src/backend/replication/basebackup_gzip.c b/src/backend/replication/basebackup_gzip.c
+index e4df57b121f..43a7323e7d2 100644
+--- a/src/backend/replication/basebackup_gzip.c
++++ b/src/backend/replication/basebackup_gzip.c
+@@ -1,11 +1,11 @@
+ /*-------------------------------------------------------------------------
+  *
+  * basebackup_gzip.c
+  *	  Basebackup sink implementing gzip compression.
+  *
+- * Portions Copyright (c) 2010-2020, PostgreSQL Global Development Group
++ * Portions Copyright (c) 2010-2022, PostgreSQL Global Development Group
+  *
+  * IDENTIFICATION
+  *	  src/backend/replication/basebackup_gzip.c
+  *
+  *-------------------------------------------------------------------------
+diff --git a/src/backend/replication/basebackup_lz4.c b/src/backend/replication/basebackup_lz4.c
+index 48929321a47..032cc10bc4e 100644
+--- a/src/backend/replication/basebackup_lz4.c
++++ b/src/backend/replication/basebackup_lz4.c
+@@ -1,11 +1,11 @@
+ /*-------------------------------------------------------------------------
+  *
+  * basebackup_lz4.c
+  *	  Basebackup sink implementing lz4 compression.
+  *
+- * Portions Copyright (c) 2010-2020, PostgreSQL Global Development Group
++ * Portions Copyright (c) 2010-2022, PostgreSQL Global Development Group
+  *
+  * IDENTIFICATION
+  *	  src/backend/replication/basebackup_lz4.c
+  *
+  *-------------------------------------------------------------------------
+diff --git a/src/backend/replication/basebackup_target.c b/src/backend/replication/basebackup_target.c
+index 55651cbe16d..cff65611ef6 100644
+--- a/src/backend/replication/basebackup_target.c
++++ b/src/backend/replication/basebackup_target.c
+@@ -4,11 +4,11 @@
+  *	  Base backups can be "targetted," which means that they can be sent
+  *	  somewhere other than to the client which requested the backup.
+  *	  Furthermore, new targets can be defined by extensions. This file
+  *	  contains code to support that functionality.
+  *
+- * Portions Copyright (c) 2010-2020, PostgreSQL Global Development Group
++ * Portions Copyright (c) 2010-2022, PostgreSQL Global Development Group
+  *
+  * IDENTIFICATION
+  *	  src/backend/replication/basebackup_target.c
+  *
+  *-------------------------------------------------------------------------
+diff --git a/src/backend/replication/basebackup_zstd.c b/src/backend/replication/basebackup_zstd.c
+index f6876f48118..55dee6b0b5e 100644
+--- a/src/backend/replication/basebackup_zstd.c
++++ b/src/backend/replication/basebackup_zstd.c
+@@ -1,11 +1,11 @@
+ /*-------------------------------------------------------------------------
+  *
+  * basebackup_zstd.c
+  *	  Basebackup sink implementing zstd compression.
+  *
+- * Portions Copyright (c) 2010-2020, PostgreSQL Global Development Group
++ * Portions Copyright (c) 2010-2022, PostgreSQL Global Development Group
+  *
+  * IDENTIFICATION
+  *	  src/backend/replication/basebackup_zstd.c
+  *
+  *-------------------------------------------------------------------------

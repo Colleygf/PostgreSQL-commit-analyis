@@ -1,0 +1,44 @@
+commit 291ec6e45ebe1a87f930a250ad3c6672472b9b19
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Mon Feb 14 11:25:46 2022 -0500
+
+    Suppress integer-overflow compiler warning for inconsistent sun_len.
+    
+    On AIX 7.1, struct sockaddr_un is declared to be 1025 bytes long,
+    but the sun_len field that should hold the length is only a byte.
+    Clamp the value we try to store to ensure it will fit in the field.
+    
+    (This coding might need adjustment if there are any machines out
+    there where sun_len is as wide as size_t; but a preliminary survey
+    suggests there's not, so let's keep it simple.)
+    
+    Discussion: https://postgr.es/m/2781112.1644819528@sss.pgh.pa.us
+
+diff --git a/src/common/ip.c b/src/common/ip.c
+index b01e0d0e619..cd73d49679d 100644
+--- a/src/common/ip.c
++++ b/src/common/ip.c
+@@ -230,12 +230,22 @@ getaddrinfo_unix(const char *path, const struct addrinfo *hintsp,
+ 	{
+ 		unp->sun_path[0] = '\0';
+ 		aip->ai_addrlen = offsetof(struct sockaddr_un, sun_path) + strlen(path);
+ 	}
+ 
++	/*
++	 * The standard recommendation for filling sun_len is to set it to the
++	 * struct size (independently of the actual path length).  However, that
++	 * draws an integer-overflow warning on AIX 7.1, where sun_len is just
++	 * uint8 yet the struct size exceeds 255 bytes.  It's likely that nothing
++	 * is paying attention to sun_len on that platform, but we have to do
++	 * something with it.  To suppress the warning, clamp the struct size to
++	 * what will fit in sun_len.
++	 */
+ #ifdef HAVE_STRUCT_SOCKADDR_STORAGE_SS_LEN
+-	unp->sun_len = sizeof(struct sockaddr_un);
++	unp->sun_len = Min(sizeof(struct sockaddr_un),
++					   ((size_t) 1 << (sizeof(unp->sun_len) * BITS_PER_BYTE)) - 1);
+ #endif
+ 
+ 	return 0;
+ }
+ 

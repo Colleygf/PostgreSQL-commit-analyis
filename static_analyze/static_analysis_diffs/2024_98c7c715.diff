@@ -1,0 +1,89 @@
+commit 98c7c7152d2d4670a349c0fe48f05cf95c0b1185
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Thu Oct 17 15:52:24 2024 +1300
+
+    Fix extreme skew detection in Parallel Hash Join.
+    
+    After repartitioning the inner side of a hash join that would have
+    exceeded the allowed size, we check if all the tuples from a parent
+    partition moved to one child partition.  That is evidence that it
+    contains duplicate keys and later attempts to repartition will also
+    fail, so we should give up trying to limit memory (for lack of a better
+    fallback strategy).
+    
+    A thinko prevented the check from working correctly in partition 0 (the
+    one that is partially loaded into memory already).  After
+    repartitioning, we should check for extreme skew if the *parent*
+    partition's space_exhausted flag was set, not the child partition's.
+    The consequence was repeated futile repartitioning until per-partition
+    data exceeded various limits including "ERROR: invalid DSA memory alloc
+    request size 1811939328", OS allocation failure, or temporary disk space
+    errors.  (We could also do something about some of those symptoms, but
+    that's material for separate patches.)
+    
+    This problem only became likely when PostgreSQL 16 introduced support
+    for Parallel Hash Right/Full Join, allowing NULL keys into the hash
+    table.  Repartitioning always leaves NULL in partition 0, no matter how
+    many times you do it, because the hash value is all zero bits.  That's
+    unlikely for other hashed values, but they might still have caused
+    wasted extra effort before giving up.
+    
+    Back-patch to all supported releases.
+    
+    Reported-by: Craig Milhiser <craig@milhiser.com>
+    Reviewed-by: Andrei Lepikhov <lepihov@gmail.com>
+    Discussion: https://postgr.es/m/CA%2BwnhO1OfgXbmXgC4fv_uu%3DOxcDQuHvfoQ4k0DFeB0Qqd-X-rQ%40mail.gmail.com
+
+diff --git a/src/backend/executor/nodeHash.c b/src/backend/executor/nodeHash.c
+index 570a90ebe15..0456a017dc6 100644
+--- a/src/backend/executor/nodeHash.c
++++ b/src/backend/executor/nodeHash.c
+@@ -1226,36 +1226,43 @@ ExecParallelHashIncreaseNumBatches(HashJoinTable hashtable)
+ 			 * not helping.
+ 			 */
+ 			if (BarrierArriveAndWait(&pstate->grow_batches_barrier,
+ 									 WAIT_EVENT_HASH_GROW_BATCHES_DECIDE))
+ 			{
++				ParallelHashJoinBatch *old_batches;
+ 				bool		space_exhausted = false;
+ 				bool		extreme_skew_detected = false;
+ 
+ 				/* Make sure that we have the current dimensions and buckets. */
+ 				ExecParallelHashEnsureBatchAccessors(hashtable);
+ 				ExecParallelHashTableSetCurrentBatch(hashtable, 0);
+ 
++				old_batches = dsa_get_address(hashtable->area, pstate->old_batches);
++
+ 				/* Are any of the new generation of batches exhausted? */
+ 				for (int i = 0; i < hashtable->nbatch; ++i)
+ 				{
+-					ParallelHashJoinBatch *batch = hashtable->batches[i].shared;
++					ParallelHashJoinBatch *batch;
++					ParallelHashJoinBatch *old_batch;
++					int			parent;
+ 
++					batch = hashtable->batches[i].shared;
+ 					if (batch->space_exhausted ||
+ 						batch->estimated_size > pstate->space_allowed)
+-					{
+-						int			parent;
+-
+ 						space_exhausted = true;
+ 
++					parent = i % pstate->old_nbatch;
++					old_batch = NthParallelHashJoinBatch(old_batches, parent);
++					if (old_batch->space_exhausted ||
++						batch->estimated_size > pstate->space_allowed)
++					{
+ 						/*
+ 						 * Did this batch receive ALL of the tuples from its
+ 						 * parent batch?  That would indicate that further
+ 						 * repartitioning isn't going to help (the hash values
+ 						 * are probably all the same).
+ 						 */
+-						parent = i % pstate->old_nbatch;
+ 						if (batch->ntuples == hashtable->batches[parent].shared->old_ntuples)
+ 							extreme_skew_detected = true;
+ 					}
+ 				}
+ 

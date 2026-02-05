@@ -1,0 +1,70 @@
+commit 927332b95e778c0d15a9fbf96e3efeab0d3d937c
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Sat Mar 16 23:49:10 2024 +0200
+
+    psql: fix variable existence tab completion
+    
+    psql has the :{?name} syntax for testing for a psql variable existence.  This
+    commit implements a tab completion for this syntax.  Notably, in order to
+    implement this we have to remove '{' from WORD_BREAKS.  It appears that
+    '{' here from the very beginning and it comes from the default value of
+    rl_basic_word_break_characters.  And :{?name} is the only psql syntax using
+    the '{' sign.  So, removing it from WORD_BREAKS shouldn't break anything.
+    
+    Discussion: https://postgr.es/m/CAGRrpzZU48F2oV3d8eDLr%3D4TU9xFH5Jt9ED%2BqU1%2BX91gMH68Sw%40mail.gmail.com
+    Author: Steve Chavez
+    Reviewed-by: Erik Wienhold
+
+diff --git a/src/bin/psql/t/010_tab_completion.pl b/src/bin/psql/t/010_tab_completion.pl
+index b6575b075e8..b45c39f0f52 100644
+--- a/src/bin/psql/t/010_tab_completion.pl
++++ b/src/bin/psql/t/010_tab_completion.pl
+@@ -411,10 +411,18 @@ check_completion(
+ 	qr/:VERBOSITY /,
+ 	"complete an interpolated psql variable name");
+ 
+ clear_query();
+ 
++# check completion for psql variable test
++check_completion(
++	"\\echo :{?VERB\t",
++	qr/:\{\?VERBOSITY} /,
++	"complete a psql variable test");
++
++clear_query();
++
+ # check no-completions code path
+ check_completion("blarg \t\t", qr//, "check completion failure path");
+ 
+ clear_query();
+ 
+diff --git a/src/bin/psql/tab-complete.c b/src/bin/psql/tab-complete.c
+index 19db069ee94..56d723de8a2 100644
+--- a/src/bin/psql/tab-complete.c
++++ b/src/bin/psql/tab-complete.c
+@@ -74,11 +74,11 @@
+ #ifdef HAVE_RL_FILENAME_QUOTING_FUNCTION
+ #define USE_FILENAME_QUOTING_FUNCTIONS 1
+ #endif
+ 
+ /* word break characters */
+-#define WORD_BREAKS		"\t\n@><=;|&{() "
++#define WORD_BREAKS		"\t\n@><=;|&() "
+ 
+ /*
+  * Since readline doesn't let us pass any state through to the tab completion
+  * callback, we have to use this global variable to let get_previous_words()
+  * get at the previous lines of the current command.  Ick.
+@@ -1784,10 +1784,12 @@ psql_completion(const char *text, int start, int end)
+ 	{
+ 		if (text[1] == '\'')
+ 			matches = complete_from_variables(text, ":'", "'", true);
+ 		else if (text[1] == '"')
+ 			matches = complete_from_variables(text, ":\"", "\"", true);
++		else if (text[1] == '{' && text[2] == '?')
++			matches = complete_from_variables(text, ":{?", "}", true);
+ 		else
+ 			matches = complete_from_variables(text, ":", "", true);
+ 	}
+ 
+ 	/* If no previous word, suggest one of the basic sql commands */

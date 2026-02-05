@@ -1,0 +1,99 @@
+commit fccaf259f22f4aedc02033516c561ca86903077d
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Nov 16 12:35:25 2022 -0500
+
+    Shave some cycles off subscription/t/100_bugs.pl tests.
+    
+    We can re-use the clusters set up for this test script's first test,
+    instead of generating new ones.  On my machine this is good for
+    about a 20% reduction in this script's runtime, from ~6.5 sec to
+    ~5.2 sec.
+    
+    This idea could be taken further, but it'd require a much more invasive
+    patch.  These cases are easy because the Perl variable names were
+    already being re-used.
+    
+    Anton A. Melnikov
+    
+    Discussion: https://postgr.es/m/eb7aa992-c2d7-6ce7-4942-0c784231a362@inbox.ru
+
+diff --git a/src/test/subscription/t/100_bugs.pl b/src/test/subscription/t/100_bugs.pl
+index 6247aa77301..7b3cd66be57 100644
+--- a/src/test/subscription/t/100_bugs.pl
++++ b/src/test/subscription/t/100_bugs.pl
+@@ -67,10 +67,15 @@ $node_publisher->safe_psql('postgres', "INSERT INTO tab1 VALUES (1, 2)");
+ 
+ $node_publisher->wait_for_catchup('sub1');
+ 
+ pass('index predicates do not cause crash');
+ 
++# We'll re-use these nodes below, so drop their replication state.
++# We don't bother to drop the tables though.
++$node_subscriber->safe_psql('postgres', "DROP SUBSCRIPTION sub1");
++$node_publisher->safe_psql('postgres', "DROP PUBLICATION pub1");
++
+ $node_publisher->stop('fast');
+ $node_subscriber->stop('fast');
+ 
+ 
+ # Handling of temporary and unlogged tables with FOR ALL TABLES publications
+@@ -79,13 +84,16 @@ $node_subscriber->stop('fast');
+ # tables are ignored for publishing changes.  The bug was that we
+ # would still check in that case that such a table has a replica
+ # identity set before accepting updates.  If it did not it would cause
+ # an error when an update was attempted.
+ 
+-$node_publisher = PostgreSQL::Test::Cluster->new('publisher2');
+-$node_publisher->init(allows_streaming => 'logical');
+-$node_publisher->start;
++$node_publisher->rotate_logfile();
++$node_publisher->start();
++
++# Although we don't use node_subscriber in this test, keep its logfile
++# name in step with node_publisher for later tests.
++$node_subscriber->rotate_logfile();
+ 
+ $node_publisher->safe_psql('postgres',
+ 	"CREATE PUBLICATION pub FOR ALL TABLES");
+ 
+ is( $node_publisher->psql(
+@@ -100,12 +108,16 @@ is( $node_publisher->psql(
+ 		"CREATE UNLOGGED TABLE tu1 AS SELECT 1 AS a; UPDATE tu1 SET a = 2;"),
+ 	0,
+ 	'update to unlogged table without replica identity with FOR ALL TABLES publication'
+ );
+ 
++# Again, drop replication state but not tables.
++$node_publisher->safe_psql('postgres', "DROP PUBLICATION pub");
++
+ $node_publisher->stop('fast');
+ 
++
+ # Bug #16643 - https://postgr.es/m/16643-eaadeb2a1a58d28c@postgresql.org
+ #
+ # Initial sync doesn't complete; the protocol was not being followed per
+ # expectations after commit 07082b08cc5d.
+ my $node_twoways = PostgreSQL::Test::Cluster->new('twoways');
+@@ -224,17 +236,16 @@ $node_sub->stop('fast');
+ 
+ # The bug was that when changing the REPLICA IDENTITY INDEX to another one, the
+ # target table's relcache was not being invalidated. This leads to skipping
+ # UPDATE/DELETE operations during apply on the subscriber side as the columns
+ # required to search corresponding rows won't get logged.
+-$node_publisher = PostgreSQL::Test::Cluster->new('publisher3');
+-$node_publisher->init(allows_streaming => 'logical');
+-$node_publisher->start;
+ 
+-$node_subscriber = PostgreSQL::Test::Cluster->new('subscriber3');
+-$node_subscriber->init(allows_streaming => 'logical');
+-$node_subscriber->start;
++$node_publisher->rotate_logfile();
++$node_publisher->start();
++
++$node_subscriber->rotate_logfile();
++$node_subscriber->start();
+ 
+ $node_publisher->safe_psql('postgres',
+ 	"CREATE TABLE tab_replidentity_index(a int not null, b int not null)");
+ $node_publisher->safe_psql('postgres',
+ 	"CREATE UNIQUE INDEX idx_replidentity_index_a ON tab_replidentity_index(a)"

@@ -1,0 +1,156 @@
+commit df4a056619a7e9868ec43a15e2088ff8ccf94471
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Fri Sep 9 10:00:40 2022 +0900
+
+    Add more error context to RestoreBlockImage() and consume it
+    
+    On failure in restoring a block image, no details were provided, while
+    it is possible to see failure with an inconsistent record state, a
+    failure in processing decompression or a failure in decompression
+    because a build does not support this option.
+    
+    RestoreBlockImage() is used in two code paths in the backend code,
+    during recovery and when checking a page consistency after applying
+    masking, and both places are changed to consume the error message
+    produced by the internal routine when it returns a false status.  All
+    the error messages are reported under ERRCODE_INTERNAL_ERROR, that gets
+    used also when attempting to access a page compressed by a method
+    not supported by the build attempting the decompression.  This is
+    something that can happen in core when doing physical replication with
+    primary and standby using inconsistent build options, for example.
+    
+    This routine is available since 2c03216d and it has never provided any
+    context about the error happening when it failed.  This change is
+    justified even more after 57aa5b2, that introduced compression of FPWs
+    in WAL.
+    
+    Reported-by: Justin Prysby
+    Author: Michael Paquier
+    Discussion: https://postgr.es/m/20220905002320.GD31833@telsasoft.com
+    Backpatch-through: 15
+
+diff --git a/src/backend/access/transam/xlogreader.c b/src/backend/access/transam/xlogreader.c
+index cd3dd8cc5c0..c4fbc37c74b 100644
+--- a/src/backend/access/transam/xlogreader.c
++++ b/src/backend/access/transam/xlogreader.c
+@@ -2034,24 +2034,36 @@ XLogRecGetBlockData(XLogReaderState *record, uint8 block_id, Size *len)
+ }
+ 
+ /*
+  * Restore a full-page image from a backup block attached to an XLOG record.
+  *
+- * Returns true if a full-page image is restored.
++ * Returns true if a full-page image is restored, and false on failure with
++ * an error to be consumed by the caller.
+  */
+ bool
+ RestoreBlockImage(XLogReaderState *record, uint8 block_id, char *page)
+ {
+ 	DecodedBkpBlock *bkpb;
+ 	char	   *ptr;
+ 	PGAlignedBlock tmp;
+ 
+ 	if (block_id > record->record->max_block_id ||
+ 		!record->record->blocks[block_id].in_use)
++	{
++		report_invalid_record(record,
++							  "could not restore image at %X/%X with invalid block %d specified",
++							  LSN_FORMAT_ARGS(record->ReadRecPtr),
++							  block_id);
+ 		return false;
++	}
+ 	if (!record->record->blocks[block_id].has_image)
++	{
++		report_invalid_record(record, "could not restore image at %X/%X with invalid state, block %d",
++							  LSN_FORMAT_ARGS(record->ReadRecPtr),
++							  block_id);
+ 		return false;
++	}
+ 
+ 	bkpb = &record->record->blocks[block_id];
+ 	ptr = bkpb->bkp_image;
+ 
+ 	if (BKPIMAGE_COMPRESSED(bkpb->bimg_info))
+@@ -2070,11 +2082,11 @@ RestoreBlockImage(XLogReaderState *record, uint8 block_id, char *page)
+ #ifdef USE_LZ4
+ 			if (LZ4_decompress_safe(ptr, tmp.data,
+ 									bkpb->bimg_len, BLCKSZ - bkpb->hole_length) <= 0)
+ 				decomp_success = false;
+ #else
+-			report_invalid_record(record, "image at %X/%X compressed with %s not supported by build, block %d",
++			report_invalid_record(record, "could not restore image at %X/%X compressed with %s not supported by build, block %d",
+ 								  LSN_FORMAT_ARGS(record->ReadRecPtr),
+ 								  "LZ4",
+ 								  block_id);
+ 			return false;
+ #endif
+@@ -2087,28 +2099,28 @@ RestoreBlockImage(XLogReaderState *record, uint8 block_id, char *page)
+ 														ptr, bkpb->bimg_len);
+ 
+ 			if (ZSTD_isError(decomp_result))
+ 				decomp_success = false;
+ #else
+-			report_invalid_record(record, "image at %X/%X compressed with %s not supported by build, block %d",
++			report_invalid_record(record, "could not restore image at %X/%X compressed with %s not supported by build, block %d",
+ 								  LSN_FORMAT_ARGS(record->ReadRecPtr),
+ 								  "zstd",
+ 								  block_id);
+ 			return false;
+ #endif
+ 		}
+ 		else
+ 		{
+-			report_invalid_record(record, "image at %X/%X compressed with unknown method, block %d",
++			report_invalid_record(record, "could not restore image at %X/%X compressed with unknown method, block %d",
+ 								  LSN_FORMAT_ARGS(record->ReadRecPtr),
+ 								  block_id);
+ 			return false;
+ 		}
+ 
+ 		if (!decomp_success)
+ 		{
+-			report_invalid_record(record, "invalid compressed image at %X/%X, block %d",
++			report_invalid_record(record, "could not decompress image at %X/%X, block %d",
+ 								  LSN_FORMAT_ARGS(record->ReadRecPtr),
+ 								  block_id);
+ 			return false;
+ 		}
+ 
+diff --git a/src/backend/access/transam/xlogrecovery.c b/src/backend/access/transam/xlogrecovery.c
+index ae2af5ae3d6..9a80084a685 100644
+--- a/src/backend/access/transam/xlogrecovery.c
++++ b/src/backend/access/transam/xlogrecovery.c
+@@ -2410,11 +2410,13 @@ verifyBackupPageConsistency(XLogReaderState *record)
+ 		 * store it in a temporary page. There is no need to allocate a new
+ 		 * page here, a local buffer is fine to hold its contents and a mask
+ 		 * can be directly applied on it.
+ 		 */
+ 		if (!RestoreBlockImage(record, block_id, primary_image_masked))
+-			elog(ERROR, "failed to restore block image");
++			ereport(ERROR,
++					(errcode(ERRCODE_INTERNAL_ERROR),
++					 errmsg_internal("%s", record->errormsg_buf)));
+ 
+ 		/*
+ 		 * If masking function is defined, mask both the primary and replay
+ 		 * images
+ 		 */
+diff --git a/src/backend/access/transam/xlogutils.c b/src/backend/access/transam/xlogutils.c
+index 0cda22597fe..e60951a5fcd 100644
+--- a/src/backend/access/transam/xlogutils.c
++++ b/src/backend/access/transam/xlogutils.c
+@@ -391,11 +391,13 @@ XLogReadBufferForRedoExtended(XLogReaderState *record,
+ 		*buf = XLogReadBufferExtended(rlocator, forknum, blkno,
+ 									  get_cleanup_lock ? RBM_ZERO_AND_CLEANUP_LOCK : RBM_ZERO_AND_LOCK,
+ 									  prefetch_buffer);
+ 		page = BufferGetPage(*buf);
+ 		if (!RestoreBlockImage(record, block_id, page))
+-			elog(ERROR, "failed to restore block image");
++			ereport(ERROR,
++					(errcode(ERRCODE_INTERNAL_ERROR),
++					 errmsg_internal("%s", record->errormsg_buf)));
+ 
+ 		/*
+ 		 * The page may be uninitialized. If so, we can't set the LSN because
+ 		 * that would corrupt the page.
+ 		 */

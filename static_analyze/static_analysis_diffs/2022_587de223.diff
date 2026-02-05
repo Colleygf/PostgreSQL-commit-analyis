@@ -1,0 +1,67 @@
+commit 587de223f03e6086d511dab16b17406eb21277ce
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Mon Apr 18 20:04:55 2022 -0400
+
+    Add missing error handling in pg_md5_hash().
+    
+    It failed to provide an error string as expected for the
+    admittedly-unlikely case of OOM in pg_cryptohash_create().
+    Also, make it initialize *errstr to NULL for success,
+    as pg_md5_binary() does.
+    
+    Also add missing comments.  Readers should not have to
+    reverse-engineer the API spec for a publicly visible routine.
+
+diff --git a/src/common/md5_common.c b/src/common/md5_common.c
+index edc935eeb8d..472a1032c0c 100644
+--- a/src/common/md5_common.c
++++ b/src/common/md5_common.c
+@@ -55,10 +55,13 @@ bytesToHex(uint8 b[16], char *s)
+  *						  hexadecimal digits.  an MD5 sum is 16 bytes long.
+  *						  each byte is represented by two hexadecimal
+  *						  characters.  you thus need to provide an array
+  *						  of 33 characters, including the trailing '\0'.
+  *
++ *				  errstr  filled with a constant-string error message
++ *						  on failure return; NULL on success.
++ *
+  *	RETURNS		  false on failure (out of memory for internal buffers
+  *				  or MD5 computation failure) or true on success.
+  *
+  *	STANDARDS	  MD5 is described in RFC 1321.
+  *
+@@ -70,13 +73,17 @@ bool
+ pg_md5_hash(const void *buff, size_t len, char *hexsum, const char **errstr)
+ {
+ 	uint8		sum[MD5_DIGEST_LENGTH];
+ 	pg_cryptohash_ctx *ctx;
+ 
++	*errstr = NULL;
+ 	ctx = pg_cryptohash_create(PG_MD5);
+ 	if (ctx == NULL)
++	{
++		*errstr = pg_cryptohash_error(NULL);	/* returns OOM */
+ 		return false;
++	}
+ 
+ 	if (pg_cryptohash_init(ctx) < 0 ||
+ 		pg_cryptohash_update(ctx, buff, len) < 0 ||
+ 		pg_cryptohash_final(ctx, sum, sizeof(sum)) < 0)
+ 	{
+@@ -88,10 +95,16 @@ pg_md5_hash(const void *buff, size_t len, char *hexsum, const char **errstr)
+ 	bytesToHex(sum, hexsum);
+ 	pg_cryptohash_free(ctx);
+ 	return true;
+ }
+ 
++/*
++ * pg_md5_binary
++ *
++ * As above, except that the MD5 digest is returned as a binary string
++ * (of size MD5_DIGEST_LENGTH) rather than being converted to ASCII hex.
++ */
+ bool
+ pg_md5_binary(const void *buff, size_t len, void *outbuf, const char **errstr)
+ {
+ 	pg_cryptohash_ctx *ctx;
+ 

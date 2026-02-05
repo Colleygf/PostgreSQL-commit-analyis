@@ -1,0 +1,117 @@
+commit 85ccd7e30a6dd378e025a918916f7b1d72004001
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Fri Aug 8 14:36:39 2025 +0900
+
+    pg_dump: Fix incorrect parsing of object types in pg_dump --filter.
+    
+    Previously, pg_dump --filter could misinterpret invalid object types
+    in the filter file as valid ones. For example, the invalid object type
+    "table-data" (likely a typo for the valid "table_data") could be
+    mistakenly recognized as "table", causing pg_dump to succeed
+    when it should have failed.
+    
+    This happened because pg_dump identified keywords as sequences of
+    ASCII alphabetic characters, treating non-alphabetic characters
+    (like hyphens) as keyword boundaries. As a result, "table-data" was
+    parsed as "table".
+    
+    To fix this, pg_dump --filter now treats keywords as strings of
+    non-whitespace characters, ensuring invalid types like "table-data"
+    are correctly rejected.
+    
+    Back-patch to v17, where the --filter option was introduced.
+    
+    Author: Fujii Masao <masao.fujii@gmail.com>
+    Reviewed-by: Xuneng Zhou <xunengzhou@gmail.com>
+    Reviewed-by: Srinath Reddy <srinath2133@gmail.com>
+    Reviewed-by: Daniel Gustafsson <daniel@yesql.se>
+    Discussion: https://postgr.es/m/CAHGQGwFzPKUwiV5C-NLBqz1oK1+z9K8cgrF+LcxFem-p3_Ftug@mail.gmail.com
+    Backpatch-through: 17
+
+diff --git a/src/bin/pg_dump/filter.c b/src/bin/pg_dump/filter.c
+index 7214d514137..e3cdcf40975 100644
+--- a/src/bin/pg_dump/filter.c
++++ b/src/bin/pg_dump/filter.c
+@@ -169,33 +169,36 @@ pg_log_filter_error(FilterStateData *fstate, const char *fmt,...)
+ }
+ 
+ /*
+  * filter_get_keyword - read the next filter keyword from buffer
+  *
+- * Search for keywords (limited to ascii alphabetic characters) in
+- * the passed in line buffer. Returns NULL when the buffer is empty or the first
+- * char is not alpha. The char '_' is allowed, except as the first character.
++ * Search for keywords (strings of non-whitespace characters) in the passed
++ * in line buffer. Returns NULL when the buffer is empty or no keyword exists.
+  * The length of the found keyword is returned in the size parameter.
+  */
+ static const char *
+ filter_get_keyword(const char **line, int *size)
+ {
+ 	const char *ptr = *line;
+ 	const char *result = NULL;
+ 
++	/* The passed buffer must not be NULL */
++	Assert(*line != NULL);
++
+ 	/* Set returned length preemptively in case no keyword is found */
+ 	*size = 0;
+ 
+ 	/* Skip initial whitespace */
+ 	while (isspace((unsigned char) *ptr))
+ 		ptr++;
+ 
+-	if (isalpha((unsigned char) *ptr))
++	/* Grab one keyword that's the string of non-whitespace characters */
++	if (*ptr != '\0' && !isspace((unsigned char) *ptr))
+ 	{
+ 		result = ptr++;
+ 
+-		while (isalpha((unsigned char) *ptr) || *ptr == '_')
++		while (*ptr != '\0' && !isspace((unsigned char) *ptr))
+ 			ptr++;
+ 
+ 		*size = ptr - result;
+ 	}
+ 
+diff --git a/src/bin/pg_dump/t/005_pg_dump_filterfile.pl b/src/bin/pg_dump/t/005_pg_dump_filterfile.pl
+index f05e8a20e05..5c69ec31c39 100644
+--- a/src/bin/pg_dump/t/005_pg_dump_filterfile.pl
++++ b/src/bin/pg_dump/t/005_pg_dump_filterfile.pl
+@@ -416,26 +416,32 @@ command_fails_like(
+ 		'postgres'
+ 	],
+ 	qr/invalid filter command/,
+ 	"invalid syntax: incorrect filter command");
+ 
+-# Test invalid object type
++# Test invalid object type.
++#
++# This test also verifies that keywords are correctly recognized as strings of
++# non-whitespace characters. If the parser incorrectly treats non-whitespace
++# delimiters (like hyphens) as keyword boundaries, "table-data" might be
++# misread as the valid object type "table". To catch such issues,
++# "table-data" is used here as an intentionally invalid object type.
+ open $inputfile, '>', "$tempdir/inputfile.txt"
+   or die "unable to open filterfile for writing";
+-print $inputfile "include xxx";
++print $inputfile "exclude table-data one";
+ close $inputfile;
+ 
+ command_fails_like(
+ 	[
+ 		'pg_dump',
+ 		'--port' => $port,
+ 		'--file' => $plainfile,
+ 		'--filter' => "$tempdir/inputfile.txt",
+ 		'postgres'
+ 	],
+-	qr/unsupported filter object type: "xxx"/,
+-	"invalid syntax: invalid object type specified, should be table, schema, foreign_data or data"
++	qr/unsupported filter object type: "table-data"/,
++	"invalid syntax: invalid object type specified"
+ );
+ 
+ # Test missing object identifier pattern
+ open $inputfile, '>', "$tempdir/inputfile.txt"
+   or die "unable to open filterfile for writing";

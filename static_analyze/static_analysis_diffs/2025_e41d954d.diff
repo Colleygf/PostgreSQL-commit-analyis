@@ -1,0 +1,117 @@
+commit e41d954da6aa04f0a4453e566d3bcc064512d457
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Wed Sep 24 04:11:53 2025 +0000
+
+    Fix LOCK_TIMEOUT handling during parallel apply.
+    
+    Previously, the parallel apply worker used SIGINT to receive a graceful
+    shutdown signal from the leader apply worker. However, SIGINT is also used
+    by the LOCK_TIMEOUT handler to trigger a query-cancel interrupt. This
+    overlap caused the parallel apply worker to miss LOCK_TIMEOUT signals,
+    leading to incorrect behavior during lock wait/contention.
+    
+    This patch resolves the conflict by switching the graceful shutdown signal
+    from SIGINT to SIGUSR2.
+    
+    Reported-by: Zane Duffield <duffieldzane@gmail.com>
+    Diagnosed-by: Zhijie Hou <houzj.fnst@fujitsu.com>
+    Author: Hayato Kuroda <kuroda.hayato@fujitsu.com>
+    Reviewed-by: Amit Kapila <amit.kapila16@gmail.com>
+    Backpatch-through: 16, where it was introduced
+    Discussion: https://postgr.es/m/CACMiCkXyC4au74kvE2g6Y=mCEF8X6r-Ne_ty4r7qWkUjRE4+oQ@mail.gmail.com
+
+diff --git a/src/backend/postmaster/interrupt.c b/src/backend/postmaster/interrupt.c
+index 0ae9bf906ec..ba63b84dfc5 100644
+--- a/src/backend/postmaster/interrupt.c
++++ b/src/backend/postmaster/interrupt.c
+@@ -92,13 +92,12 @@ SignalHandlerForCrashExit(SIGNAL_ARGS)
+ /*
+  * Simple signal handler for triggering a long-running background process to
+  * shut down and exit.
+  *
+  * Typically, this handler would be used for SIGTERM, but some processes use
+- * other signals. In particular, the checkpointer exits on SIGUSR2, and the WAL
+- * writer and the logical replication parallel apply worker exits on either
+- * SIGINT or SIGTERM.
++ * other signals. In particular, the checkpointer and parallel apply worker
++ * exit on SIGUSR2, and the WAL writer exits on either SIGINT or SIGTERM.
+  *
+  * ShutdownRequestPending should be checked at a convenient place within the
+  * main loop, or else the main loop should call ProcessMainLoopInterrupts.
+  */
+ void
+diff --git a/src/backend/replication/logical/applyparallelworker.c b/src/backend/replication/logical/applyparallelworker.c
+index 31a92d1a24a..33b7ec7f029 100644
+--- a/src/backend/replication/logical/applyparallelworker.c
++++ b/src/backend/replication/logical/applyparallelworker.c
+@@ -868,14 +868,21 @@ ParallelApplyWorkerMain(Datum main_arg)
+ 	int			worker_slot = DatumGetInt32(main_arg);
+ 	char		originname[NAMEDATALEN];
+ 
+ 	InitializingApplyWorker = true;
+ 
+-	/* Setup signal handling. */
++	/*
++	 * Setup signal handling.
++	 *
++	 * Note: We intentionally used SIGUSR2 to trigger a graceful shutdown
++	 * initiated by the leader apply worker. This helps to differentiate it
++	 * from the case where we abort the current transaction and exit on
++	 * receiving SIGTERM.
++	 */
+ 	pqsignal(SIGHUP, SignalHandlerForConfigReload);
+-	pqsignal(SIGINT, SignalHandlerForShutdownRequest);
+ 	pqsignal(SIGTERM, die);
++	pqsignal(SIGUSR2, SignalHandlerForShutdownRequest);
+ 	BackgroundWorkerUnblockSignals();
+ 
+ 	/*
+ 	 * Attach to the dynamic shared memory segment for the parallel apply, and
+ 	 * find its table of contents.
+@@ -970,13 +977,13 @@ ParallelApplyWorkerMain(Datum main_arg)
+ 
+ 	LogicalParallelApplyLoop(mqh);
+ 
+ 	/*
+ 	 * The parallel apply worker must not get here because the parallel apply
+-	 * worker will only stop when it receives a SIGTERM or SIGINT from the
+-	 * leader, or when there is an error. None of these cases will allow the
+-	 * code to reach here.
++	 * worker will only stop when it receives a SIGTERM or SIGUSR2 from the
++	 * leader, or SIGINT from itself, or when there is an error. None of these
++	 * cases will allow the code to reach here.
+ 	 */
+ 	Assert(false);
+ }
+ 
+ /*
+diff --git a/src/backend/replication/logical/launcher.c b/src/backend/replication/logical/launcher.c
+index c900b6cf3b1..218cefe86e2 100644
+--- a/src/backend/replication/logical/launcher.c
++++ b/src/backend/replication/logical/launcher.c
+@@ -648,11 +648,11 @@ logicalrep_worker_stop(Oid subid, Oid relid)
+ }
+ 
+ /*
+  * Stop the given logical replication parallel apply worker.
+  *
+- * Node that the function sends SIGINT instead of SIGTERM to the parallel apply
++ * Node that the function sends SIGUSR2 instead of SIGTERM to the parallel apply
+  * worker so that the worker exits cleanly.
+  */
+ void
+ logicalrep_pa_worker_stop(ParallelApplyWorkerInfo *winfo)
+ {
+@@ -686,11 +686,11 @@ logicalrep_pa_worker_stop(ParallelApplyWorkerInfo *winfo)
+ 
+ 	/*
+ 	 * Only stop the worker if the generation matches and the worker is alive.
+ 	 */
+ 	if (worker->generation == generation && worker->proc)
+-		logicalrep_worker_stop_internal(worker, SIGINT);
++		logicalrep_worker_stop_internal(worker, SIGUSR2);
+ 
+ 	LWLockRelease(LogicalRepWorkerLock);
+ }
+ 
+ /*

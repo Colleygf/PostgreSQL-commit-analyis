@@ -1,0 +1,74 @@
+commit 855517307db8efd397d49163d65a4fd3bdcc41bc
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu May 9 12:45:37 2024 +0900
+
+    Fix overread in JSON parsing errors for incomplete byte sequences
+    
+    json_lex_string() relies on pg_encoding_mblen_bounded() to point to the
+    end of a JSON string when generating an error message, and the input it
+    uses is not guaranteed to be null-terminated.
+    
+    It was possible to walk off the end of the input buffer by a few bytes
+    when the last bytes consist of an incomplete multi-byte sequence, as
+    token_terminator would point to a location defined by
+    pg_encoding_mblen_bounded() rather than the end of the input.  This
+    commit switches token_terminator so as the error uses data up to the
+    end of the JSON input.
+    
+    More work should be done so as this code could rely on an equivalent of
+    report_invalid_encoding() so as incorrect byte sequences can show in
+    error messages in a readable form.  This requires work for at least two
+    cases in the JSON parsing API: an incomplete token and an invalid escape
+    sequence.  A more complete solution may be too invasive for a backpatch,
+    so this is left as a future improvement, taking care of the overread
+    first.
+    
+    A test is added on HEAD as test_json_parser makes this issue
+    straight-forward to check.
+    
+    Note that pg_encoding_mblen_bounded() no longer has any callers.  This
+    will be removed on HEAD with a separate commit, as this is proving to
+    encourage unsafe coding.
+    
+    Author: Jacob Champion
+    Discussion: https://postgr.es/m/CAOYmi+ncM7pwLS3AnKCSmoqqtpjvA8wmCdoBtKA3ZrB2hZG6zA@mail.gmail.com
+    Backpatch-through: 13
+
+diff --git a/src/common/jsonapi.c b/src/common/jsonapi.c
+index fc0cb369749..26e1f43ed38 100644
+--- a/src/common/jsonapi.c
++++ b/src/common/jsonapi.c
+@@ -1687,12 +1687,12 @@ json_lex_string(JsonLexContext *lex)
+ 		lex->token_terminator = s; \
+ 		return code; \
+ 	} while (0)
+ #define FAIL_AT_CHAR_END(code) \
+ 	do { \
+-		lex->token_terminator = \
+-			s + pg_encoding_mblen_bounded(lex->input_encoding, s); \
++		char	   *term = s + pg_encoding_mblen(lex->input_encoding, s); \
++		lex->token_terminator = (term <= end) ? term : end; \
+ 		return code; \
+ 	} while (0)
+ 
+ 	if (lex->strval != NULL)
+ 		resetStringInfo(lex->strval);
+diff --git a/src/test/modules/test_json_parser/t/002_inline.pl b/src/test/modules/test_json_parser/t/002_inline.pl
+index b95cb6b16a9..7c4134b3a6a 100644
+--- a/src/test/modules/test_json_parser/t/002_inline.pl
++++ b/src/test/modules/test_json_parser/t/002_inline.pl
+@@ -125,6 +125,14 @@ test("unescaped control",
+ test(
+ 	"incorrect escape count",
+ 	'"\\\\\\\\\\\\\\"',
+ 	error => qr/Token ""\\\\\\\\\\\\\\"" is invalid/);
+ 
++# Case with three bytes: double-quote, backslash and <f5>.
++# Both invalid-token and invalid-escape are possible errors, because for
++# smaller chunk sizes the incremental parser skips the string parsing when
++# it cannot find an ending quote.
++test("incomplete UTF-8 sequence",
++	"\"\\\x{F5}",
++	error => qr/(Token|Escape sequence) ""?\\\x{F5}" is invalid/);
++
+ done_testing();

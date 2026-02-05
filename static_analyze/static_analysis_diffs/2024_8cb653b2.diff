@@ -1,0 +1,158 @@
+commit 8cb653b2457c75d58c4dba578570ba52301c8b78
+Author: David Rowley <drowley@postgresql.org>
+Date:   Wed May 15 15:01:21 2024 +1200
+
+    Fix incorrect year in some copyright notices added this year
+    
+    A few patches that were written <= 2023 and committed in 2024 still
+    contained 2023 copyright year.  Fix that.
+    
+    Discussion: https://postgr.es/m/CAApHDvr5egyW3FmHbAg-Uq2p_Aizwco1Zjs6Vbq18KqN64-hRA@mail.gmail.com
+
+diff --git a/src/backend/postmaster/launch_backend.c b/src/backend/postmaster/launch_backend.c
+index 4e9dde1517b..bdfa238e4fe 100644
+--- a/src/backend/postmaster/launch_backend.c
++++ b/src/backend/postmaster/launch_backend.c
+@@ -18,11 +18,11 @@
+  * postmaster, so it needs to re-attach to the shared memory, re-initialize
+  * global variables, reload the config file etc. to get the process to the
+  * same state as after fork() on a Unix system.
+  *
+  *
+- * Portions Copyright (c) 1996-2023, PostgreSQL Global Development Group
++ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
+  * Portions Copyright (c) 1994, Regents of the University of California
+  *
+  * IDENTIFICATION
+  *	  src/backend/postmaster/launch_backend.c
+  *
+diff --git a/src/backend/tcop/backend_startup.c b/src/backend/tcop/backend_startup.c
+index ee73d01e16c..cfa27551964 100644
+--- a/src/backend/tcop/backend_startup.c
++++ b/src/backend/tcop/backend_startup.c
+@@ -1,11 +1,11 @@
+ /*-------------------------------------------------------------------------
+  *
+  * backend_startup.c
+  *	  Backend startup code
+  *
+- * Portions Copyright (c) 1996-2023, PostgreSQL Global Development Group
++ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
+  * Portions Copyright (c) 1994, Regents of the University of California
+  *
+  *
+  * IDENTIFICATION
+  *	  src/backend/tcop/backend_startup.c
+diff --git a/src/common/unicode/case_test.c b/src/common/unicode/case_test.c
+index 85a43decb8f..de92811ec72 100644
+--- a/src/common/unicode/case_test.c
++++ b/src/common/unicode/case_test.c
+@@ -1,10 +1,10 @@
+ /*-------------------------------------------------------------------------
+  * case_test.c
+  *		Program to test Unicode case mapping functions.
+  *
+- * Portions Copyright (c) 2017-2023, PostgreSQL Global Development Group
++ * Portions Copyright (c) 2017-2024, PostgreSQL Global Development Group
+  *
+  * IDENTIFICATION
+  *	  src/common/unicode/case_test.c
+  *
+  *-------------------------------------------------------------------------
+diff --git a/src/common/unicode/generate-unicode_case_table.pl b/src/common/unicode/generate-unicode_case_table.pl
+index 44b785b8619..e09ccffd426 100644
+--- a/src/common/unicode/generate-unicode_case_table.pl
++++ b/src/common/unicode/generate-unicode_case_table.pl
+@@ -4,11 +4,11 @@
+ # or locale-specific mappings.
+ #
+ # Input: UnicodeData.txt
+ # Output: unicode_case_table.h
+ #
+-# Copyright (c) 2000-2023, PostgreSQL Global Development Group
++# Copyright (c) 2000-2024, PostgreSQL Global Development Group
+ 
+ use strict;
+ use warnings;
+ use Getopt::Long;
+ 
+@@ -67,11 +67,11 @@ print $OT <<"EOS";
+ /*-------------------------------------------------------------------------
+  *
+  * unicode_case_table.h
+  *	  Case mapping and information table.
+  *
+- * Portions Copyright (c) 1996-2023, PostgreSQL Global Development Group
++ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
+  * Portions Copyright (c) 1994, Regents of the University of California
+  *
+  * src/include/common/unicode_case_table.h
+  *
+  *-------------------------------------------------------------------------
+diff --git a/src/common/unicode_case.c b/src/common/unicode_case.c
+index 89992799930..291e256e639 100644
+--- a/src/common/unicode_case.c
++++ b/src/common/unicode_case.c
+@@ -1,10 +1,10 @@
+ /*-------------------------------------------------------------------------
+  * unicode_case.c
+  *		Unicode case mapping and case conversion.
+  *
+- * Portions Copyright (c) 2017-2023, PostgreSQL Global Development Group
++ * Portions Copyright (c) 2017-2024, PostgreSQL Global Development Group
+  *
+  * IDENTIFICATION
+  *	  src/common/unicode_case.c
+  *
+  *-------------------------------------------------------------------------
+diff --git a/src/include/common/unicode_case.h b/src/include/common/unicode_case.h
+index c0c3382e79e..c1c2d4c5762 100644
+--- a/src/include/common/unicode_case.h
++++ b/src/include/common/unicode_case.h
+@@ -3,11 +3,11 @@
+  * unicode_case.h
+  *	  Routines for converting character case.
+  *
+  * These definitions can be used by both frontend and backend code.
+  *
+- * Copyright (c) 2017-2023, PostgreSQL Global Development Group
++ * Copyright (c) 2017-2024, PostgreSQL Global Development Group
+  *
+  * src/include/common/unicode_case.h
+  *
+  *-------------------------------------------------------------------------
+  */
+diff --git a/src/include/common/unicode_case_table.h b/src/include/common/unicode_case_table.h
+index f6bb85c6c94..eeda0458399 100644
+--- a/src/include/common/unicode_case_table.h
++++ b/src/include/common/unicode_case_table.h
+@@ -1,11 +1,11 @@
+ /*-------------------------------------------------------------------------
+  *
+  * unicode_case_table.h
+  *	  Case mapping and information table.
+  *
+- * Portions Copyright (c) 1996-2023, PostgreSQL Global Development Group
++ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
+  * Portions Copyright (c) 1994, Regents of the University of California
+  *
+  * src/include/common/unicode_case_table.h
+  *
+  *-------------------------------------------------------------------------
+diff --git a/src/include/tcop/backend_startup.h b/src/include/tcop/backend_startup.h
+index d29eaed1e97..16a68c77584 100644
+--- a/src/include/tcop/backend_startup.h
++++ b/src/include/tcop/backend_startup.h
+@@ -2,11 +2,11 @@
+  *
+  * backend_startup.h
+  *	  prototypes for backend_startup.c.
+  *
+  *
+- * Portions Copyright (c) 1996-2023, PostgreSQL Global Development Group
++ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
+  * Portions Copyright (c) 1994, Regents of the University of California
+  *
+  * src/include/tcop/backend_startup.h
+  *
+  *-------------------------------------------------------------------------

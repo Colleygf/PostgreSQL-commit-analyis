@@ -1,0 +1,81 @@
+commit f5bfba5413f51b4fa0a7b0dc879d39ae6881d8be
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Tue May 24 10:55:01 2022 -0400
+
+    shm_mq_sendv: Fix flushing bug when receiver not yet attached.
+    
+    With the old logic, when the reciever had not yet attached, we would
+    never call shm_mq_inc_bytes_written(), even if force_flush = true
+    was specified. That could result in a situation where data that the
+    sender believes it has sent is never received.
+    
+    Along the way, remove a useless function prototype for a nonexistent
+    function from shm_mq.h.
+    
+    Commit 46846433a03dff4f2e08c8a161e54a842da360d6 introduced these
+    problems.
+    
+    Pavan Deolasee, with a few changes by me.
+    
+    Discussion: https://postgr.es/m/CABOikdPkwtLLCTnzzmpSMXo3QZa2yXq0J7Q61ssdLFAJYrOVvQ@mail.gmail.com
+
+diff --git a/src/backend/storage/ipc/shm_mq.c b/src/backend/storage/ipc/shm_mq.c
+index 6139c622e0b..8ca24de8d62 100644
+--- a/src/backend/storage/ipc/shm_mq.c
++++ b/src/backend/storage/ipc/shm_mq.c
+@@ -516,34 +516,33 @@ shm_mq_sendv(shm_mq_handle *mqh, shm_mq_iovec *iov, int iovcnt, bool nowait,
+ 	if (mq->mq_detached)
+ 		return SHM_MQ_DETACHED;
+ 
+ 	/*
+ 	 * If the counterparty is known to have attached, we can read mq_receiver
+-	 * without acquiring the spinlock and assume it isn't NULL.  Otherwise,
+-	 * more caution is needed.
++	 * without acquiring the spinlock.  Otherwise, more caution is needed.
+ 	 */
+ 	if (mqh->mqh_counterparty_attached)
+ 		receiver = mq->mq_receiver;
+ 	else
+ 	{
+ 		SpinLockAcquire(&mq->mq_mutex);
+ 		receiver = mq->mq_receiver;
+ 		SpinLockRelease(&mq->mq_mutex);
+-		if (receiver == NULL)
+-			return SHM_MQ_SUCCESS;
+-		mqh->mqh_counterparty_attached = true;
++		if (receiver != NULL)
++			mqh->mqh_counterparty_attached = true;
+ 	}
+ 
+ 	/*
+ 	 * If the caller has requested force flush or we have written more than
+ 	 * 1/4 of the ring size, mark it as written in shared memory and notify
+ 	 * the receiver.
+ 	 */
+ 	if (force_flush || mqh->mqh_send_pending > (mq->mq_ring_size >> 2))
+ 	{
+ 		shm_mq_inc_bytes_written(mq, mqh->mqh_send_pending);
+-		SetLatch(&receiver->procLatch);
++		if (receiver != NULL)
++			SetLatch(&receiver->procLatch);
+ 		mqh->mqh_send_pending = 0;
+ 	}
+ 
+ 	return SHM_MQ_SUCCESS;
+ }
+diff --git a/src/include/storage/shm_mq.h b/src/include/storage/shm_mq.h
+index f5220baa781..b6fe68725d2 100644
+--- a/src/include/storage/shm_mq.h
++++ b/src/include/storage/shm_mq.h
+@@ -74,11 +74,10 @@ extern shm_mq_result shm_mq_send(shm_mq_handle *mqh,
+ 								 bool force_flush);
+ extern shm_mq_result shm_mq_sendv(shm_mq_handle *mqh, shm_mq_iovec *iov,
+ 								  int iovcnt, bool nowait, bool force_flush);
+ extern shm_mq_result shm_mq_receive(shm_mq_handle *mqh,
+ 									Size *nbytesp, void **datap, bool nowait);
+-extern void shm_mq_flush(shm_mq_handle *mqh);
+ 
+ /* Wait for our counterparty to attach to the queue. */
+ extern shm_mq_result shm_mq_wait_for_attach(shm_mq_handle *mqh);
+ 
+ /* Smallest possible queue. */

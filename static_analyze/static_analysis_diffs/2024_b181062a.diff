@@ -1,0 +1,87 @@
+commit b181062aa5727a013c96b64476f884c992b5068d
+Author: David Rowley <drowley@postgresql.org>
+Date:   Sun Jul 28 22:22:52 2024 +1200
+
+    Fix incorrect return value for pg_size_pretty(bigint)
+    
+    pg_size_pretty(bigint) would return the value in bytes rather than PB
+    for the smallest-most bigint value.  This happened due to an incorrect
+    assumption that the absolute value of -9223372036854775808 could be
+    stored inside a signed 64-bit type.
+    
+    Here we fix that by instead storing that value in an unsigned 64-bit type.
+    
+    This bug does exist in versions prior to 15 but the code there is
+    sufficiently different and the bug seems sufficiently non-critical that
+    it does not seem worth risking backpatching further.
+    
+    Author: Joseph Koshakow <koshy44@gmail.com>
+    Discussion: https://postgr.es/m/CAAvxfHdTsMZPWEHUrZ=h3cky9Ccc3Mtx2whUHygY+ABP-mCmUw@mail.gmail.com
+    Backpatch-through: 15
+
+diff --git a/src/backend/utils/adt/dbsize.c b/src/backend/utils/adt/dbsize.c
+index 25d7110c130..b2d9cc27929 100644
+--- a/src/backend/utils/adt/dbsize.c
++++ b/src/backend/utils/adt/dbsize.c
+@@ -573,13 +573,17 @@ pg_size_pretty(PG_FUNCTION_ARGS)
+ 	const struct size_pretty_unit *unit;
+ 
+ 	for (unit = size_pretty_units; unit->name != NULL; unit++)
+ 	{
+ 		uint8		bits;
++		uint64		abs_size = size < 0 ? 0 - (uint64) size : (uint64) size;
+ 
+-		/* use this unit if there are no more units or we're below the limit */
+-		if (unit[1].name == NULL || i64abs(size) < unit->limit)
++		/*
++		 * Use this unit if there are no more units or the absolute size is
++		 * below the limit for the current unit.
++		 */
++		if (unit[1].name == NULL || abs_size < unit->limit)
+ 		{
+ 			if (unit->round)
+ 				size = half_rounded(size);
+ 
+ 			snprintf(buf, sizeof(buf), INT64_FORMAT " %s", size, unit->name);
+diff --git a/src/test/regress/expected/dbsize.out b/src/test/regress/expected/dbsize.out
+index f1121a87aa3..97c3bf54be5 100644
+--- a/src/test/regress/expected/dbsize.out
++++ b/src/test/regress/expected/dbsize.out
+@@ -77,10 +77,18 @@ SELECT size, pg_size_pretty(size), pg_size_pretty(-1 * size) FROM
+     11258449312612352 | 10 PB          | -10 PB
+  11528652096115048447 | 10239 PB       | -10239 PB
+  11528652096115048448 | 10240 PB       | -10240 PB
+ (12 rows)
+ 
++-- Ensure we get the expected results when passing the extremities of bigint
++SELECT pg_size_pretty('-9223372036854775808'::bigint),
++       pg_size_pretty('9223372036854775807'::bigint);
++ pg_size_pretty | pg_size_pretty 
++----------------+----------------
++ -8192 PB       | 8192 PB
++(1 row)
++
+ -- pg_size_bytes() tests
+ SELECT size, pg_size_bytes(size) FROM
+     (VALUES ('1'), ('123bytes'), ('256 B'), ('1kB'), ('1MB'), (' 1 GB'), ('1.5 GB '),
+             ('1TB'), ('3000 TB'), ('1e6 MB'), ('99 PB')) x(size);
+    size   |   pg_size_bytes    
+diff --git a/src/test/regress/sql/dbsize.sql b/src/test/regress/sql/dbsize.sql
+index b34cf33385e..38b94444007 100644
+--- a/src/test/regress/sql/dbsize.sql
++++ b/src/test/regress/sql/dbsize.sql
+@@ -25,10 +25,14 @@ SELECT size, pg_size_pretty(size), pg_size_pretty(-1 * size) FROM
+             (10736893951::numeric), (10736893952::numeric),
+             (10994579406847::numeric), (10994579406848::numeric),
+             (11258449312612351::numeric), (11258449312612352::numeric),
+             (11528652096115048447::numeric), (11528652096115048448::numeric)) x(size);
+ 
++-- Ensure we get the expected results when passing the extremities of bigint
++SELECT pg_size_pretty('-9223372036854775808'::bigint),
++       pg_size_pretty('9223372036854775807'::bigint);
++
+ -- pg_size_bytes() tests
+ SELECT size, pg_size_bytes(size) FROM
+     (VALUES ('1'), ('123bytes'), ('256 B'), ('1kB'), ('1MB'), (' 1 GB'), ('1.5 GB '),
+             ('1TB'), ('3000 TB'), ('1e6 MB'), ('99 PB')) x(size);
+ 

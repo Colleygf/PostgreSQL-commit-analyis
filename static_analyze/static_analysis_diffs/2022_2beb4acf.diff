@@ -1,0 +1,40 @@
+commit 2beb4acff1e83fef6766a5a7d5bbd952444a0b36
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Thu Mar 31 11:16:16 2022 +0200
+
+    Add diagnostic output on error in pump_until
+    
+    When pump_until was moved to Utils.pm in commit 6da65a3f9 the diag
+    calls were removed, this puts them back.
+    
+    Per request from Andres Freund.
+    
+    Discussion: https://postgr.es/m/20220329225819.ahk5u2tax3ez6d2t@alap3.anarazel.de
+
+diff --git a/src/test/perl/PostgreSQL/Test/Utils.pm b/src/test/perl/PostgreSQL/Test/Utils.pm
+index 15b314d1f89..dca1b3b17c4 100644
+--- a/src/test/perl/PostgreSQL/Test/Utils.pm
++++ b/src/test/perl/PostgreSQL/Test/Utils.pm
+@@ -424,12 +424,20 @@ sub pump_until
+ 	my ($proc, $timeout, $stream, $until) = @_;
+ 	$proc->pump_nb();
+ 	while (1)
+ 	{
+ 		last if $$stream =~ /$until/;
+-		return 0 if ($timeout->is_expired);
+-		return 0 if (not $proc->pumpable());
++		if ($timeout->is_expired)
++		{
++			diag("pump_until: timeout expired when searching for \"$until\" with stream: \"$$stream\"");
++			return 0;
++		}
++		if (not $proc->pumpable())
++		{
++			diag("pump_until: process terminated unexpectedly when searching for \"$until\" with stream: \"$$stream\"");
++			return 0;
++		}
+ 		$proc->pump();
+ 	}
+ 	return 1;
+ }
+ 

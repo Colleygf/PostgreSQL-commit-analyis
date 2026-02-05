@@ -1,0 +1,87 @@
+commit 56b662523fd49f75abe89d5bad54d377b2f36c24
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu Oct 13 09:31:57 2022 +0900
+
+    Fix ordering issue with WAL operations in GIN fast insert path
+    
+    Contrary to what is documented in src/backend/access/transam/README,
+    ginHeapTupleFastInsert() had a few ordering issues with the way it does
+    its WAL operations when inserting items in its fast path.
+    
+    First, when using a separate list, XLogBeginInsert() was being always
+    called before START_CRIT_SECTION(), and in this case a second thing was
+    wrong when merging lists, as an exclusive lock was taken on the tail
+    page *before* calling XLogBeginInsert().  Finally, when inserting items
+    into a tail page, the order of XLogBeginInsert() and
+    START_CRIT_SECTION() was reversed.  This commit addresses all these
+    issues by moving the calls of XLogBeginInsert() after all the pages
+    logged are locked and pinned, within a critical section.
+    
+    Author:  Matthias van de Meent, Zhang Mingli
+    Discussion: https://postgr.es/m/CAEze2WhL8uLMqynnnCu1LAPwxD5RKEo0nHV+eXGg_N6ELU88HQ@mail.gmail.com
+
+diff --git a/src/backend/access/gin/ginfast.c b/src/backend/access/gin/ginfast.c
+index ab4bb67d4b4..f750b5ed9e9 100644
+--- a/src/backend/access/gin/ginfast.c
++++ b/src/backend/access/gin/ginfast.c
+@@ -283,13 +283,10 @@ ginHeapTupleFastInsert(GinState *ginstate, GinTupleCollector *collector)
+ 		GinMetaPageData sublist;
+ 
+ 		memset(&sublist, 0, sizeof(GinMetaPageData));
+ 		makeSublist(index, collector->tuples, collector->ntuples, &sublist);
+ 
+-		if (needWal)
+-			XLogBeginInsert();
+-
+ 		/*
+ 		 * metapage was unlocked, see above
+ 		 */
+ 		LockBuffer(metabuffer, GIN_EXCLUSIVE);
+ 		metadata = GinPageGetMeta(metapage);
+@@ -305,10 +302,13 @@ ginHeapTupleFastInsert(GinState *ginstate, GinTupleCollector *collector)
+ 			metadata->tail = sublist.tail;
+ 			metadata->tailFreeSize = sublist.tailFreeSize;
+ 
+ 			metadata->nPendingPages = sublist.nPendingPages;
+ 			metadata->nPendingHeapTuples = sublist.nPendingHeapTuples;
++
++			if (needWal)
++				XLogBeginInsert();
+ 		}
+ 		else
+ 		{
+ 			/*
+ 			 * Merge lists
+@@ -333,11 +333,14 @@ ginHeapTupleFastInsert(GinState *ginstate, GinTupleCollector *collector)
+ 
+ 			metadata->nPendingPages += sublist.nPendingPages;
+ 			metadata->nPendingHeapTuples += sublist.nPendingHeapTuples;
+ 
+ 			if (needWal)
++			{
++				XLogBeginInsert();
+ 				XLogRegisterBuffer(1, buffer, REGBUF_STANDARD);
++			}
+ 		}
+ 	}
+ 	else
+ 	{
+ 		/*
+@@ -359,15 +362,15 @@ ginHeapTupleFastInsert(GinState *ginstate, GinTupleCollector *collector)
+ 
+ 		collectordata = ptr = (char *) palloc(collector->sumsize);
+ 
+ 		data.ntuples = collector->ntuples;
+ 
++		START_CRIT_SECTION();
++
+ 		if (needWal)
+ 			XLogBeginInsert();
+ 
+-		START_CRIT_SECTION();
+-
+ 		/*
+ 		 * Increase counter of heap tuples
+ 		 */
+ 		Assert(GinPageGetOpaque(page)->maxoff <= metadata->nPendingHeapTuples);
+ 		GinPageGetOpaque(page)->maxoff++;

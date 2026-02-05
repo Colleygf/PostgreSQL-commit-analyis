@@ -1,0 +1,48 @@
+commit 12d6c727ca6988462651c525e197601c4c0f8745
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Mon Aug 12 18:42:18 2024 -0400
+
+    Fix nls.mk to reflect astreamer files relocation
+    
+    In the recent commit f80b09bac8, astreamer files were moved to another
+    directory, but this change was not reflected in nls.mk.  This commit
+    corrects that oversight.
+    
+    Author: Kyotaro Horiguchi <horikyota.ntt@gmail.com>
+    Discussion: https://postgr.es/m/20240806.102123.648178476296575604.horikyota.ntt@gmail.com
+
+diff --git a/src/bin/pg_basebackup/nls.mk b/src/bin/pg_basebackup/nls.mk
+index 950b9797b1e..f75f44dbe64 100644
+--- a/src/bin/pg_basebackup/nls.mk
++++ b/src/bin/pg_basebackup/nls.mk
+@@ -1,14 +1,9 @@
+ # src/bin/pg_basebackup/nls.mk
+ CATALOG_NAME     = pg_basebackup
+ GETTEXT_FILES    = $(FRONTEND_COMMON_GETTEXT_FILES) \
+-                   astreamer_file.c \
+-                   astreamer_gzip.c \
+                    astreamer_inject.c \
+-                   astreamer_lz4.c \
+-                   astreamer_tar.c \
+-                   astreamer_zstd.c \
+                    pg_basebackup.c \
+                    pg_createsubscriber.c \
+                    pg_receivewal.c \
+                    pg_recvlogical.c \
+                    receivelog.c \
+@@ -17,10 +12,15 @@ GETTEXT_FILES    = $(FRONTEND_COMMON_GETTEXT_FILES) \
+                    ../../common/compression.c \
+                    ../../common/controldata_utils.c \
+                    ../../common/fe_memutils.c \
+                    ../../common/file_utils.c \
+                    ../../common/restricted_token.c \
++                   ../../fe_utils/astreamer_file.c \
++                   ../../fe_utils/astreamer_gzip.c \
++                   ../../fe_utils/astreamer_lz4.c \
++                   ../../fe_utils/astreamer_tar.c \
++                   ../../fe_utils/astreamer_zstd.c \
+                    ../../fe_utils/option_utils.c \
+                    ../../fe_utils/recovery_gen.c \
+                    ../../fe_utils/string_utils.c
+ GETTEXT_TRIGGERS = $(FRONTEND_COMMON_GETTEXT_TRIGGERS) simple_prompt
+ GETTEXT_FLAGS    = $(FRONTEND_COMMON_GETTEXT_FLAGS)

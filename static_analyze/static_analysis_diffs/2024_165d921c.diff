@@ -1,0 +1,84 @@
+commit 165d921c9a883814a35e8161fc692793e9c945a4
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Thu Feb 8 12:45:26 2024 +0200
+
+    Fix wrong logic in TransactionIdInRecentPast()
+    
+    The TransactionIdInRecentPast() should return false for all the transactions
+    older than TransamVariables->oldestClogXid.  However, the function contains
+    a bug in comparison FullTransactionId to TransactionID allowing full
+    transactions between nextXid - 2^32 and oldestClogXid - 2^31.
+    
+    This commit fixes TransactionIdInRecentPast() by turning the oldestClogXid into
+    FullTransactionId first, then performing the comparison.
+    
+    Backpatch to all supported versions.
+    
+    Reported-by: Egor Chindyaskin
+    Bug: 18212
+    Discussion: https://postgr.es/m/18212-547307f8adf57262%40postgresql.org
+    Author: Karina Litskevich
+    Reviewed-by: Kyotaro Horiguchi
+    Backpatch-through: 12
+
+diff --git a/src/backend/utils/adt/xid8funcs.c b/src/backend/utils/adt/xid8funcs.c
+index be5e28c93ab..aa64a7c8b3f 100644
+--- a/src/backend/utils/adt/xid8funcs.c
++++ b/src/backend/utils/adt/xid8funcs.c
+@@ -96,15 +96,16 @@ StaticAssertDecl(MAX_BACKENDS * 2 <= PG_SNAPSHOT_MAX_NXIP,
+  * relating to those XIDs.
+  */
+ static bool
+ TransactionIdInRecentPast(FullTransactionId fxid, TransactionId *extracted_xid)
+ {
+-	uint32		xid_epoch = EpochFromFullTransactionId(fxid);
+ 	TransactionId xid = XidFromFullTransactionId(fxid);
+ 	uint32		now_epoch;
+ 	TransactionId now_epoch_next_xid;
+ 	FullTransactionId now_fullxid;
++	TransactionId oldest_xid;
++	FullTransactionId oldest_fxid;
+ 
+ 	now_fullxid = ReadNextFullTransactionId();
+ 	now_epoch_next_xid = XidFromFullTransactionId(now_fullxid);
+ 	now_epoch = EpochFromFullTransactionId(now_fullxid);
+ 
+@@ -133,21 +134,28 @@ TransactionIdInRecentPast(FullTransactionId fxid, TransactionId *extracted_xid)
+ 	 * CLOG truncation could occur before the caller finished with the XID.
+ 	 */
+ 	Assert(LWLockHeldByMe(XactTruncationLock));
+ 
+ 	/*
+-	 * If the transaction ID has wrapped around, it's definitely too old to
+-	 * determine the commit status.  Otherwise, we can compare it to
+-	 * TransamVariables->oldestClogXid to determine whether the relevant CLOG
+-	 * entry is guaranteed to still exist.
++	 * If fxid is not older than TransamVariables->oldestClogXid, the relevant
++	 * CLOG entry is guaranteed to still exist.  Convert
++	 * TransamVariables->oldestClogXid into a FullTransactionId to compare it
++	 * with fxid.  Determine the right epoch knowing that oldest_fxid
++	 * shouldn't be more than 2^31 older than now_fullxid.
+ 	 */
+-	if (xid_epoch + 1 < now_epoch
+-		|| (xid_epoch + 1 == now_epoch && xid < now_epoch_next_xid)
+-		|| TransactionIdPrecedes(xid, TransamVariables->oldestClogXid))
+-		return false;
+-
+-	return true;
++	oldest_xid = TransamVariables->oldestClogXid;
++	Assert(TransactionIdPrecedesOrEquals(oldest_xid, now_epoch_next_xid));
++	if (oldest_xid <= now_epoch_next_xid)
++	{
++		oldest_fxid = FullTransactionIdFromEpochAndXid(now_epoch, oldest_xid);
++	}
++	else
++	{
++		Assert(now_epoch > 0);
++		oldest_fxid = FullTransactionIdFromEpochAndXid(now_epoch - 1, oldest_xid);
++	}
++	return !FullTransactionIdPrecedes(fxid, oldest_fxid);
+ }
+ 
+ /*
+  * Convert a TransactionId obtained from a snapshot held by the caller to a
+  * FullTransactionId.  Use next_fxid as a reference FullTransactionId, so that

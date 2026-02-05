@@ -1,0 +1,59 @@
+commit 8328a15f8f95cad3fa99bbab551cade0a8403708
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Mon Oct 24 12:02:33 2022 +0200
+
+    Fix recently added incorrect assertion
+    
+    Commit df3737a651f4 added an incorrect assertion about the preconditions
+    for invoking the backup cleanup callback: it misfires at session end in
+    case a backup completes successfully.  Fix it, using coding from Michaël
+    Paquier.  Also add some tests for the various cases.
+    
+    Reported by Kyotaro Horiguchi <horikyota.ntt@gmail.com>
+    Discussion: https://postgr.es/m/20221021.161038.1277961198945653224.horikyota.ntt@gmail.com
+
+diff --git a/src/backend/access/transam/xlog.c b/src/backend/access/transam/xlog.c
+index dea978a962a..8f10effe3a4 100644
+--- a/src/backend/access/transam/xlog.c
++++ b/src/backend/access/transam/xlog.c
+@@ -8839,13 +8839,12 @@ do_pg_backup_stop(BackupState *state, bool waitforarchive)
+ void
+ do_pg_abort_backup(int code, Datum arg)
+ {
+ 	bool		during_backup_start = DatumGetBool(arg);
+ 
+-	/* Only one of these conditions can be true */
+-	Assert(during_backup_start ^
+-		   (sessionBackupState == SESSION_BACKUP_RUNNING));
++	/* If called during backup start, there shouldn't be one already running */
++	Assert(!during_backup_start || sessionBackupState == SESSION_BACKUP_NONE);
+ 
+ 	if (during_backup_start || sessionBackupState != SESSION_BACKUP_NONE)
+ 	{
+ 		WALInsertLockAcquireExclusive();
+ 		Assert(XLogCtl->Insert.runningBackups > 0);
+diff --git a/src/test/recovery/t/020_archive_status.pl b/src/test/recovery/t/020_archive_status.pl
+index 2108d50073a..fe9ac06b32d 100644
+--- a/src/test/recovery/t/020_archive_status.pl
++++ b/src/test/recovery/t/020_archive_status.pl
+@@ -246,6 +246,20 @@ my $log_location = -s $standby2->logfile;
+ $standby2->stop;
+ my $logfile = slurp_file($standby2->logfile, $log_location);
+ ok( $logfile =~ qr/archiver process shutting down/,
+ 	'check shutdown callback of shell archive module');
+ 
++# Test that we can enter and leave backup mode without crashes
++my ($stderr, $cmdret);
++$cmdret = $primary->psql(
++	'postgres',
++	"SELECT pg_backup_start('onebackup'); "
++	  . "SELECT pg_backup_stop();"
++	  . "SELECT pg_backup_start(repeat('x', 1026))",
++	stderr => \$stderr);
++is($cmdret, 3, "psql fails correctly");
++like($stderr, qr/backup label too long/, "pg_backup_start fails gracefully");
++$primary->safe_psql('postgres',
++	"SELECT pg_backup_start('onebackup'); SELECT pg_backup_stop();");
++$primary->safe_psql('postgres', "SELECT pg_backup_start('twobackup')");
++
+ done_testing();

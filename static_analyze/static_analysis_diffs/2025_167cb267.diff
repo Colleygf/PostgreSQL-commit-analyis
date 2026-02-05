@@ -1,0 +1,92 @@
+commit 167cb26718e3eae4fef470900b4cd1d434f15649
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu Dec 18 07:33:40 2025 +0900
+
+    Fix const correctness in pgstat data serialization callbacks
+    
+    4ba012a8ed9c defined the "header" (pointer to the stats data) of
+    from_serialized_data() as a const, even though it is fine (and
+    expected!) for the callback to modify the shared memory entry when
+    loading the stats at startup.
+    
+    While on it, this commit updates the callback to_serialized_data() in
+    the test module test_custom_stats to make the data extracted from the
+    "header" parameter a const since it should never be modified: the stats
+    are written to disk and no modifications are expected in the shared
+    memory entry.
+    
+    This clarifies the API contract of these new callbacks.
+    
+    Reported-By: Peter Eisentraut <peter@eisentraut.org>
+    Author: Michael Paquier <michael@paquier.xyz>
+    Co-authored-by: Sami Imseih <samimseih@gmail.com>
+    Discussion: https://postgr.es/m/d87a93b0-19c7-4db6-b9c0-d6827e7b2da1@eisentraut.org
+
+diff --git a/src/include/utils/pgstat_internal.h b/src/include/utils/pgstat_internal.h
+index 5c1ce4d3d6a..7dffab8dbdd 100644
+--- a/src/include/utils/pgstat_internal.h
++++ b/src/include/utils/pgstat_internal.h
+@@ -327,17 +327,18 @@ typedef struct PgStat_KindInfo
+ 	 * from_serialized_data: read auxiliary data for an entry.  Returns true
+ 	 * on success, false on read error.
+ 	 *
+ 	 * "statfile" is a pointer to the on-disk stats file, named
+ 	 * PGSTAT_STAT_PERMANENT_FILENAME.  "key" is the hash key of the entry
+-	 * just written or read.  "header" is a pointer to the stats data.
++	 * just written or read.  "header" is a pointer to the stats data; it may
++	 * be modified only in from_serialized_data to reconstruct an entry.
+ 	 */
+ 	void		(*to_serialized_data) (const PgStat_HashKey *key,
+ 									   const PgStatShared_Common *header,
+ 									   FILE *statfile);
+ 	bool		(*from_serialized_data) (const PgStat_HashKey *key,
+-										 const PgStatShared_Common *header,
++										 PgStatShared_Common *header,
+ 										 FILE *statfile);
+ 
+ 	/*
+ 	 * For fixed-numbered or variable-numbered statistics.
+ 	 *
+diff --git a/src/test/modules/test_custom_stats/test_custom_var_stats.c b/src/test/modules/test_custom_stats/test_custom_var_stats.c
+index c71922dc4a8..294085d6866 100644
+--- a/src/test/modules/test_custom_stats/test_custom_var_stats.c
++++ b/src/test/modules/test_custom_stats/test_custom_var_stats.c
+@@ -90,11 +90,11 @@ static void test_custom_stats_var_to_serialized_data(const PgStat_HashKey *key,
+ 													 const PgStatShared_Common *header,
+ 													 FILE *statfile);
+ 
+ /* Deserialization callback: read auxiliary entry data */
+ static bool test_custom_stats_var_from_serialized_data(const PgStat_HashKey *key,
+-													   const PgStatShared_Common *header,
++													   PgStatShared_Common *header,
+ 													   FILE *statfile);
+ 
+ /* Finish callback: end of statistics file operations */
+ static void test_custom_stats_var_finish(PgStat_StatsFileOp status);
+ 
+@@ -194,11 +194,11 @@ test_custom_stats_var_to_serialized_data(const PgStat_HashKey *key,
+ 										 const PgStatShared_Common *header,
+ 										 FILE *statfile)
+ {
+ 	char	   *description;
+ 	size_t		len;
+-	PgStatShared_CustomVarEntry *entry = (PgStatShared_CustomVarEntry *) header;
++	const PgStatShared_CustomVarEntry *entry = (const PgStatShared_CustomVarEntry *) header;
+ 	bool		found;
+ 	uint32		magic_number = TEST_CUSTOM_VAR_MAGIC_NUMBER;
+ 
+ 	/*
+ 	 * First mark the main file with a magic number, keeping a trace that some
+@@ -274,11 +274,11 @@ test_custom_stats_var_to_serialized_data(const PgStat_HashKey *key,
+  * See the top of test_custom_stats_var_to_serialized_data() for a
+  * detailed description of the data layout read here.
+  */
+ static bool
+ test_custom_stats_var_from_serialized_data(const PgStat_HashKey *key,
+-										   const PgStatShared_Common *header,
++										   PgStatShared_Common *header,
+ 										   FILE *statfile)
+ {
+ 	PgStatShared_CustomVarEntry *entry;
+ 	dsa_pointer dp;
+ 	size_t		len;

@@ -1,0 +1,53 @@
+commit 6c07f9ebce1579612c4ed9076159f9e942e50f9d
+Author: Etsuro Fujita <efujita@postgresql.org>
+Date:   Fri Jan 21 17:45:00 2022 +0900
+
+    postgres_fdw: Fix subabort cleanup of connections used in asynchronous execution.
+    
+    Commit 27e1f1456 resets the per-connection states of connections used to
+    scan foreign tables asynchronously during abort cleanup at main
+    transaction end, but it failed to do so during subabort cleanup at
+    subtransaction end, leading to a segmentation fault when re-executing an
+    asynchronous-foreign-table-scan query in a transaction that was
+    cancelled in a subtransaction of it.
+    
+    Fix by modifying pgfdw_abort_cleanup() to reset the per-connection state
+    of a given connection also when called for subabort cleanup.  Also,
+    modify that function to do the reset in both the abort-cleanup and
+    subabort-cleanup cases if necessary, to save cycles, and improve a
+    comment on it a little bit.
+    
+    Back-patch to v14 where the aforesaid commit came in.
+    
+    Reviewed by Alexander Pyhalov
+    
+    Discussion: https://postgr.es/m/CAPmGK14cCV-JA7kNsyt2EUTKvZ4xkr2LNRthi1U1C3cqfGppAw@mail.gmail.com
+
+diff --git a/contrib/postgres_fdw/connection.c b/contrib/postgres_fdw/connection.c
+index 4d64dfebf6e..29fcb6a76eb 100644
+--- a/contrib/postgres_fdw/connection.c
++++ b/contrib/postgres_fdw/connection.c
+@@ -1439,14 +1439,21 @@ pgfdw_abort_cleanup(ConnCacheEntry *entry, const char *sql, bool toplevel)
+ 									  true))
+ 			return;				/* Trouble clearing prepared statements */
+ 
+ 		entry->have_prep_stmt = false;
+ 		entry->have_error = false;
+-		/* Also reset per-connection state */
+-		memset(&entry->state, 0, sizeof(entry->state));
+ 	}
+ 
++	/*
++	 * If pendingAreq of the per-connection state is not NULL, it means that
++	 * an asynchronous fetch begun by fetch_more_data_begin() was not done
++	 * successfully and thus the per-connection state was not reset in
++	 * fetch_more_data(); in that case reset the per-connection state here.
++	 */
++	if (entry->state.pendingAreq)
++		memset(&entry->state, 0, sizeof(entry->state));
++
+ 	/* Disarm changing_xact_state if it all worked */
+ 	entry->changing_xact_state = false;
+ }
+ 
+ /*

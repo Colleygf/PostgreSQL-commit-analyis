@@ -1,0 +1,81 @@
+commit a4cfeeca5a97f2b5969c31aa69ba775af95ee5a3
+Author: Tomas Vondra <tomas.vondra@postgresql.org>
+Date:   Mon Jul 3 12:38:30 2023 +0200
+
+    Fix code indentation violations
+    
+    Commits ce5aaea8cd, 2b8b2852bb and 28d03feac3 violated the expected code
+    indentation rules, upsetting the new buildfarm member "koel."
+    
+    Discussion: https://postgr.es/m/ZKIU4mhWpgJOM0W0%40paquier.xyz
+
+diff --git a/src/backend/access/brin/brin_bloom.c b/src/backend/access/brin/brin_bloom.c
+index f47eb81012d..56534cf29cc 100644
+--- a/src/backend/access/brin/brin_bloom.c
++++ b/src/backend/access/brin/brin_bloom.c
+@@ -272,13 +272,13 @@ typedef struct BloomFilter
+  */
+ static void
+ bloom_filter_size(int ndistinct, double false_positive_rate,
+ 				  int *nbytesp, int *nbitsp, int *nhashesp)
+ {
+-	double	k;
+-	int		nbits,
+-			nbytes;
++	double		k;
++	int			nbits,
++				nbytes;
+ 
+ 	/* sizing bloom filter: -(n * ln(p)) / (ln(2))^2 */
+ 	nbits = ceil(-(ndistinct * log(false_positive_rate)) / pow(log(2.0), 2));
+ 
+ 	/* round m to whole bytes */
+@@ -614,12 +614,12 @@ brin_bloom_consistent(PG_FUNCTION_ARGS)
+ 	filter = (BloomFilter *) PG_DETOAST_DATUM(column->bv_values[0]);
+ 
+ 	Assert(filter);
+ 
+ 	/*
+-	 * Assume all scan keys match. We'll be searching for a scan key eliminating
+-	 * the page range (we can stop on the first such key).
++	 * Assume all scan keys match. We'll be searching for a scan key
++	 * eliminating the page range (we can stop on the first such key).
+ 	 */
+ 	matches = true;
+ 
+ 	for (keyno = 0; keyno < nkeys; keyno++)
+ 	{
+@@ -634,12 +634,12 @@ brin_bloom_consistent(PG_FUNCTION_ARGS)
+ 		switch (key->sk_strategy)
+ 		{
+ 			case BloomEqualStrategyNumber:
+ 
+ 				/*
+-				 * We want to return the current page range if the bloom filter
+-				 * seems to contain the value.
++				 * We want to return the current page range if the bloom
++				 * filter seems to contain the value.
+ 				 */
+ 				finfo = bloom_get_procinfo(bdesc, attno, PROCNUM_HASH);
+ 
+ 				hashValue = DatumGetUInt32(FunctionCall1Coll(finfo, colloid, value));
+ 				matches &= bloom_contains_value(filter, hashValue);
+diff --git a/src/backend/commands/trigger.c b/src/backend/commands/trigger.c
+index 993c0dbd149..52177759ab5 100644
+--- a/src/backend/commands/trigger.c
++++ b/src/backend/commands/trigger.c
+@@ -3984,12 +3984,12 @@ afterTriggerCheckState(AfterTriggerShared evtshared)
+  * ----------
+  */
+ static Bitmapset *
+ afterTriggerCopyBitmap(Bitmapset *src)
+ {
+-	Bitmapset	   *dst;
+-	MemoryContext	oldcxt;
++	Bitmapset  *dst;
++	MemoryContext oldcxt;
+ 
+ 	if (src == NULL)
+ 		return NULL;
+ 
+ 	/* Create event context if we didn't already */

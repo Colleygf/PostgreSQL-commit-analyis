@@ -1,0 +1,62 @@
+commit 9ef2c655558bb1ec20c4f87850d9322420e35acb
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Mon Jan 10 11:46:16 2022 -0500
+
+    Doc: fix bogus example about ambiguous timestamps.
+    
+    I had a brain fade in commit d32899157, and used 2:30AM as the
+    example timestamp for both spring-forward and fall-back cases.
+    But it's not actually ambiguous at all in the fall-back case,
+    because that transition is from 2AM to 1AM under USA rules.
+    Fix the example to use 1:30AM, which *is* ambiguous.
+    
+    Noted while answering a question from Aleksander Alekseev.
+    Back-patch to all supported branches.
+    
+    Discussion: https://postgr.es/m/2191355.1641828552@sss.pgh.pa.us
+
+diff --git a/doc/src/sgml/datetime.sgml b/doc/src/sgml/datetime.sgml
+index c53bd2f379f..adaf72dcbd5 100644
+--- a/doc/src/sgml/datetime.sgml
++++ b/doc/src/sgml/datetime.sgml
+@@ -208,31 +208,29 @@
+    </para>
+ 
+    <para>
+     Conversely, consider the behavior during a fall-back transition:
+ <programlisting>
+-=&gt; SELECT '2018-11-04 02:30'::timestamptz;
++=&gt; SELECT '2018-11-04 01:30'::timestamptz;
+       timestamptz
+ ------------------------
+- 2018-11-04 02:30:00-05
++ 2018-11-04 01:30:00-05
+ (1 row)
+ </programlisting>
+-    On that date, there were two possible interpretations of 2:30AM; there
+-    was 2:30AM EDT, and then an hour later after the reversion to standard
+-    time, there was 2:30AM EST.
++    On that date, there were two possible interpretations of 1:30AM; there
++    was 1:30AM EDT, and then an hour later after clocks jumped back from
++    2AM EDT to 1AM EST, there was 1:30AM EST.
+     Again, <productname>PostgreSQL</productname> interprets the given time
+-    as if it were standard time (UTC-5).  We can force the matter by
+-    specifying daylight-savings time:
++    as if it were standard time (UTC-5).  We can force the other
++    interpretation by specifying daylight-savings time:
+ <programlisting>
+-=&gt; SELECT '2018-11-04 02:30 EDT'::timestamptz;
++=&gt; SELECT '2018-11-04 01:30 EDT'::timestamptz;
+       timestamptz
+ ------------------------
+- 2018-11-04 01:30:00-05
++ 2018-11-04 01:30:00-04
+ (1 row)
+ </programlisting>
+-    This timestamp could validly be rendered as either 2:30 UTC-4 or
+-    1:30 UTC-5; the timestamp output code chooses the latter.
+    </para>
+ 
+    <para>
+     The precise rule that is applied in such cases is that an invalid
+     timestamp that appears to fall within a jump-forward daylight savings

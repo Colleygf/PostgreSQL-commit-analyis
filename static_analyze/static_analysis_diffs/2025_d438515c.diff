@@ -1,0 +1,51 @@
+commit d438515c29c3cc539c79292c040335804183ca3e
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Thu Apr 10 10:23:01 2025 +0530
+
+    Cosmetic fixes for pg_createsubscriber's -all option.
+    
+    Author: Peter Smith <smithpb2250@gmail.com>
+    Reviewed-by: Amit Kapila <amit.kapila16@gmail.com>
+    Discussion: https://postgr.es/m/CAHut+PsmSCQ-ENSDQ0YOUcsgzT=GG-E9jyXBvxd51A_dMXH5XA@mail.gmail.com
+
+diff --git a/doc/src/sgml/ref/pg_createsubscriber.sgml b/doc/src/sgml/ref/pg_createsubscriber.sgml
+index 73377aa6a6e..4b1d08d5f16 100644
+--- a/doc/src/sgml/ref/pg_createsubscriber.sgml
++++ b/doc/src/sgml/ref/pg_createsubscriber.sgml
+@@ -92,12 +92,15 @@ PostgreSQL documentation
+      <term><option>--all</option></term>
+      <listitem>
+       <para>
+        Create one subscription per database on the target server. Exceptions
+        are template databases and databases that don't allow connections.
+-       If the database name is not specified in publisher-server, the postgres
+-       database will be used, or if that does not exist, template1 will be used.
++       To discover the list of all databases, connect to the source server
++       using the database name specified in the <option>--publisher-server</option>
++       connection string, or if not specified, the <literal>postgres</literal>
++       database will be used, or if that does not exist, <literal>template1</literal>
++       will be used.
+        Automatically generated names for subscriptions, publications, and
+        replication slots are used when this option is specified.
+        This option cannot be used along with <option>--database</option>,
+        <option>--publication</option>, <option>--replication-slot</option>, or
+        <option>--subscription</option>.
+diff --git a/src/bin/pg_basebackup/pg_createsubscriber.c b/src/bin/pg_basebackup/pg_createsubscriber.c
+index 1d2f39e3926..42aaa428aed 100644
+--- a/src/bin/pg_basebackup/pg_createsubscriber.c
++++ b/src/bin/pg_basebackup/pg_createsubscriber.c
+@@ -1961,12 +1961,12 @@ enable_subscription(PGconn *conn, const struct LogicalRepInfo *dbinfo)
+ 	PQfreemem(subname);
+ 	destroyPQExpBuffer(str);
+ }
+ 
+ /*
+- * Fetch a list of all not-template databases from the source server and form
+- * a list such that they appear as if the user has specified multiple
++ * Fetch a list of all connectable non-template databases from the source server
++ * and form a list such that they appear as if the user has specified multiple
+  * --database options, one for each source database.
+  */
+ static void
+ get_publisher_databases(struct CreateSubscriberOptions *opt,
+ 						bool dbnamespecified)

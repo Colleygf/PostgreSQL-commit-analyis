@@ -1,0 +1,102 @@
+commit 3a97460970f344660971ee75d7f5a181bf87f633
+Author: Amit Langote <amitlan@postgresql.org>
+Date:   Fri Sep 6 12:05:40 2024 +0900
+
+    SQL/JSON: Avoid initializing unnecessary ON ERROR / ON EMPTY steps
+    
+    When the ON ERROR / ON EMPTY behavior is to return NULL, returning
+    NULL directly from ExecEvalJsonExprPath() suffices. Therefore, there's
+    no need to create separate steps to check the error/empty flag or
+    those to evaluate the the constant NULL expression.  This speeds up
+    common cases because the default ON ERROR / ON EMPTY behavior for
+    JSON_QUERY() and JSON_VALUE() is to return NULL.  However, these steps
+    are necessary if the RETURNING type is a domain, as constraints on the
+    domain may need to be checked.
+    
+    Reported-by: Jian He <jian.universality@gmail.com>
+    Author: Jian He <jian.universality@gmail.com>
+    Author: Amit Langote <amitlangote09@gmail.com>
+    Discussion: https://postgr.es/m/CACJufxEo4sUjKCYtda0_qt9tazqqKPmF1cqhW9KBOUeJFqQd2g@mail.gmail.com
+    Backpatch-through: 17
+
+diff --git a/src/backend/executor/execExpr.c b/src/backend/executor/execExpr.c
+index 63289ee35ee..4d247538bea 100644
+--- a/src/backend/executor/execExpr.c
++++ b/src/backend/executor/execExpr.c
+@@ -4412,10 +4412,12 @@ ExecInitJsonExpr(JsonExpr *jsexpr, ExprState *state,
+ 	List	   *jumps_to_end = NIL;
+ 	ListCell   *lc;
+ 	ErrorSaveContext *escontext =
+ 		jsexpr->on_error->btype != JSON_BEHAVIOR_ERROR ?
+ 		&jsestate->escontext : NULL;
++	bool		returning_domain =
++		get_typtype(jsexpr->returning->typid) == TYPTYPE_DOMAIN;
+ 
+ 	jsestate->jsexpr = jsexpr;
+ 
+ 	/*
+ 	 * Evaluate formatted_expr storing the result into
+@@ -4554,24 +4556,31 @@ ExecInitJsonExpr(JsonExpr *jsexpr, ExprState *state,
+ 		scratch->opcode = EEOP_JSONEXPR_COERCION_FINISH;
+ 		scratch->d.jsonexpr.jsestate = jsestate;
+ 		ExprEvalPushStep(state, scratch);
+ 	}
+ 
+-	jsestate->jump_empty = jsestate->jump_error = -1;
+-
+ 	/*
+ 	 * Step to check jsestate->error and return the ON ERROR expression if
+ 	 * there is one.  This handles both the errors that occur during jsonpath
+ 	 * evaluation in EEOP_JSONEXPR_PATH and subsequent coercion evaluation.
++	 *
++	 * Speed up common cases by avoiding extra steps for a NULL-valued ON
++	 * ERROR expression unless RETURNING a domain type, where constraints must
++	 * be checked. ExecEvalJsonExprPath() already returns NULL on error,
++	 * making additional steps unnecessary in typical scenarios. Note that the
++	 * default ON ERROR behavior for JSON_VALUE() and JSON_QUERY() is to
++	 * return NULL.
+ 	 */
++	jsestate->jump_error = state->steps_len;
+ 	if (jsexpr->on_error &&
+-		jsexpr->on_error->btype != JSON_BEHAVIOR_ERROR)
++		jsexpr->on_error->btype != JSON_BEHAVIOR_ERROR &&
++		(!(IsA(jsexpr->on_error->expr, Const) &&
++		   ((Const *) jsexpr->on_error->expr)->constisnull) ||
++		 returning_domain))
+ 	{
+ 		ErrorSaveContext *saved_escontext;
+ 
+-		jsestate->jump_error = state->steps_len;
+-
+ 		/* JUMP to end if false, that is, skip the ON ERROR expression. */
+ 		jumps_to_end = lappend_int(jumps_to_end, state->steps_len);
+ 		scratch->opcode = EEOP_JUMP_IF_NOT_TRUE;
+ 		scratch->resvalue = &jsestate->error.value;
+ 		scratch->resnull = &jsestate->error.isnull;
+@@ -4617,18 +4626,23 @@ ExecInitJsonExpr(JsonExpr *jsexpr, ExprState *state,
+ 	}
+ 
+ 	/*
+ 	 * Step to check jsestate->empty and return the ON EMPTY expression if
+ 	 * there is one.
++	 *
++	 * See the comment above for details on the optimization for NULL-valued
++	 * expressions.
+ 	 */
++	jsestate->jump_empty = state->steps_len;
+ 	if (jsexpr->on_empty != NULL &&
+-		jsexpr->on_empty->btype != JSON_BEHAVIOR_ERROR)
++		jsexpr->on_empty->btype != JSON_BEHAVIOR_ERROR &&
++		(!(IsA(jsexpr->on_empty->expr, Const) &&
++		   ((Const *) jsexpr->on_empty->expr)->constisnull) ||
++		 returning_domain))
+ 	{
+ 		ErrorSaveContext *saved_escontext;
+ 
+-		jsestate->jump_empty = state->steps_len;
+-
+ 		/* JUMP to end if false, that is, skip the ON EMPTY expression. */
+ 		jumps_to_end = lappend_int(jumps_to_end, state->steps_len);
+ 		scratch->opcode = EEOP_JUMP_IF_NOT_TRUE;
+ 		scratch->resvalue = &jsestate->empty.value;
+ 		scratch->resnull = &jsestate->empty.isnull;

@@ -1,0 +1,102 @@
+commit c166454496876818216e222890ab1ae788551c42
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Wed Nov 20 02:00:50 2024 +0900
+
+    Improve error message for database object stats manipulation functions.
+    
+    Previously, database object statistics manipulation functions like
+    pg_set_relation_stats() reported unclear error and hint messages
+    when executed during recovery. These messages were "internal",
+    making it difficult for users to understand the issue:
+    
+      ERROR:  cannot acquire lock mode ShareUpdateExclusiveLock on database objects while recovery is in progress
+      HINT:  Only RowExclusiveLock or less can be acquired on database objects during recovery.
+    
+    This commit updates the error handling so that, if these functions
+    are called during recovery, they produce clearer messages:
+    
+      ERROR:  recovery is in progress
+      HINT:  Statistics cannot be modified during recovery.
+    
+    The related documentation has also been updated to explicitly
+    clarify that these functions are not available during recovery.
+    
+    Author: Fujii Masao
+    Reviewed-by: Heikki Linnakangas, Maxim Orlov
+    Discussion: https://postgr.es/m/6d313829-5f56-4a28-ae4b-bd01bf1ae791@oss.nttdata.com
+
+diff --git a/doc/src/sgml/func.sgml b/doc/src/sgml/func.sgml
+index 73979f20fff..1a0b85bb4d7 100644
+--- a/doc/src/sgml/func.sgml
++++ b/doc/src/sgml/func.sgml
+@@ -30027,10 +30027,11 @@ postgres=# SELECT '0/0'::pg_lsn + pd.segment_number * ps.setting::int + :offset
+    </table>
+ 
+    <para>
+     <xref linkend="functions-admin-statsmod"/> lists functions used to
+     manipulate statistics.
++    These functions cannot be executed during recovery.
+     <warning>
+      <para>
+       Changes made by these statistics manipulation functions are likely to be
+       overwritten by <link linkend="autovacuum">autovacuum</link> (or manual
+       <command>VACUUM</command> or <command>ANALYZE</command>) and should be
+diff --git a/src/backend/statistics/attribute_stats.c b/src/backend/statistics/attribute_stats.c
+index 4ae0722b781..686f2e639c6 100644
+--- a/src/backend/statistics/attribute_stats.c
++++ b/src/backend/statistics/attribute_stats.c
+@@ -153,10 +153,16 @@ attribute_statistics_update(FunctionCallInfo fcinfo, int elevel)
+ 	bool		result = true;
+ 
+ 	stats_check_required_arg(fcinfo, attarginfo, ATTRELATION_ARG);
+ 	reloid = PG_GETARG_OID(ATTRELATION_ARG);
+ 
++	if (RecoveryInProgress())
++		ereport(ERROR,
++				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
++				 errmsg("recovery is in progress"),
++				 errhint("Statistics cannot be modified during recovery.")));
++
+ 	/* lock before looking up attribute */
+ 	stats_lock_check_privileges(reloid);
+ 
+ 	stats_check_required_arg(fcinfo, attarginfo, ATTNAME_ARG);
+ 	attname = PG_GETARG_NAME(ATTNAME_ARG);
+@@ -863,10 +869,16 @@ pg_clear_attribute_stats(PG_FUNCTION_ARGS)
+ 	bool		inherited;
+ 
+ 	stats_check_required_arg(fcinfo, attarginfo, ATTRELATION_ARG);
+ 	reloid = PG_GETARG_OID(ATTRELATION_ARG);
+ 
++	if (RecoveryInProgress())
++		ereport(ERROR,
++				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
++				 errmsg("recovery is in progress"),
++				 errhint("Statistics cannot be modified during recovery.")));
++
+ 	stats_lock_check_privileges(reloid);
+ 
+ 	stats_check_required_arg(fcinfo, attarginfo, ATTNAME_ARG);
+ 	attname = PG_GETARG_NAME(ATTNAME_ARG);
+ 	attnum = get_attnum(reloid, NameStr(*attname));
+diff --git a/src/backend/statistics/relation_stats.c b/src/backend/statistics/relation_stats.c
+index ed5dea2e058..e619d5cf5b1 100644
+--- a/src/backend/statistics/relation_stats.c
++++ b/src/backend/statistics/relation_stats.c
+@@ -70,10 +70,16 @@ relation_statistics_update(FunctionCallInfo fcinfo, int elevel)
+ 	bool		result = true;
+ 
+ 	stats_check_required_arg(fcinfo, relarginfo, RELATION_ARG);
+ 	reloid = PG_GETARG_OID(RELATION_ARG);
+ 
++	if (RecoveryInProgress())
++		ereport(ERROR,
++				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
++				 errmsg("recovery is in progress"),
++				 errhint("Statistics cannot be modified during recovery.")));
++
+ 	stats_lock_check_privileges(reloid);
+ 
+ 	/*
+ 	 * Take RowExclusiveLock on pg_class, consistent with
+ 	 * vac_update_relstats().

@@ -1,0 +1,111 @@
+commit 245e14e28b298e6ed00ea8d8c607b62387c9da92
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu Aug 4 17:36:21 2022 +0900
+
+    Fix inconsistent comments for some function declarations in headers
+    
+    Some of the headers list a couple of function prototypes located in a
+    different file than what is referred to.  This fixes a couple of
+    places where this inconsistency exists.
+    
+    Author: Richard Guo
+    Discussion: https://postgr.es/m/CAMbWs4__RdcSNXPa7L62Ozvo_Q4LvT60o3Bnp8yrQ_m9y5CKvg@mail.gmail.com
+
+diff --git a/src/include/access/nbtxlog.h b/src/include/access/nbtxlog.h
+index d79489efe47..dd504d18851 100644
+--- a/src/include/access/nbtxlog.h
++++ b/src/include/access/nbtxlog.h
+@@ -340,12 +340,16 @@ typedef struct xl_btree_newroot
+ 
+ /*
+  * prototypes for functions in nbtxlog.c
+  */
+ extern void btree_redo(XLogReaderState *record);
+-extern void btree_desc(StringInfo buf, XLogReaderState *record);
+-extern const char *btree_identify(uint8 info);
+ extern void btree_xlog_startup(void);
+ extern void btree_xlog_cleanup(void);
+ extern void btree_mask(char *pagedata, BlockNumber blkno);
+ 
++/*
++ * prototypes for functions in nbtdesc.c
++ */
++extern void btree_desc(StringInfo buf, XLogReaderState *record);
++extern const char *btree_identify(uint8 info);
++
+ #endif							/* NBTXLOG_H */
+diff --git a/src/include/replication/walreceiver.h b/src/include/replication/walreceiver.h
+index 88d7cc6abcb..bd8398de0b9 100644
+--- a/src/include/replication/walreceiver.h
++++ b/src/include/replication/walreceiver.h
+@@ -453,10 +453,11 @@ walrcv_clear_result(WalRcvExecResult *walres)
+ }
+ 
+ /* prototypes for functions in walreceiver.c */
+ extern void WalReceiverMain(void) pg_attribute_noreturn();
+ extern void ProcessWalRcvInterrupts(void);
++extern void WalRcvForceReply(void);
+ 
+ /* prototypes for functions in walreceiverfuncs.c */
+ extern Size WalRcvShmemSize(void);
+ extern void WalRcvShmemInit(void);
+ extern void ShutdownWalRcv(void);
+@@ -467,8 +468,7 @@ extern void RequestXLogStreaming(TimeLineID tli, XLogRecPtr recptr,
+ 								 bool create_temp_slot);
+ extern XLogRecPtr GetWalRcvFlushRecPtr(XLogRecPtr *latestChunkStart, TimeLineID *receiveTLI);
+ extern XLogRecPtr GetWalRcvWriteRecPtr(void);
+ extern int	GetReplicationApplyDelay(void);
+ extern int	GetReplicationTransferLatency(void);
+-extern void WalRcvForceReply(void);
+ 
+ #endif							/* _WALRECEIVER_H */
+diff --git a/src/include/storage/bufmgr.h b/src/include/storage/bufmgr.h
+index bf8cce7ccf6..6f4dfa09602 100644
+--- a/src/include/storage/bufmgr.h
++++ b/src/include/storage/bufmgr.h
+@@ -121,11 +121,10 @@ extern void UnlockReleaseBuffer(Buffer buffer);
+ extern void MarkBufferDirty(Buffer buffer);
+ extern void IncrBufferRefCount(Buffer buffer);
+ extern Buffer ReleaseAndReadBuffer(Buffer buffer, Relation relation,
+ 								   BlockNumber blockNum);
+ 
+-extern void InitBufferPool(void);
+ extern void InitBufferPoolAccess(void);
+ extern void AtEOXact_Buffers(bool isCommit);
+ extern void PrintBufferLeakWarning(Buffer buffer);
+ extern void CheckPointBuffers(int flags);
+ extern BlockNumber BufferGetBlockNumber(Buffer buffer);
+@@ -152,11 +151,10 @@ extern bool BufferIsPermanent(Buffer buffer);
+ extern XLogRecPtr BufferGetLSNAtomic(Buffer buffer);
+ 
+ #ifdef NOT_USED
+ extern void PrintPinnedBufs(void);
+ #endif
+-extern Size BufferShmemSize(void);
+ extern void BufferGetTag(Buffer buffer, RelFileLocator *rlocator,
+ 						 ForkNumber *forknum, BlockNumber *blknum);
+ 
+ extern void MarkBufferDirtyHint(Buffer buffer, bool buffer_std);
+ 
+@@ -171,14 +169,19 @@ extern bool HoldingBufferPinThatDelaysRecovery(void);
+ extern void AbortBufferIO(void);
+ 
+ extern void BufmgrCommit(void);
+ extern bool BgBufferSync(struct WritebackContext *wb_context);
+ 
+-extern void AtProcExit_LocalBuffers(void);
+-
+ extern void TestForOldSnapshot_impl(Snapshot snapshot, Relation relation);
+ 
++/* in buf_init.c */
++extern void InitBufferPool(void);
++extern Size BufferShmemSize(void);
++
++/* in localbuf.c */
++extern void AtProcExit_LocalBuffers(void);
++
+ /* in freelist.c */
+ extern BufferAccessStrategy GetAccessStrategy(BufferAccessStrategyType btype);
+ extern void FreeAccessStrategy(BufferAccessStrategy strategy);
+ 
+ 

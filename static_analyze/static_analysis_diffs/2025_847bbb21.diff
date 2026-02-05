@@ -1,0 +1,115 @@
+commit 847bbb21f8c4eb0e2b47417684ad2ba9255c9e80
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Fri Apr 11 22:17:12 2025 +0200
+
+    Fix recently introduced typos
+    
+    This fixes typos in docs and comments introduced during the v18
+    development cycle, to keep them from ending up in backbranches.
+    
+    Author: Jacob Brazeal <jacob.brazeal@gmail.com>
+    Reviewed-by: Daniel Gustafsson <daniel@yesql.se>
+    Discussion: https://postgr.es/m/CA+COZaCgGua25f2hSrjrDLJcJJAHkwoKgTTqUy-wyL1=64JNjw@mail.gmail.com
+
+diff --git a/doc/src/sgml/indexam.sgml b/doc/src/sgml/indexam.sgml
+index d5adb58c163..1aa4741a8ea 100644
+--- a/doc/src/sgml/indexam.sgml
++++ b/doc/src/sgml/indexam.sgml
+@@ -893,11 +893,11 @@ CompareType
+ amtranslatestrategy (StrategyNumber strategy, Oid opfamily, Oid opcintype);
+ 
+ StrategyNumber
+ amtranslatecmptype (CompareType cmptype, Oid opfamily, Oid opcintype);
+ </programlisting>
+-   These functions, if implemented, will be called by the planer and executor
++   These functions, if implemented, will be called by the planner and executor
+    to convert between fixed <type>CompareType</type> values and the specific
+    strategy numbers used by the access method.  These functions can be
+    implemented by access methods that implement functionality similar to the
+    built-in btree or hash access methods, and by implementing these
+    translations, the system can learn about the semantics of the access
+diff --git a/src/backend/statistics/attribute_stats.c b/src/backend/statistics/attribute_stats.c
+index f5eb17ba42d..ab198076401 100644
+--- a/src/backend/statistics/attribute_stats.c
++++ b/src/backend/statistics/attribute_stats.c
+@@ -545,11 +545,11 @@ get_attr_expr(Relation rel, int attnum)
+ 	/* index has no expressions to give */
+ 	if (index_exprs == NIL)
+ 		return NULL;
+ 
+ 	/*
+-	 * The index attnum points directly to a relation attnum, then it's no an
++	 * The index attnum points directly to a relation attnum, then it's not an
+ 	 * expression attribute.
+ 	 */
+ 	if (rel->rd_index->indkey.values[attnum - 1] != 0)
+ 		return NULL;
+ 
+diff --git a/src/backend/storage/lmgr/lwlock.c b/src/backend/storage/lmgr/lwlock.c
+index dc4d96c16af..13772c04568 100644
+--- a/src/backend/storage/lmgr/lwlock.c
++++ b/src/backend/storage/lmgr/lwlock.c
+@@ -1830,11 +1830,11 @@ LWLockDisownInternal(LWLock *lock)
+ 	return mode;
+ }
+ 
+ /*
+  * Helper function to release lock, shared between LWLockRelease() and
+- * LWLockeleaseDisowned().
++ * LWLockReleaseDisowned().
+  */
+ static void
+ LWLockReleaseInternal(LWLock *lock, LWLockMode mode)
+ {
+ 	uint32		oldstate;
+diff --git a/src/backend/utils/activity/pgstat_backend.c b/src/backend/utils/activity/pgstat_backend.c
+index f6aaf589866..51256277e8d 100644
+--- a/src/backend/utils/activity/pgstat_backend.c
++++ b/src/backend/utils/activity/pgstat_backend.c
+@@ -98,11 +98,11 @@ pgstat_fetch_stat_backend(ProcNumber procNumber)
+ }
+ 
+ /*
+  * Returns statistics of a backend by pid.
+  *
+- * This routine includes sanity checks to ensire that the backend exists and
++ * This routine includes sanity checks to ensure that the backend exists and
+  * is running.  "bktype" can be optionally defined to return the BackendType
+  * of the backend whose statistics are returned.
+  */
+ PgStat_Backend *
+ pgstat_fetch_stat_backend_by_pid(int pid, BackendType *bktype)
+diff --git a/src/backend/utils/cache/inval.c b/src/backend/utils/cache/inval.c
+index 4eb67720737..4893dbdd7c8 100644
+--- a/src/backend/utils/cache/inval.c
++++ b/src/backend/utils/cache/inval.c
+@@ -1742,11 +1742,11 @@ CacheInvalidateSmgr(RelFileLocatorBackend rlocator)
+ {
+ 	SharedInvalidationMessage msg;
+ 
+ 	/* verify optimization stated above stays valid */
+ 	StaticAssertStmt(MAX_BACKENDS_BITS <= 23,
+-					 "MAX_BACKEND_BITS is too big for inval.c");
++					 "MAX_BACKENDS_BITS is too big for inval.c");
+ 
+ 	msg.sm.id = SHAREDINVALSMGR_ID;
+ 	msg.sm.backend_hi = rlocator.backend >> 16;
+ 	msg.sm.backend_lo = rlocator.backend & 0xffff;
+ 	msg.sm.rlocator = rlocator.locator;
+diff --git a/src/tools/testwrap b/src/tools/testwrap
+index 21105146c9d..02f1951ad7e 100755
+--- a/src/tools/testwrap
++++ b/src/tools/testwrap
+@@ -41,11 +41,11 @@ open(os.path.join(testdir, 'test.start'), 'x')
+ env_dict = {**os.environ,
+             'TESTDATADIR': os.path.join(testdir, 'data'),
+             'TESTLOGDIR': os.path.join(testdir, 'log')}
+ 
+ 
+-# The configuration time value of PG_TEST_EXTRA is supplied via arguement
++# The configuration time value of PG_TEST_EXTRA is supplied via argument
+ # --pg-test-extra. But it can be overridden by environment variable
+ # PG_TEST_EXTRA at the time of running a test. Hence use value from arguments
+ # only if PG_TEST_EXTRA is not set in the test environment, which already
+ # contains all the environment variables at the time of running the test.
+ if "PG_TEST_EXTRA" not in env_dict and args.pg_test_extra:

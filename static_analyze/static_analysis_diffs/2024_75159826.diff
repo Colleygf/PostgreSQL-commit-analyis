@@ -1,0 +1,88 @@
+commit 7515982636902ad1e945b4606b02ee706dadb83e
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu Jun 6 15:16:56 2024 -0400
+
+    Fix failure with SQL-procedure polymorphic output arguments in v12.
+    
+    Before the v13-era commit 913bbd88d, check_sql_fn_retval fails to
+    resolve polymorphic output types and then just throws up its hands and
+    assumes the check will be made at runtime.  I think that's true for
+    ordinary functions returning RECORD, but it doesn't happen in CALL,
+    potentially resulting in crashes if the actual output of the SQL
+    procedure's SELECT doesn't match the type inferred from polymorphism.
+    With a little bit of rearrangement, we can use get_call_result_type
+    instead of get_func_result_type and thereby infer the correct types.
+    
+    I'm still unwilling to back-patch all of 913bbd88d, so if the types
+    don't match you'll get an error rather than perhaps silently inserting
+    a cast as v13 and later can.  That's consistent with prior behavior
+    though, so it seems fine.
+    
+    Prior to 70ffb27b2, you'd typically get other errors due to other
+    shortcomings of CALL's management of polymorphism.  Nonetheless,
+    this is an independent bug.
+    
+    Although there is no bug in v13 and up, it seems prudent to add
+    the test case for this to the newer branches too.  It's clearly
+    an under-tested area.
+    
+    Per report from Andrew Bille.
+    
+    Discussion: https://postgr.es/m/CAJnzarw9EeWHAQRm76dXd=7j+rgw6ERqC=nCay8jeFqTwKwhqQ@mail.gmail.com
+
+diff --git a/src/test/regress/expected/create_procedure.out b/src/test/regress/expected/create_procedure.out
+index 8a32fd960c6..2177ba35090 100644
+--- a/src/test/regress/expected/create_procedure.out
++++ b/src/test/regress/expected/create_procedure.out
+@@ -225,10 +225,27 @@ CALL ptest6b(1.1, null, null);
+   b  |   c   
+ -----+-------
+  1.1 | {1.1}
+ (1 row)
+ 
++CREATE PROCEDURE ptest6c(inout a anyelement, inout b anyelement)
++LANGUAGE SQL
++AS $$
++SELECT $1, 1;
++$$;
++CALL ptest6c(1, null);
++ a | b 
++---+---
++ 1 | 1
++(1 row)
++
++CALL ptest6c(1.1, null);  -- fails before v13
++  a  | b 
++-----+---
++ 1.1 | 1
++(1 row)
++
+ -- collation assignment
+ CREATE PROCEDURE ptest7(a text, b text)
+ LANGUAGE SQL
+ AS $$
+ SELECT a = b;
+diff --git a/src/test/regress/sql/create_procedure.sql b/src/test/regress/sql/create_procedure.sql
+index b10cf71ca48..069a3727ced 100644
+--- a/src/test/regress/sql/create_procedure.sql
++++ b/src/test/regress/sql/create_procedure.sql
+@@ -147,10 +147,19 @@ SELECT $1, array[$1];
+ $$;
+ 
+ CALL ptest6b(1, null, null);
+ CALL ptest6b(1.1, null, null);
+ 
++CREATE PROCEDURE ptest6c(inout a anyelement, inout b anyelement)
++LANGUAGE SQL
++AS $$
++SELECT $1, 1;
++$$;
++
++CALL ptest6c(1, null);
++CALL ptest6c(1.1, null);  -- fails before v13
++
+ 
+ -- collation assignment
+ 
+ CREATE PROCEDURE ptest7(a text, b text)
+ LANGUAGE SQL

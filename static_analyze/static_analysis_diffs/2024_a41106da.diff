@@ -1,0 +1,54 @@
+commit a41106dab72cbcaa02fce8bda8965d04e85f2d3a
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Thu Jun 13 11:52:35 2024 +0200
+
+    Fix documentation of initdb --show option
+    
+    It wasn't in the documentation at all (even though we document all the
+    other debugging-like options).  Also, change the --help output to show
+    that it exits after showing, similar to other options.
+
+diff --git a/doc/src/sgml/ref/initdb.sgml b/doc/src/sgml/ref/initdb.sgml
+index 74008a9a82f..bdd613e77ff 100644
+--- a/doc/src/sgml/ref/initdb.sgml
++++ b/doc/src/sgml/ref/initdb.sgml
+@@ -523,10 +523,22 @@ PostgreSQL documentation
+         behavior, where those instructions are likely to be incorrect.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
++     <varlistentry id="app-initdb-option-show">
++      <term><option>-s</option></term>
++      <term><option>--show</option></term>
++      <listitem>
++       <para>
++        Show internal settings and exit, without doing anything else.  This
++        can be used to debug the <application>initdb</application>
++        installation.
++       </para>
++      </listitem>
++     </varlistentry>
++
+      <varlistentry id="app-initdb-option-sync-method">
+       <term><option>--sync-method=<replaceable>method</replaceable></option></term>
+       <listitem>
+        <para>
+         When set to <literal>fsync</literal>, which is the default,
+diff --git a/src/bin/initdb/initdb.c b/src/bin/initdb/initdb.c
+index 12ae194067f..f00718a0150 100644
+--- a/src/bin/initdb/initdb.c
++++ b/src/bin/initdb/initdb.c
+@@ -2479,11 +2479,11 @@ usage(const char *progname)
+ 	printf(_("      --discard-caches      set debug_discard_caches=1\n"));
+ 	printf(_("  -L DIRECTORY              where to find the input files\n"));
+ 	printf(_("  -n, --no-clean            do not clean up after errors\n"));
+ 	printf(_("  -N, --no-sync             do not wait for changes to be written safely to disk\n"));
+ 	printf(_("      --no-instructions     do not print instructions for next steps\n"));
+-	printf(_("  -s, --show                show internal settings\n"));
++	printf(_("  -s, --show                show internal settings, then exit\n"));
+ 	printf(_("      --sync-method=METHOD  set method for syncing files to disk\n"));
+ 	printf(_("  -S, --sync-only           only sync database files to disk, then exit\n"));
+ 	printf(_("\nOther options:\n"));
+ 	printf(_("  -V, --version             output version information, then exit\n"));
+ 	printf(_("  -?, --help                show this help, then exit\n"));

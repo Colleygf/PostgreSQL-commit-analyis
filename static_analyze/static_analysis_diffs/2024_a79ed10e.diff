@@ -1,0 +1,58 @@
+commit a79ed10e6c6b43cc43a51a5f5bcc29252b4bb6dc
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Sat Aug 10 00:06:19 2024 +0300
+
+    Fix comment on processes being kept over a restart
+    
+    All child processes except the syslogger are killed on a restart. The
+    archiver might be already running though, if it was started during
+    recovery.
+    
+    The split in the comments between "other special children" and the
+    first group of "background tasks" seemed really arbitrary, so I just
+    merged them all into one group.
+    
+    Reviewed-by: Thomas Munro <thomas.munro@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/8f2118b9-79e3-4af7-b2c9-bd5818193ca4@iki.fi
+
+diff --git a/src/backend/postmaster/postmaster.c b/src/backend/postmaster/postmaster.c
+index 12d9aa0041a..f3846f11b18 100644
+--- a/src/backend/postmaster/postmaster.c
++++ b/src/backend/postmaster/postmaster.c
+@@ -2384,33 +2384,26 @@ process_pm_child_exit(void)
+ 			ReachedNormalRunning = true;
+ 			pmState = PM_RUN;
+ 			connsAllowed = true;
+ 
+ 			/*
+-			 * Crank up the background tasks, if we didn't do that already
+-			 * when we entered consistent recovery state.  It doesn't matter
+-			 * if this fails, we'll just try again later.
++			 * Crank up any background tasks that we didn't start earlier
++			 * already.  It doesn't matter if any of these fail, we'll just
++			 * try again later.
+ 			 */
+ 			if (CheckpointerPID == 0)
+ 				CheckpointerPID = StartChildProcess(B_CHECKPOINTER);
+ 			if (BgWriterPID == 0)
+ 				BgWriterPID = StartChildProcess(B_BG_WRITER);
+ 			if (WalWriterPID == 0)
+ 				WalWriterPID = StartChildProcess(B_WAL_WRITER);
+ 			MaybeStartWalSummarizer();
+-
+-			/*
+-			 * Likewise, start other special children as needed.  In a restart
+-			 * situation, some of them may be alive already.
+-			 */
+ 			if (!IsBinaryUpgrade && AutoVacuumingActive() && AutoVacPID == 0)
+ 				AutoVacPID = StartChildProcess(B_AUTOVAC_LAUNCHER);
+ 			if (PgArchStartupAllowed() && PgArchPID == 0)
+ 				PgArchPID = StartChildProcess(B_ARCHIVER);
+ 			MaybeStartSlotSyncWorker();
+-
+-			/* workers may be scheduled to start now */
+ 			maybe_start_bgworkers();
+ 
+ 			/* at this point we are really open for business */
+ 			ereport(LOG,
+ 					(errmsg("database system is ready to accept connections")));

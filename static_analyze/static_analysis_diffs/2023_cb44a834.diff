@@ -1,0 +1,71 @@
+commit cb44a8345e7c248cf4158f2702fd9c9358399cfb
+Author: Tomas Vondra <tomas.vondra@postgresql.org>
+Date:   Sat Dec 30 22:59:42 2023 +0100
+
+    Fix parallel BRIN builds with synchronized scans
+    
+    The brinbuildCallbackParallel callback used by parallel BRIN builds did
+    not consider that the parallel table scans may be synchronized, starting
+    from an arbitrary block and then wrap around.
+    
+    If this happened and the scan actually did wrap around, tuples from the
+    beginning of the table were added to the last range produced by the same
+    worker. The index would be missing range at the beginning of the table,
+    while the last range would be too wide. This would not produce incorrect
+    query results, but it'd be less efficient.
+    
+    Fixed by checking for both past and future ranges in the callback. The
+    worker may produce multiple summaries for the same page range, but the
+    leader will merge them as if the summaries came from different workers.
+    
+    Discussion: https://postgr.es/m/c2ee7d69-ce17-43f2-d1a0-9811edbda6e6%40enterprisedb.com
+
+diff --git a/src/backend/access/brin/brin.c b/src/backend/access/brin/brin.c
+index 5e662a4d4ee..dfa34f49a4f 100644
+--- a/src/backend/access/brin/brin.c
++++ b/src/backend/access/brin/brin.c
+@@ -1038,20 +1038,26 @@ brinbuildCallbackParallel(Relation index,
+ 	BlockNumber thisblock;
+ 
+ 	thisblock = ItemPointerGetBlockNumber(tid);
+ 
+ 	/*
+-	 * If we're in a block that belongs to a future range, summarize what
++	 * If we're in a block that belongs to a different range, summarize what
+ 	 * we've got and start afresh.  Note the scan might have skipped many
+ 	 * pages, if they were devoid of live tuples; we do not create emptry BRIN
+ 	 * ranges here - the leader is responsible for filling them in.
++	 *
++	 * Unlike serial builds, parallel index builds allow synchronized seqscans
++	 * (because that's what parallel scans do). This means the block may wrap
++	 * around to the beginning of the relation, so the condition needs to
++	 * check for both future and past ranges.
+ 	 */
+-	if (thisblock > state->bs_currRangeStart + state->bs_pagesPerRange - 1)
++	if ((thisblock < state->bs_currRangeStart) ||
++		(thisblock > state->bs_currRangeStart + state->bs_pagesPerRange - 1))
+ 	{
+ 
+ 		BRIN_elog((DEBUG2,
+-				   "brinbuildCallback: completed a range: %u--%u",
++				   "brinbuildCallbackParallel: completed a range: %u--%u",
+ 				   state->bs_currRangeStart,
+ 				   state->bs_currRangeStart + state->bs_pagesPerRange));
+ 
+ 		/* create the index tuple and write it into the tuplesort */
+ 		form_and_spill_tuple(state);
+@@ -1199,11 +1205,13 @@ brinbuild(Relation heap, Relation index, IndexInfo *indexInfo)
+ 	}
+ 	else						/* no parallel index build */
+ 	{
+ 		/*
+ 		 * Now scan the relation.  No syncscan allowed here because we want
+-		 * the heap blocks in physical order.
++		 * the heap blocks in physical order (we want to produce the ranges
++		 * starting from block 0, and the callback also relies on this to not
++		 * generate summary for the same range twice).
+ 		 */
+ 		reltuples = table_index_build_scan(heap, index, indexInfo, false, true,
+ 										   brinbuildCallback, (void *) state, NULL);
+ 
+ 		/*

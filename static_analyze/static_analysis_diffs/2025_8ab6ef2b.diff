@@ -1,0 +1,103 @@
+commit 8ab6ef2bb8d9a00d205742932eb0b6daf62b34e0
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sun Apr 6 11:57:22 2025 -0400
+
+    Fix memory leaks in px_crypt_shacrypt().
+    
+    Per Coverity.  I don't think these are of any actual significance
+    since the function ought to be invoked in a short-lived context.
+    Still, if it's trying to be neat it should get it right.
+    
+    Also const-ify a constant and fix up typedef formatting.
+
+diff --git a/contrib/pgcrypto/crypt-sha.c b/contrib/pgcrypto/crypt-sha.c
+index 862f3fb9a68..7e9440ca784 100644
+--- a/contrib/pgcrypto/crypt-sha.c
++++ b/contrib/pgcrypto/crypt-sha.c
+@@ -54,11 +54,11 @@
+ typedef enum
+ {
+ 	PGCRYPTO_SHA256CRYPT = 0,
+ 	PGCRYPTO_SHA512CRYPT = 1,
+ 	PGCRYPTO_SHA_UNKOWN
+-}			PGCRYPTO_SHA_t;
++} PGCRYPTO_SHA_t;
+ 
+ static unsigned char _crypt_itoa64[64 + 1] =
+ "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+ 
+ /*
+@@ -66,11 +66,11 @@ static unsigned char _crypt_itoa64[64 + 1] =
+  */
+ char *
+ px_crypt_shacrypt(const char *pw, const char *salt, char *passwd, unsigned dstlen)
+ {
+ 	static const char rounds_prefix[] = "rounds=";
+-	static char *magic_bytes[2] = {"$5$", "$6$"};
++	static const char *magic_bytes[2] = {"$5$", "$6$"};
+ 
+ 	/* Used to create the password hash string */
+ 	StringInfo	out_buf = NULL;
+ 
+ 	PGCRYPTO_SHA_t type = PGCRYPTO_SHA_UNKOWN;
+@@ -94,14 +94,10 @@ px_crypt_shacrypt(const char *pw, const char *salt, char *passwd, unsigned dstle
+ 	unsigned int block;			/* number of bytes processed */
+ 	uint32		rounds = PX_SHACRYPT_ROUNDS_DEFAULT;
+ 	unsigned int len,
+ 				salt_len = 0;
+ 
+-	/* Init result buffer */
+-	out_buf = makeStringInfoExt(PX_SHACRYPT_BUF_LEN);
+-	decoded_salt = makeStringInfoExt(PX_SHACRYPT_SALT_MAX_LEN);
+-
+ 	/* Sanity checks */
+ 	if (!passwd)
+ 		return NULL;
+ 
+ 	if (pw == NULL)
+@@ -114,10 +110,14 @@ px_crypt_shacrypt(const char *pw, const char *salt, char *passwd, unsigned dstle
+ 	 * Make sure result buffers are large enough.
+ 	 */
+ 	if (dstlen < PX_SHACRYPT_BUF_LEN)
+ 		elog(ERROR, "insufficient result buffer size to encrypt password");
+ 
++	/* Init result buffer */
++	out_buf = makeStringInfoExt(PX_SHACRYPT_BUF_LEN);
++	decoded_salt = makeStringInfoExt(PX_SHACRYPT_SALT_MAX_LEN);
++
+ 	/* Init contents of buffers properly */
+ 	memset(&sha_buf, '\0', sizeof(sha_buf));
+ 	memset(&sha_buf_tmp, '\0', sizeof(sha_buf_tmp));
+ 
+ 	/*
+@@ -628,12 +628,12 @@ error:
+ 		px_md_free(digestA);
+ 
+ 	if (digestB != NULL)
+ 		px_md_free(digestB);
+ 
+-	if (out_buf != NULL)
+-		destroyStringInfo(out_buf);
++	destroyStringInfo(out_buf);
++	destroyStringInfo(decoded_salt);
+ 
+ 	ereport(ERROR,
+ 			errcode(ERRCODE_INTERNAL_ERROR),
+ 			errmsg("cannot create encrypted password"));
+ 	return NULL;				/* keep compiler quiet */
+diff --git a/src/tools/pgindent/typedefs.list b/src/tools/pgindent/typedefs.list
+index 1a30437ad96..d42b943ef94 100644
+--- a/src/tools/pgindent/typedefs.list
++++ b/src/tools/pgindent/typedefs.list
+@@ -1823,10 +1823,11 @@ PERL_SI
+ PFN
+ PGAlignedBlock
+ PGAlignedXLogBlock
+ PGAsyncStatusType
+ PGCALL2
++PGCRYPTO_SHA_t
+ PGChecksummablePage
+ PGContextVisibility
+ PGErrorVerbosity
+ PGEvent
+ PGEventConnDestroy

@@ -1,0 +1,79 @@
+commit 237f8765dfd9149471d37f3754d15cef888338a8
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sat Oct 28 14:04:42 2023 -0400
+
+    Fix intra-query memory leak when a SRF returns zero rows.
+    
+    When looping around after finding that the set-returning function
+    returned zero rows for the current input tuple, ExecProjectSet
+    neglected to reset either of the two memory contexts it's
+    responsible for cleaning out.  Typically this wouldn't cause much
+    problem, because once the SRF does return at least one row, the
+    contexts would get reset on the next call.  However, if the SRF
+    returns no rows for many input tuples in succession, quite a lot
+    of memory could be transiently consumed.
+    
+    To fix, make sure we reset both contexts while looping around.
+    
+    Per bug #18172 from Sergei Kornilov.  Back-patch to all supported
+    branches.
+    
+    Discussion: https://postgr.es/m/18172-9b8c5fc1d676ded3@postgresql.org
+
+diff --git a/src/backend/executor/nodeProjectSet.c b/src/backend/executor/nodeProjectSet.c
+index b4bbdc89b19..aee26d38133 100644
+--- a/src/backend/executor/nodeProjectSet.c
++++ b/src/backend/executor/nodeProjectSet.c
+@@ -70,24 +70,26 @@ ExecProjectSet(PlanState *pstate)
+ 
+ 		if (resultSlot != NULL)
+ 			return resultSlot;
+ 	}
+ 
+-	/*
+-	 * Reset argument context to free any expression evaluation storage
+-	 * allocated in the previous tuple cycle.  Note this can't happen until
+-	 * we're done projecting out tuples from a scan tuple, as ValuePerCall
+-	 * functions are allowed to reference the arguments for each returned
+-	 * tuple.
+-	 */
+-	MemoryContextReset(node->argcontext);
+-
+ 	/*
+ 	 * Get another input tuple and project SRFs from it.
+ 	 */
+ 	for (;;)
+ 	{
++		/*
++		 * Reset argument context to free any expression evaluation storage
++		 * allocated in the previous tuple cycle.  Note this can't happen
++		 * until we're done projecting out tuples from a scan tuple, as
++		 * ValuePerCall functions are allowed to reference the arguments for
++		 * each returned tuple.  However, if we loop around after finding that
++		 * no rows are produced from a scan tuple, we should reset, to avoid
++		 * leaking memory when many successive scan tuples produce no rows.
++		 */
++		MemoryContextReset(node->argcontext);
++
+ 		/*
+ 		 * Retrieve tuples from the outer plan until there are no more.
+ 		 */
+ 		outerPlan = outerPlanState(node);
+ 		outerTupleSlot = ExecProcNode(outerPlan);
+@@ -109,10 +111,16 @@ ExecProjectSet(PlanState *pstate)
+ 		 * empty set), in which case we must loop back to see if there are
+ 		 * more outerPlan tuples.
+ 		 */
+ 		if (resultSlot)
+ 			return resultSlot;
++
++		/*
++		 * When we do loop back, we'd better reset the econtext again, just in
++		 * case the SRF leaked some memory there.
++		 */
++		ResetExprContext(econtext);
+ 	}
+ 
+ 	return NULL;
+ }
+ 

@@ -1,0 +1,41 @@
+commit dbf3f974ee04d24547690268b1fc2b7eb12b4ebc
+Author: Noah Misch <noah@leadboat.com>
+Date:   Tue Sep 24 15:25:18 2024 -0700
+
+    Warn if LOCKTAG_TUPLE is held at commit, under debug_assertions.
+    
+    The current use always releases this locktag.  A planned use will
+    continue that intent.  It will involve more areas of code, making unlock
+    omissions easier.  Warn under debug_assertions, like we do for various
+    resource leaks.  Back-patch to v12 (all supported versions), the plan
+    for the commit of the new use.
+    
+    Reviewed by Heikki Linnakangas.
+    
+    Discussion: https://postgr.es/m/20240512232923.aa.nmisch@google.com
+
+diff --git a/src/backend/storage/lmgr/lock.c b/src/backend/storage/lmgr/lock.c
+index bbd444745fd..09a8ac15784 100644
+--- a/src/backend/storage/lmgr/lock.c
++++ b/src/backend/storage/lmgr/lock.c
+@@ -2303,10 +2303,20 @@ LockReleaseAll(LOCKMETHODID lockmethodid, bool allLocks)
+ 			}
+ 			else
+ 				locallock->numLockOwners = 0;
+ 		}
+ 
++#ifdef USE_ASSERT_CHECKING
++
++		/*
++		 * Tuple locks are currently held only for short durations within a
++		 * transaction. Check that we didn't forget to release one.
++		 */
++		if (LOCALLOCK_LOCKTAG(*locallock) == LOCKTAG_TUPLE && !allLocks)
++			elog(WARNING, "tuple lock held at commit");
++#endif
++
+ 		/*
+ 		 * If the lock or proclock pointers are NULL, this lock was taken via
+ 		 * the relation fast-path (and is not known to have been transferred).
+ 		 */
+ 		if (locallock->proclock == NULL || locallock->lock == NULL)

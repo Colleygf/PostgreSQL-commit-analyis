@@ -1,0 +1,151 @@
+commit 8ab0ebb9a842dc6063d1374a38b47a3b7ee64afe
+Author: Peter Geoghegan <pg@bowt.ie>
+Date:   Wed Apr 20 17:17:43 2022 -0700
+
+    Fix CLUSTER tuplesorts on abbreviated expressions.
+    
+    CLUSTER sort won't use the datum1 SortTuple field when clustering
+    against an index whose leading key is an expression.  This makes it
+    unsafe to use the abbreviated keys optimization, which was missed by the
+    logic that sets up SortSupport state.  Affected tuplesorts output tuples
+    in a completely bogus order as a result (the wrong SortSupport based
+    comparator was used for the leading attribute).
+    
+    This issue is similar to the bug fixed on the master branch by recent
+    commit cc58eecc5d.  But it's a far older issue, that dates back to the
+    introduction of the abbreviated keys optimization by commit 4ea51cdfe8.
+    
+    Backpatch to all supported versions.
+    
+    Author: Peter Geoghegan <pg@bowt.ie>
+    Author: Thomas Munro <thomas.munro@gmail.com>
+    Discussion: https://postgr.es/m/CA+hUKG+bA+bmwD36_oDxAoLrCwZjVtST2fqe=b4=qZcmU7u89A@mail.gmail.com
+    Backpatch: 10-
+
+diff --git a/src/backend/utils/sort/tuplesort.c b/src/backend/utils/sort/tuplesort.c
+index 1174e1a31c9..10e89e52087 100644
+--- a/src/backend/utils/sort/tuplesort.c
++++ b/src/backend/utils/sort/tuplesort.c
+@@ -1049,11 +1049,11 @@ tuplesort_begin_heap(TupleDesc tupDesc,
+ 		sortKey->ssup_cxt = CurrentMemoryContext;
+ 		sortKey->ssup_collation = sortCollations[i];
+ 		sortKey->ssup_nulls_first = nullsFirstFlags[i];
+ 		sortKey->ssup_attno = attNums[i];
+ 		/* Convey if abbreviation optimization is applicable in principle */
+-		sortKey->abbreviate = (i == 0);
++		sortKey->abbreviate = (i == 0 && state->haveDatum1);
+ 
+ 		PrepareSortSupportFromOrderingOp(sortOperators[i], sortKey);
+ 	}
+ 
+ 	/*
+@@ -1155,11 +1155,11 @@ tuplesort_begin_cluster(TupleDesc tupDesc,
+ 		sortKey->ssup_collation = scanKey->sk_collation;
+ 		sortKey->ssup_nulls_first =
+ 			(scanKey->sk_flags & SK_BT_NULLS_FIRST) != 0;
+ 		sortKey->ssup_attno = scanKey->sk_attno;
+ 		/* Convey if abbreviation optimization is applicable in principle */
+-		sortKey->abbreviate = (i == 0);
++		sortKey->abbreviate = (i == 0 && state->haveDatum1);
+ 
+ 		AssertState(sortKey->ssup_attno != 0);
+ 
+ 		strategy = (scanKey->sk_flags & SK_BT_DESC) != 0 ?
+ 			BTGreaterStrategyNumber : BTLessStrategyNumber;
+@@ -1236,11 +1236,11 @@ tuplesort_begin_index_btree(Relation heapRel,
+ 		sortKey->ssup_collation = scanKey->sk_collation;
+ 		sortKey->ssup_nulls_first =
+ 			(scanKey->sk_flags & SK_BT_NULLS_FIRST) != 0;
+ 		sortKey->ssup_attno = scanKey->sk_attno;
+ 		/* Convey if abbreviation optimization is applicable in principle */
+-		sortKey->abbreviate = (i == 0);
++		sortKey->abbreviate = (i == 0 && state->haveDatum1);
+ 
+ 		AssertState(sortKey->ssup_attno != 0);
+ 
+ 		strategy = (scanKey->sk_flags & SK_BT_DESC) != 0 ?
+ 			BTGreaterStrategyNumber : BTLessStrategyNumber;
+@@ -1346,11 +1346,11 @@ tuplesort_begin_index_gist(Relation heapRel,
+ 		sortKey->ssup_cxt = CurrentMemoryContext;
+ 		sortKey->ssup_collation = indexRel->rd_indcollation[i];
+ 		sortKey->ssup_nulls_first = false;
+ 		sortKey->ssup_attno = i + 1;
+ 		/* Convey if abbreviation optimization is applicable in principle */
+-		sortKey->abbreviate = (i == 0);
++		sortKey->abbreviate = (i == 0 && state->haveDatum1);
+ 
+ 		AssertState(sortKey->ssup_attno != 0);
+ 
+ 		/* Look for a sort support function */
+ 		PrepareSortSupportFromGistIndexRel(indexRel, sortKey);
+diff --git a/src/test/regress/expected/cluster.out b/src/test/regress/expected/cluster.out
+index 6c8c4c929ab..542c2e098c5 100644
+--- a/src/test/regress/expected/cluster.out
++++ b/src/test/regress/expected/cluster.out
+@@ -575,10 +575,17 @@ SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b;
+ (4 rows)
+ 
+ COMMIT;
+ -- and after clustering on clstr_expression_minus_a
+ CLUSTER clstr_expression USING clstr_expression_minus_a;
++WITH rows AS
++  (SELECT ctid, lag(a) OVER (ORDER BY ctid) AS la, a FROM clstr_expression)
++SELECT * FROM rows WHERE la < a;
++ ctid | la | a 
++------+----+---
++(0 rows)
++
+ BEGIN;
+ SET LOCAL enable_seqscan = false;
+ EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3';
+                           QUERY PLAN                           
+ ---------------------------------------------------------------
+@@ -609,10 +616,17 @@ SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b;
+ (4 rows)
+ 
+ COMMIT;
+ -- and after clustering on clstr_expression_upper_b
+ CLUSTER clstr_expression USING clstr_expression_upper_b;
++WITH rows AS
++  (SELECT ctid, lag(b) OVER (ORDER BY ctid) AS lb, b FROM clstr_expression)
++SELECT * FROM rows WHERE upper(lb) > upper(b);
++ ctid | lb | b 
++------+----+---
++(0 rows)
++
+ BEGIN;
+ SET LOCAL enable_seqscan = false;
+ EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3';
+                           QUERY PLAN                           
+ ---------------------------------------------------------------
+diff --git a/src/test/regress/sql/cluster.sql b/src/test/regress/sql/cluster.sql
+index e758088ef6a..6cb9c926c06 100644
+--- a/src/test/regress/sql/cluster.sql
++++ b/src/test/regress/sql/cluster.sql
+@@ -282,20 +282,26 @@ EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b;
+ SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b;
+ COMMIT;
+ 
+ -- and after clustering on clstr_expression_minus_a
+ CLUSTER clstr_expression USING clstr_expression_minus_a;
++WITH rows AS
++  (SELECT ctid, lag(a) OVER (ORDER BY ctid) AS la, a FROM clstr_expression)
++SELECT * FROM rows WHERE la < a;
+ BEGIN;
+ SET LOCAL enable_seqscan = false;
+ EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3';
+ SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3';
+ EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b;
+ SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b;
+ COMMIT;
+ 
+ -- and after clustering on clstr_expression_upper_b
+ CLUSTER clstr_expression USING clstr_expression_upper_b;
++WITH rows AS
++  (SELECT ctid, lag(b) OVER (ORDER BY ctid) AS lb, b FROM clstr_expression)
++SELECT * FROM rows WHERE upper(lb) > upper(b);
+ BEGIN;
+ SET LOCAL enable_seqscan = false;
+ EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3';
+ SELECT * FROM clstr_expression WHERE upper(b) = 'PREFIX3';
+ EXPLAIN (COSTS OFF) SELECT * FROM clstr_expression WHERE -a = -3 ORDER BY -a, b;

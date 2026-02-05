@@ -1,0 +1,112 @@
+commit 8b9cbf4922756d912309567f83f81e41f1737ac7
+Author: Noah Misch <noah@leadboat.com>
+Date:   Tue Dec 10 13:51:59 2024 -0800
+
+    Fix elog(FATAL) before PostmasterMain() or just after fork().
+    
+    Since commit 97550c0711972a9856b5db751539bbaf2f88884c, these failed with
+    "PANIC:  proc_exit() called in child process" due to uninitialized or
+    stale MyProcPid.  That was reachable if close() failed in
+    ClosePostmasterPorts() or setlocale(category, "C") failed, both
+    unlikely.  Back-patch to v13 (all supported versions).
+    
+    Discussion: https://postgr.es/m/20241208034614.45.nmisch@google.com
+
+diff --git a/src/backend/main/main.c b/src/backend/main/main.c
+index 3acb46bd464..2d98d97e8d8 100644
+--- a/src/backend/main/main.c
++++ b/src/backend/main/main.c
+@@ -30,10 +30,11 @@
+ #include <sys/param.h>
+ #endif
+ 
+ #include "bootstrap/bootstrap.h"
+ #include "common/username.h"
++#include "miscadmin.h"
+ #include "postmaster/postmaster.h"
+ #include "tcop/tcopprot.h"
+ #include "utils/help_config.h"
+ #include "utils/memutils.h"
+ #include "utils/pg_locale.h"
+@@ -107,10 +108,11 @@ main(int argc, char *argv[])
+ 	 *
+ 	 * Code after this point is allowed to use elog/ereport, though
+ 	 * localization of messages may not work right away, and messages won't go
+ 	 * anywhere but stderr until GUC settings get loaded.
+ 	 */
++	MyProcPid = getpid();
+ 	MemoryContextInit();
+ 
+ 	/*
+ 	 * Set up locale information
+ 	 */
+diff --git a/src/backend/postmaster/fork_process.c b/src/backend/postmaster/fork_process.c
+index 5e42a74ab5f..b3010e3e36a 100644
+--- a/src/backend/postmaster/fork_process.c
++++ b/src/backend/postmaster/fork_process.c
+@@ -17,10 +17,11 @@
+ #include <sys/stat.h>
+ #include <sys/time.h>
+ #include <unistd.h>
+ 
+ #include "libpq/pqsignal.h"
++#include "miscadmin.h"
+ #include "postmaster/fork_process.h"
+ 
+ #ifndef WIN32
+ /*
+  * Wrapper for fork(). Return values are the same as those for fork():
+@@ -64,10 +65,11 @@ fork_process(void)
+ 	sigprocmask(SIG_SETMASK, &BlockSig, &save_mask);
+ 	result = fork();
+ 	if (result == 0)
+ 	{
+ 		/* fork succeeded, in child */
++		MyProcPid = getpid();
+ #ifdef LINUX_PROFILE
+ 		setitimer(ITIMER_PROF, &prof_itimer, NULL);
+ #endif
+ 
+ 		/*
+diff --git a/src/backend/postmaster/postmaster.c b/src/backend/postmaster/postmaster.c
+index ce00f4032ee..f0f9c66487c 100644
+--- a/src/backend/postmaster/postmaster.c
++++ b/src/backend/postmaster/postmaster.c
+@@ -1897,18 +1897,17 @@ ClosePostmasterPorts(bool am_syslogger)
+ #endif
+ }
+ 
+ 
+ /*
+- * InitProcessGlobals -- set MyProcPid, MyStartTime[stamp], random seeds
++ * InitProcessGlobals -- set MyStartTime[stamp], random seeds
+  *
+  * Called early in the postmaster and every backend.
+  */
+ void
+ InitProcessGlobals(void)
+ {
+-	MyProcPid = getpid();
+ 	MyStartTimestamp = GetCurrentTimestamp();
+ 	MyStartTime = timestamptz_to_time_t(MyStartTimestamp);
+ 
+ 	/*
+ 	 * Set a different global seed in every process.  We want something
+diff --git a/src/port/pqsignal.c b/src/port/pqsignal.c
+index 6ca2d4e20a8..bdaa9f10c8a 100644
+--- a/src/port/pqsignal.c
++++ b/src/port/pqsignal.c
+@@ -72,12 +72,11 @@ StaticAssertDecl(SIGALRM < PG_NSIG, "SIGALRM >= PG_NSIG");
+ static volatile pqsigfunc pqsignal_handlers[PG_NSIG];
+ 
+ /*
+  * Except when called with SIG_IGN or SIG_DFL, pqsignal() sets up this function
+  * as the handler for all signals.  This wrapper handler function checks that
+- * it is called within a process that the server knows about (i.e., any process
+- * that has called InitProcessGlobals(), such as a client backend), and not a
++ * it is called within a process that knew to maintain MyProcPid, and not a
+  * child process forked by system(3), etc.  This check ensures that such child
+  * processes do not modify shared memory, which is often detrimental.  If the
+  * check succeeds, the function originally provided to pqsignal() is called.
+  * Otherwise, the default signal handler is installed and then called.
+  *

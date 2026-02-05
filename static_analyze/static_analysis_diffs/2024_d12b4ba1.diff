@@ -1,0 +1,85 @@
+commit d12b4ba1bd3eedd862064cf1dad5ff107c5cba90
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Tue Apr 30 10:45:14 2024 -0400
+
+    Fix one more portability shortcoming in new test_pg_dump test.
+    
+    If the bootstrap superuser's name requires quoting, regroleout
+    will supply double quotes ... but the result of CURRENT_USER
+    is just the literal name.  Apply quote_ident() to ensure a match.
+    
+    Per Andrew Dunstan's off-list investigation of buildfarm member
+    prion's failures.
+
+diff --git a/src/test/modules/test_pg_dump/expected/test_pg_dump.out b/src/test/modules/test_pg_dump/expected/test_pg_dump.out
+index e8121f6bfd0..bda1c6b3c2a 100644
+--- a/src/test/modules/test_pg_dump/expected/test_pg_dump.out
++++ b/src/test/modules/test_pg_dump/expected/test_pg_dump.out
+@@ -62,13 +62,13 @@ GRANT SELECT ON ft1 TO regress_dump_test_role;
+ GRANT UPDATE ON test_pg_dump_mv1 TO regress_dump_test_role;
+ GRANT USAGE ON SCHEMA test_pg_dump_s1 TO regress_dump_test_role;
+ GRANT USAGE ON TYPE test_pg_dump_e1 TO regress_dump_test_role;
+ -- Substitute for current user's name to keep test output consistent
+ SELECT s.obj,
+-  CASE WHEN a.grantor::regrole::name = current_user THEN 'postgres'
++  CASE WHEN a.grantor::regrole::name = quote_ident(current_user) THEN 'postgres'
+     ELSE a.grantor::regrole::name END,
+-  CASE WHEN a.grantee::regrole::name = current_user THEN 'postgres'
++  CASE WHEN a.grantee::regrole::name = quote_ident(current_user) THEN 'postgres'
+     ELSE a.grantee::regrole::name END,
+   a.privilege_type, a.is_grantable
+ FROM
+   (SELECT pg_describe_object(classoid,objoid,objsubid) COLLATE "C" AS obj, initprivs
+    FROM pg_init_privs WHERE privtype = 'e' ORDER BY 1) s,
+@@ -199,13 +199,13 @@ ALTER EXTENSION test_pg_dump DROP TABLE test_pg_dump_t1;
+ ALTER EXTENSION test_pg_dump DROP TYPE test_pg_dump_e1;
+ ALTER EXTENSION test_pg_dump DROP VIEW test_pg_dump_v1;
+ DROP OWNED BY regress_dump_test_role RESTRICT;
+ -- Substitute for current user's name to keep test output consistent
+ SELECT s.obj,
+-  CASE WHEN a.grantor::regrole::name = current_user THEN 'postgres'
++  CASE WHEN a.grantor::regrole::name = quote_ident(current_user) THEN 'postgres'
+     ELSE a.grantor::regrole::name END,
+-  CASE WHEN a.grantee::regrole::name = current_user THEN 'postgres'
++  CASE WHEN a.grantee::regrole::name = quote_ident(current_user) THEN 'postgres'
+     ELSE a.grantee::regrole::name END,
+   a.privilege_type, a.is_grantable
+ FROM
+   (SELECT pg_describe_object(classoid,objoid,objsubid) COLLATE "C" AS obj, initprivs
+    FROM pg_init_privs WHERE privtype = 'e' ORDER BY 1) s,
+diff --git a/src/test/modules/test_pg_dump/sql/test_pg_dump.sql b/src/test/modules/test_pg_dump/sql/test_pg_dump.sql
+index 4598531ce7f..a56a945104d 100644
+--- a/src/test/modules/test_pg_dump/sql/test_pg_dump.sql
++++ b/src/test/modules/test_pg_dump/sql/test_pg_dump.sql
+@@ -75,13 +75,13 @@ GRANT UPDATE ON test_pg_dump_mv1 TO regress_dump_test_role;
+ GRANT USAGE ON SCHEMA test_pg_dump_s1 TO regress_dump_test_role;
+ GRANT USAGE ON TYPE test_pg_dump_e1 TO regress_dump_test_role;
+ 
+ -- Substitute for current user's name to keep test output consistent
+ SELECT s.obj,
+-  CASE WHEN a.grantor::regrole::name = current_user THEN 'postgres'
++  CASE WHEN a.grantor::regrole::name = quote_ident(current_user) THEN 'postgres'
+     ELSE a.grantor::regrole::name END,
+-  CASE WHEN a.grantee::regrole::name = current_user THEN 'postgres'
++  CASE WHEN a.grantee::regrole::name = quote_ident(current_user) THEN 'postgres'
+     ELSE a.grantee::regrole::name END,
+   a.privilege_type, a.is_grantable
+ FROM
+   (SELECT pg_describe_object(classoid,objoid,objsubid) COLLATE "C" AS obj, initprivs
+    FROM pg_init_privs WHERE privtype = 'e' ORDER BY 1) s,
+@@ -127,13 +127,13 @@ ALTER EXTENSION test_pg_dump DROP VIEW test_pg_dump_v1;
+ 
+ DROP OWNED BY regress_dump_test_role RESTRICT;
+ 
+ -- Substitute for current user's name to keep test output consistent
+ SELECT s.obj,
+-  CASE WHEN a.grantor::regrole::name = current_user THEN 'postgres'
++  CASE WHEN a.grantor::regrole::name = quote_ident(current_user) THEN 'postgres'
+     ELSE a.grantor::regrole::name END,
+-  CASE WHEN a.grantee::regrole::name = current_user THEN 'postgres'
++  CASE WHEN a.grantee::regrole::name = quote_ident(current_user) THEN 'postgres'
+     ELSE a.grantee::regrole::name END,
+   a.privilege_type, a.is_grantable
+ FROM
+   (SELECT pg_describe_object(classoid,objoid,objsubid) COLLATE "C" AS obj, initprivs
+    FROM pg_init_privs WHERE privtype = 'e' ORDER BY 1) s,

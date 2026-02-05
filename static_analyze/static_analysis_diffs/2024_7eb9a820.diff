@@ -1,0 +1,76 @@
+commit 7eb9a8201890f3b208fd4c109a5b08bf139b692a
+Author: Dean Rasheed <dean.a.rasheed@gmail.com>
+Date:   Sun Mar 17 14:48:39 2024 +0000
+
+    Fix PDF doc generation.
+    
+    Commit c649fa24a4 broke PDF generation, due to a misplaced id
+    attribute.
+    
+    Per buildfarm member crake.
+
+diff --git a/doc/src/sgml/func.sgml b/doc/src/sgml/func.sgml
+index ebb984a994e..3c52d90d3ab 100644
+--- a/doc/src/sgml/func.sgml
++++ b/doc/src/sgml/func.sgml
+@@ -22451,15 +22451,15 @@ SELECT count(*) FROM sometable;
+      </row>
+     </thead>
+ 
+     <tbody>
+      <row>
+-      <entry role="func_table_entry"><para role="func_signature">
++      <entry id="merge-action" role="func_table_entry"><para role="func_signature">
+        <indexterm>
+         <primary>merge_action</primary>
+        </indexterm>
+-       <function id="merge_action">merge_action</function> ( )
++       <function>merge_action</function> ( )
+        <returnvalue>text</returnvalue>
+       </para>
+       <para>
+        Returns the merge action command executed for the current row.  This
+        will be <literal>'INSERT'</literal>, <literal>'UPDATE'</literal>, or
+diff --git a/doc/src/sgml/ref/merge.sgml b/doc/src/sgml/ref/merge.sgml
+index 71feb6634f5..44e5ec080d2 100644
+--- a/doc/src/sgml/ref/merge.sgml
++++ b/doc/src/sgml/ref/merge.sgml
+@@ -99,16 +99,17 @@ DELETE
+ 
+   <para>
+    The optional <literal>RETURNING</literal> clause causes <command>MERGE</command>
+    to compute and return value(s) based on each row inserted, updated, or
+    deleted.  Any expression using the source or target table's columns, or
+-   the <xref linkend="merge_action"/> function can be computed.  When an
+-   <command>INSERT</command> or <command>UPDATE</command> action is performed,
+-   the new values of the target table's columns are used.  When a
+-   <command>DELETE</command> is performed, the old values of the target table's
+-   columns are used.  The syntax of the <literal>RETURNING</literal> list is
+-   identical to that of the output list of <command>SELECT</command>.
++   the <link linkend="merge-action"><function>merge_action()</function></link>
++   function can be computed.  When an <command>INSERT</command> or
++   <command>UPDATE</command> action is performed, the new values of the target
++   table's columns are used.  When a <command>DELETE</command> is performed,
++   the old values of the target table's columns are used.  The syntax of the
++   <literal>RETURNING</literal> list is identical to that of the output list
++   of <command>SELECT</command>.
+   </para>
+ 
+   <para>
+    There is no separate <literal>MERGE</literal> privilege.
+    If you specify an update action, you must have the
+@@ -460,12 +461,12 @@ DELETE
+     <listitem>
+      <para>
+       An expression to be computed and returned by the <command>MERGE</command>
+       command after each row is changed (whether inserted, updated, or deleted).
+       The expression can use any columns of the source or target tables, or the
+-      <xref linkend="merge_action"/> function to return additional information
+-      about the action executed.
++      <link linkend="merge-action"><function>merge_action()</function></link>
++      function to return additional information about the action executed.
+      </para>
+      <para>
+       Writing <literal>*</literal> will return all columns from the source
+       table, followed by all columns from the target table.  Often this will
+       lead to a lot of duplication, since it is common for the source and

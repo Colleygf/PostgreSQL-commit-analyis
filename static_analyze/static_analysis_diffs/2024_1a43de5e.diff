@@ -1,0 +1,50 @@
+commit 1a43de5e0a591b66ef3d92f3fac5aefcc2dc02fe
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Mon Oct 21 09:49:21 2024 +0300
+
+    Fix race condition in committing a serializable transaction
+    
+    The finished transaction list can contain XIDs that are older than the
+    serializable global xmin. It's a short-lived state;
+    ClearOldPredicateLocks() removes any such transactions from the list,
+    and it's called whenever the global xmin advances. But if another
+    backend calls SummarizeOldestCommittedSxact() in that window, it will
+    call SerialAdd() on an XID that's older than the global xmin, or if
+    there are no more transactions running, when global xmin is
+    invalid. That trips the assertion in SerialAdd().
+    
+    Fixes bug #18658 reported by Andrew Bille. Thanks to Alexander Lakhin
+    for analysis. Backpatch to all versions.
+    
+    Discussion: https://www.postgresql.org/message-id/18658-7dab125ec688c70b%40postgresql.org
+
+diff --git a/src/backend/storage/lmgr/predicate.c b/src/backend/storage/lmgr/predicate.c
+index e24a0f2fdbd..2030322f957 100644
+--- a/src/backend/storage/lmgr/predicate.c
++++ b/src/backend/storage/lmgr/predicate.c
+@@ -875,16 +875,21 @@ SerialAdd(TransactionId xid, SerCommitSeqNo minConflictCommitSeqNo)
+ 	 * state that we determine.
+ 	 */
+ 	LWLockAcquire(SerialControlLock, LW_EXCLUSIVE);
+ 
+ 	/*
+-	 * If no serializable transactions are active, there shouldn't be anything
+-	 * to push out to the SLRU.  Hitting this assert would mean there's
+-	 * something wrong with the earlier cleanup logic.
++	 * If 'xid' is older than the global xmin (== tailXid), there's no need to
++	 * store it, after all. This can happen if the oldest transaction holding
++	 * back the global xmin just finished, making 'xid' uninteresting, but
++	 * ClearOldPredicateLocks() has not yet run.
+ 	 */
+ 	tailXid = serialControl->tailXid;
+-	Assert(TransactionIdIsValid(tailXid));
++	if (!TransactionIdIsValid(tailXid) || TransactionIdPrecedes(xid, tailXid))
++	{
++		LWLockRelease(SerialControlLock);
++		return;
++	}
+ 
+ 	/*
+ 	 * If the SLRU is currently unused, zero out the whole active region from
+ 	 * tailXid to headXid before taking it into use. Otherwise zero out only
+ 	 * any new pages that enter the tailXid-headXid range as we advance

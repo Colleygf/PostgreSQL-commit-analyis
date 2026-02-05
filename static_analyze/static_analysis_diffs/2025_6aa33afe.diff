@@ -1,0 +1,86 @@
+commit 6aa33afe6da1ce5e6a9c68900727db4621f899cd
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Fri May 23 11:47:33 2025 -0400
+
+    Fix AlignedAllocRealloc to cope sanely with OOM.
+    
+    If the inner allocation call returns NULL, we should restore the
+    previous state and return NULL.  Previously this code pfree'd
+    the old chunk anyway, which is surely wrong.
+    
+    Also, make it call MemoryContextAllocationFailure rather than
+    summarily returning NULL.  The fact that we got control back from the
+    inner call proves that MCXT_ALLOC_NO_OOM was passed, so this change
+    is just cosmetic, but someday it might be less so.
+    
+    This is just a latent bug at present: AFAICT no in-core callers use
+    this function at all, let alone call it with MCXT_ALLOC_NO_OOM.
+    Still, it's the kind of bug that might bite back-patched code pretty
+    hard someday, so let's back-patch to v17 where the bug was introduced
+    (by commit 743112a2e).
+    
+    Author: Tom Lane <tgl@sss.pgh.pa.us>
+    Reviewed-by: Andres Freund <andres@anarazel.de>
+    Discussion: https://postgr.es/m/285483.1746756246@sss.pgh.pa.us
+    Backpatch-through: 17
+
+diff --git a/src/backend/utils/mmgr/alignedalloc.c b/src/backend/utils/mmgr/alignedalloc.c
+index 85aee389d6b..7eea695de62 100644
+--- a/src/backend/utils/mmgr/alignedalloc.c
++++ b/src/backend/utils/mmgr/alignedalloc.c
+@@ -43,10 +43,11 @@ AlignedAllocFree(void *pointer)
+ 	if (!sentinel_ok(pointer, chunk->requested_size))
+ 		elog(WARNING, "detected write past chunk end in %s %p",
+ 			 GetMemoryChunkContext(unaligned)->name, chunk);
+ #endif
+ 
++	/* Recursively pfree the unaligned chunk */
+ 	pfree(unaligned);
+ }
+ 
+ /*
+  * AlignedAllocRealloc
+@@ -94,22 +95,36 @@ AlignedAllocRealloc(void *pointer, Size size, int flags)
+ #ifdef MEMORY_CONTEXT_CHECKING
+ 	/* check that GetMemoryChunkSpace returned something realistic */
+ 	Assert(old_size >= redirchunk->requested_size);
+ #endif
+ 
++	/*
++	 * To keep things simple, we always allocate a new aligned chunk and copy
++	 * data into it.  Because of the above inaccuracy, this may end in copying
++	 * more data than was in the original allocation request size, but that
++	 * should be OK.
++	 */
+ 	ctx = GetMemoryChunkContext(unaligned);
+ 	newptr = MemoryContextAllocAligned(ctx, size, alignto, flags);
+ 
+-	/*
+-	 * We may memcpy beyond the end of the original allocation request size,
+-	 * so we must mark the entire allocation as defined.
+-	 */
+-	if (likely(newptr != NULL))
++	/* Cope cleanly with OOM */
++	if (unlikely(newptr == NULL))
+ 	{
+-		VALGRIND_MAKE_MEM_DEFINED(pointer, old_size);
+-		memcpy(newptr, pointer, Min(size, old_size));
++		VALGRIND_MAKE_MEM_NOACCESS(redirchunk, sizeof(MemoryChunk));
++		return MemoryContextAllocationFailure(ctx, size, flags);
+ 	}
++
++	/*
++	 * We may memcpy more than the original allocation request size, which
++	 * would result in trying to copy trailing bytes that the original
++	 * MemoryContextAllocAligned call marked NOACCESS.  So we must mark the
++	 * entire old_size as defined.  That's slightly annoying, but probably not
++	 * worth improving.
++	 */
++	VALGRIND_MAKE_MEM_DEFINED(pointer, old_size);
++	memcpy(newptr, pointer, Min(size, old_size));
++
+ 	pfree(unaligned);
+ 
+ 	return newptr;
+ }
+ 

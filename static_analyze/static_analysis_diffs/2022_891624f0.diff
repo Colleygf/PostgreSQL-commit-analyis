@@ -1,0 +1,77 @@
+commit 891624f0ec3b3d353269b0bfc7bc545333d6b4d5
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri Apr 8 15:07:35 2022 +0200
+
+    psql: Fix translation marking
+    
+    Commit 5a2832465fd8984d089e8c44c094e6900d987fcd added
+    addFooterToPublicationDesc() as a wrapper around
+    printTableAddFooter().  The translation marker _() was moved to the
+    body of addFooterToPublicationDesc(), but addFooterToPublicationDesc()
+    was not added to GETTEXT_TRIGGERS, so those strings were lost for
+    translation.  To fix, add the translation markers to the call sites of
+    addFooterToPublicationDesc() and remove the translation marker from
+    the body of the function.  This seems easiest since there were only
+    two callers and it keeps the API consistent with
+    printTableAddFooter().  While we're here, add some const decorations
+    to the prototype of addFooterToPublicationDesc() for consistency with
+    printTableAddFooter().
+
+diff --git a/src/bin/psql/describe.c b/src/bin/psql/describe.c
+index 797ef233c90..e8919ab0be2 100644
+--- a/src/bin/psql/describe.c
++++ b/src/bin/psql/describe.c
+@@ -5964,12 +5964,12 @@ listPublications(const char *pattern)
+ 
+ /*
+  * Add footer to publication description.
+  */
+ static bool
+-addFooterToPublicationDesc(PQExpBuffer buf, char *footermsg,
+-						   bool as_schema, printTableContent *cont)
++addFooterToPublicationDesc(PQExpBuffer buf, const char *footermsg,
++						   bool as_schema, printTableContent *const cont)
+ {
+ 	PGresult   *res;
+ 	int			count = 0;
+ 	int			i = 0;
+ 
+@@ -5978,11 +5978,11 @@ addFooterToPublicationDesc(PQExpBuffer buf, char *footermsg,
+ 		return false;
+ 	else
+ 		count = PQntuples(res);
+ 
+ 	if (count > 0)
+-		printTableAddFooter(cont, _(footermsg));
++		printTableAddFooter(cont, footermsg);
+ 
+ 	for (i = 0; i < count; i++)
+ 	{
+ 		if (as_schema)
+ 			printfPQExpBuffer(buf, "    \"%s\"", PQgetvalue(res, i, 0));
+@@ -6147,11 +6147,11 @@ describePublications(const char *pattern)
+ 							  "     pg_catalog.pg_publication_rel pr\n"
+ 							  "WHERE c.relnamespace = n.oid\n"
+ 							  "  AND c.oid = pr.prrelid\n"
+ 							  "  AND pr.prpubid = '%s'\n"
+ 							  "ORDER BY 1,2", pubid);
+-			if (!addFooterToPublicationDesc(&buf, "Tables:", false, &cont))
++			if (!addFooterToPublicationDesc(&buf, _("Tables:"), false, &cont))
+ 				goto error_return;
+ 
+ 			if (pset.sversion >= 150000)
+ 			{
+ 				/* Get the schemas for the specified publication */
+@@ -6159,11 +6159,11 @@ describePublications(const char *pattern)
+ 								  "SELECT n.nspname\n"
+ 								  "FROM pg_catalog.pg_namespace n\n"
+ 								  "     JOIN pg_catalog.pg_publication_namespace pn ON n.oid = pn.pnnspid\n"
+ 								  "WHERE pn.pnpubid = '%s'\n"
+ 								  "ORDER BY 1", pubid);
+-				if (!addFooterToPublicationDesc(&buf, "Tables from schemas:",
++				if (!addFooterToPublicationDesc(&buf, _("Tables from schemas:"),
+ 												true, &cont))
+ 					goto error_return;
+ 			}
+ 		}
+ 

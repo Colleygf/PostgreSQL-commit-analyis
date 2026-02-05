@@ -1,0 +1,124 @@
+commit b2d6b4c728a282f9bbe9ff4fac02a872bef074dd
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Mon Mar 25 14:18:36 2024 +0100
+
+    ecpg: Fix return code for overflow in numeric conversion
+    
+    The decimal conversion functions dectoint and dectolong are documented
+    to return ECPG_INFORMIX_NUM_OVERFLOW in case of overflows, but always
+    returned -1 on all errors due to incorrectly checking the returnvalue
+    from the PGTYPES* functions.
+    
+    Author: Aidar Imamov <a.imamov@postgrespro.ru>
+    Discussion: https://postgr.es/m/54d2b53327516d9454daa5fb2f893bdc@postgrespro.ru
+
+diff --git a/src/interfaces/ecpg/compatlib/informix.c b/src/interfaces/ecpg/compatlib/informix.c
+index 80d40aa3e09..8ea89e640a0 100644
+--- a/src/interfaces/ecpg/compatlib/informix.c
++++ b/src/interfaces/ecpg/compatlib/informix.c
+@@ -433,48 +433,54 @@ dectodbl(decimal *np, double *dblp)
+ int
+ dectoint(decimal *np, int *ip)
+ {
+ 	int			ret;
+ 	numeric    *nres = PGTYPESnumeric_new();
++	int			errnum;
+ 
+ 	if (nres == NULL)
+ 		return ECPG_INFORMIX_OUT_OF_MEMORY;
+ 
+ 	if (PGTYPESnumeric_from_decimal(np, nres) != 0)
+ 	{
+ 		PGTYPESnumeric_free(nres);
+ 		return ECPG_INFORMIX_OUT_OF_MEMORY;
+ 	}
+ 
++	errno = 0;
+ 	ret = PGTYPESnumeric_to_int(nres, ip);
++	errnum = errno;
+ 	PGTYPESnumeric_free(nres);
+ 
+-	if (ret == PGTYPES_NUM_OVERFLOW)
++	if (ret == -1 && errnum == PGTYPES_NUM_OVERFLOW)
+ 		ret = ECPG_INFORMIX_NUM_OVERFLOW;
+ 
+ 	return ret;
+ }
+ 
+ int
+ dectolong(decimal *np, long *lngp)
+ {
+ 	int			ret;
+ 	numeric    *nres = PGTYPESnumeric_new();
++	int			errnum;
+ 
+ 	if (nres == NULL)
+ 		return ECPG_INFORMIX_OUT_OF_MEMORY;
+ 
+ 	if (PGTYPESnumeric_from_decimal(np, nres) != 0)
+ 	{
+ 		PGTYPESnumeric_free(nres);
+ 		return ECPG_INFORMIX_OUT_OF_MEMORY;
+ 	}
+ 
++	errno = 0;
+ 	ret = PGTYPESnumeric_to_long(nres, lngp);
++	errnum = errno;
+ 	PGTYPESnumeric_free(nres);
+ 
+-	if (ret == PGTYPES_NUM_OVERFLOW)
++	if (ret == -1 && errnum == PGTYPES_NUM_OVERFLOW)
+ 		ret = ECPG_INFORMIX_NUM_OVERFLOW;
+ 
+ 	return ret;
+ }
+ 
+diff --git a/src/interfaces/ecpg/test/expected/compat_informix-dec_test.stdout b/src/interfaces/ecpg/test/expected/compat_informix-dec_test.stdout
+index 1f8675b3f3c..71a5afa4a7a 100644
+--- a/src/interfaces/ecpg/test/expected/compat_informix-dec_test.stdout
++++ b/src/interfaces/ecpg/test/expected/compat_informix-dec_test.stdout
+@@ -1,12 +1,12 @@
+ (no errno set) - dec[0,1]: r: -1, *
+ (no errno set) - dec[0,2]: r: -1, *
+ (no errno set) - dec[0,3]: r: -1, *
+ (no errno set) - dec[0,4]: r: -1, *
+ dec[0,5]: r: 0, 0.00
+-(errno == PGTYPES_NUM_OVERFLOW) - dec[0,6]: 0 (r: -1)
+-(errno == PGTYPES_NUM_OVERFLOW) - dec[0,8]: 0 (r: -1)
++(errno == PGTYPES_NUM_OVERFLOW) - dec[0,6]: 0 (r: -1200)
++(errno == PGTYPES_NUM_OVERFLOW) - dec[0,8]: 0 (r: -1200)
+ (errno == PGTYPES_NUM_OVERFLOW) - dec[0,10]: 0 (r: -1)
+ 
+ dec[1,1]: r: 0, -2
+ dec[1,2]: r: 0, -2
+ dec[1,3]: r: 0, -2.0
+@@ -43,12 +43,12 @@ dec[3,10]: 3.44 (r: 0)
+ dec[4,1]: r: 0, 592490000000000000000000
+ dec[4,2]: r: 0, 592490000000000000000000
+ dec[4,3]: r: 0, 592490000000000000000000.0
+ dec[4,4]: r: 0, 592490000000000000000000.00
+ dec[4,5]: r: 0, 0.00
+-(errno == PGTYPES_NUM_OVERFLOW) - dec[4,6]: 0 (r: -1)
+-(errno == PGTYPES_NUM_OVERFLOW) - dec[4,8]: 0 (r: -1)
++(errno == PGTYPES_NUM_OVERFLOW) - dec[4,6]: 0 (r: -1200)
++(errno == PGTYPES_NUM_OVERFLOW) - dec[4,8]: 0 (r: -1200)
+ dec[4,10]: 5.9249e+23 (r: 0)
+ 
+ dec[5,1]: r: 0, -328400
+ dec[5,2]: r: 0, -328400
+ dec[5,3]: r: 0, -328400.0
+@@ -139,12 +139,12 @@ dec[12,10]: -0.5 (r: 0)
+ dec[13,1]: r: 0, 1234567890123456789012345678.91
+ dec[13,2]: r: 0, 1234567890123456789012345679
+ dec[13,3]: r: 0, 1234567890123456789012345678.9
+ dec[13,4]: r: 0, 1234567890123456789012345678.91
+ dec[13,5]: r: 0, 0.00
+-(errno == PGTYPES_NUM_OVERFLOW) - dec[13,6]: 0 (r: -1)
+-(errno == PGTYPES_NUM_OVERFLOW) - dec[13,8]: 0 (r: -1)
++(errno == PGTYPES_NUM_OVERFLOW) - dec[13,6]: 0 (r: -1200)
++(errno == PGTYPES_NUM_OVERFLOW) - dec[13,8]: 0 (r: -1200)
+ dec[13,10]: 1.23457e+27 (r: 0)
+ 
+ (errno == PGTYPES_NUM_OVERFLOW) - dec[14,0]: r: -1200
+ (errno == PGTYPES_NUM_BAD_NUMERIC) - dec[15,0]: r: -1213
+ dec[14]: NULL

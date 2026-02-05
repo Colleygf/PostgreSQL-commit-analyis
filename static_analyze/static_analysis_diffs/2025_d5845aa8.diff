@@ -1,0 +1,42 @@
+commit d5845aa8adb25fda30cb2ad44aa2c5b0a59baa27
+Author: Álvaro Herrera <alvherre@kurilemu.de>
+Date:   Tue Oct 28 19:13:32 2025 +0100
+
+    Don't error out when dropping constraint if relchecks is already zero
+    
+    I have never seen this be a problem in practice, but it came up when
+    purposely corrupting catalog contents to study the fix for a nearby bug:
+    we'd try to decrement relchecks, but since it's zero we error out and
+    fail to drop the constraint.  The fix is to downgrade the error to
+    warning, skip decrementing the counter, and otherwise proceed normally.
+    
+    Given lack of field complaints, no backpatch.
+    
+    Author: Álvaro Herrera <alvherre@kurilemu.de>
+    Discussion: https://postgr.es/m/202508291058.q2zscdcs64fj@alvherre.pgsql
+
+diff --git a/src/backend/catalog/pg_constraint.c b/src/backend/catalog/pg_constraint.c
+index 6002fd0002f..9944e4bd2d1 100644
+--- a/src/backend/catalog/pg_constraint.c
++++ b/src/backend/catalog/pg_constraint.c
+@@ -935,14 +935,16 @@ RemoveConstraintById(Oid conId)
+ 			if (!HeapTupleIsValid(relTup))
+ 				elog(ERROR, "cache lookup failed for relation %u",
+ 					 con->conrelid);
+ 			classForm = (Form_pg_class) GETSTRUCT(relTup);
+ 
+-			if (classForm->relchecks == 0)	/* should not happen */
+-				elog(ERROR, "relation \"%s\" has relchecks = 0",
+-					 RelationGetRelationName(rel));
+-			classForm->relchecks--;
++			if (classForm->relchecks > 0)
++				classForm->relchecks--;
++			else
++				/* should not happen */
++				elog(WARNING, "relation \"%s\" has relchecks = %d",
++					 RelationGetRelationName(rel), classForm->relchecks);
+ 
+ 			CatalogTupleUpdate(pgrel, &relTup->t_self, relTup);
+ 
+ 			heap_freetuple(relTup);
+ 

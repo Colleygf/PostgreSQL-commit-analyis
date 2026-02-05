@@ -1,0 +1,100 @@
+commit 5c7121bcf8dbe94344742a5cd0fa0f016b7a76a1
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sat Aug 6 13:32:29 2022 -0400
+
+    Fix function-defined-but-not-used warning.
+    
+    Buildfarm member jacana (MinGW) has been complaining that
+    get_iso_localename is defined but not used.  This is evidently
+    fallout from the recent removal of VS2013 support in pg_locale.c.
+    Rearrange the #ifs so that get_iso_localename and its subroutine
+    search_locale_enum won't get built on MinGW.
+    
+    I also noticed that a comment in get_iso_localename cross-
+    referenced a comment in IsoLocaleName that isn't there anymore.
+    Put back what I think is the referenced material.
+
+diff --git a/src/backend/utils/adt/pg_locale.c b/src/backend/utils/adt/pg_locale.c
+index 607a4b73407..1a047a97d74 100644
+--- a/src/backend/utils/adt/pg_locale.c
++++ b/src/backend/utils/adt/pg_locale.c
+@@ -116,11 +116,11 @@ typedef struct
+ 
+ static HTAB *collation_cache = NULL;
+ 
+ 
+ #if defined(WIN32) && defined(LC_MESSAGES)
+-static char *IsoLocaleName(const char *);	/* MSVC specific */
++static char *IsoLocaleName(const char *);
+ #endif
+ 
+ #ifdef USE_ICU
+ static void icu_set_collation_attributes(UCollator *collator, const char *loc);
+ #endif
+@@ -948,10 +948,12 @@ cache_locale_time(void)
+  *
+  * [1] https://docs.microsoft.com/en-us/windows/win32/intl/locale-identifiers
+  * [2] https://docs.microsoft.com/en-us/windows/win32/intl/locale-names
+  */
+ 
++#if defined(_MSC_VER)
++
+ /*
+  * Callback function for EnumSystemLocalesEx() in get_iso_localename().
+  *
+  * This function enumerates all system locales, searching for one that matches
+  * an input with the format: <Language>[_<Country>], e.g.
+@@ -1086,12 +1088,15 @@ get_iso_localename(const char *winlocname)
+ 		rc = wchar2char(iso_lc_messages, buffer, sizeof(iso_lc_messages), NULL);
+ 		if (rc == -1 || rc == sizeof(iso_lc_messages))
+ 			return NULL;
+ 
+ 		/*
+-		 * Simply replace the hyphen with an underscore.  See comments in
+-		 * IsoLocaleName.
++		 * Since the message catalogs sit on a case-insensitive filesystem, we
++		 * need not standardize letter case here.  So long as we do not ship
++		 * message catalogs for which it would matter, we also need not
++		 * translate the script/variant portion, e.g.  uz-Cyrl-UZ to
++		 * uz_UZ@cyrillic.  Simply replace the hyphen with an underscore.
+ 		 */
+ 		hyphen = strchr(iso_lc_messages, '-');
+ 		if (hyphen)
+ 			*hyphen = '_';
+ 		return iso_lc_messages;
+@@ -1101,25 +1106,32 @@ get_iso_localename(const char *winlocname)
+ }
+ 
+ static char *
+ IsoLocaleName(const char *winlocname)
+ {
+-#if defined(_MSC_VER)
+ 	static char iso_lc_messages[LOCALE_NAME_MAX_LENGTH];
+ 
+ 	if (pg_strcasecmp("c", winlocname) == 0 ||
+ 		pg_strcasecmp("posix", winlocname) == 0)
+ 	{
+ 		strcpy(iso_lc_messages, "C");
+ 		return iso_lc_messages;
+ 	}
+ 	else
+ 		return get_iso_localename(winlocname);
++}
+ 
+-#endif							/* defined(_MSC_VER) */
+-	return NULL;				/* Not supported on this version of msvc/mingw */
++#else							/* !defined(_MSC_VER) */
++
++static char *
++IsoLocaleName(const char *winlocname)
++{
++	return NULL;				/* Not supported on MinGW */
+ }
++
++#endif							/* defined(_MSC_VER) */
++
+ #endif							/* WIN32 && LC_MESSAGES */
+ 
+ 
+ /*
+  * Detect aging strxfrm() implementations that, in a subset of locales, write

@@ -1,0 +1,67 @@
+commit 949e2e7c4f680ef86e93500ba4bee563ae4ce78e
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Thu Mar 23 12:52:33 2023 -0400
+
+    amcheck: Fix a few bugs in new update chain validation.
+    
+    We shouldn't set successor[whatever] to an offset number that is less
+    than FirstOffsetNumber or more than maxoff. We already avoided that
+    for redirects, but not for CTID links. Allowing bad offset numbers
+    into the successor[] array causes core dumps.
+    
+    We shouldn't use HeapTupleHeaderIsHotUpdated() because it checks
+    stuff other than the status of the infomask2 bit HEAP_HOT_UPDATED.
+    We only care about the status of that bit, not the other stuff
+    that HeapTupleHeaderIsHotUpdated() checks. This mistake can cause
+    verify_heapam() to report corruption when none is present.
+    
+    The first hunk of this patch was written by me. The other two were
+    written by Andres Freund. This could probably do with more review
+    before commit, but I'd like to try to get the buildfarm green again
+    sooner rather than later.
+    
+    Discussion: http://postgr.es/m/20230322204552.s6cv3ybqkklhhybb@awork3.anarazel.de
+
+diff --git a/contrib/amcheck/verify_heapam.c b/contrib/amcheck/verify_heapam.c
+index 663fb65dee6..1b8607c6cc8 100644
+--- a/contrib/amcheck/verify_heapam.c
++++ b/contrib/amcheck/verify_heapam.c
+@@ -541,11 +541,12 @@ verify_heapam(PG_FUNCTION_ARGS)
+ 			 * on the same page, record that tuple as the successor of this
+ 			 * one.
+ 			 */
+ 			nextblkno = ItemPointerGetBlockNumber(&(ctx.tuphdr)->t_ctid);
+ 			nextoffnum = ItemPointerGetOffsetNumber(&(ctx.tuphdr)->t_ctid);
+-			if (nextblkno == ctx.blkno && nextoffnum != ctx.offnum)
++			if (nextblkno == ctx.blkno && nextoffnum != ctx.offnum &&
++				nextoffnum >= FirstOffsetNumber && nextoffnum <= maxoff)
+ 				successor[ctx.offnum] = nextoffnum;
+ 		}
+ 
+ 		/*
+ 		 * Update chain validation. Check each line pointer that's got a valid
+@@ -663,19 +664,22 @@ verify_heapam(PG_FUNCTION_ARGS)
+ 			/*
+ 			 * If the current tuple is marked as HOT-updated, then the next
+ 			 * tuple should be marked as a heap-only tuple. Conversely, if the
+ 			 * current tuple isn't marked as HOT-updated, then the next tuple
+ 			 * shouldn't be marked as a heap-only tuple.
++			 *
++			 * NB: Can't use HeapTupleHeaderIsHotUpdated() as it checks if
++			 * hint bits indicate xmin/xmax aborted.
+ 			 */
+-			if (!HeapTupleHeaderIsHotUpdated(curr_htup) &&
++			if (!(curr_htup->t_infomask2 & HEAP_HOT_UPDATED) &&
+ 				HeapTupleHeaderIsHeapOnly(next_htup))
+ 			{
+ 				report_corruption(&ctx,
+ 								  psprintf("non-heap-only update produced a heap-only tuple at offset %u",
+ 										   (unsigned) nextoffnum));
+ 			}
+-			if (HeapTupleHeaderIsHotUpdated(curr_htup) &&
++			if ((curr_htup->t_infomask2 & HEAP_HOT_UPDATED) &&
+ 				!HeapTupleHeaderIsHeapOnly(next_htup))
+ 			{
+ 				report_corruption(&ctx,
+ 								  psprintf("heap-only update produced a non-heap only tuple at offset %u",
+ 										   (unsigned) nextoffnum));

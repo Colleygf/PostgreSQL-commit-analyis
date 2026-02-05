@@ -1,0 +1,110 @@
+commit 8f4ee962691ed36302be3333c65422ed9e082743
+Author: David Rowley <drowley@postgresql.org>
+Date:   Thu Dec 19 13:11:39 2024 +1300
+
+    Fix Assert failure in WITH RECURSIVE UNION queries
+    
+    If the non-recursive part of a recursive CTE ended up using
+    TTSOpsBufferHeapTuple as the table slot type, then a duplicate value
+    could cause an Assert failure in CheckOpSlotCompatibility() when
+    checking the hash table for the duplicate value.  The expected slot type
+    for the deform step was TTSOpsMinimalTuple so the Assert failed when the
+    TTSOpsBufferHeapTuple slot was used.
+    
+    This is a long-standing bug which we likely didn't notice because it
+    seems much more likely that the non-recursive term would have required
+    projection and used a TTSOpsVirtual slot, which CheckOpSlotCompatibility
+    is ok with.
+    
+    There doesn't seem to be any harm done here other than the Assert
+    failure.  Both TTSOpsMinimalTuple and TTSOpsBufferHeapTuple slot types
+    require tuple deformation, so the EEOP_*_FETCHSOME ExprState step would
+    have properly existed in the ExprState.
+    
+    The solution is to pass NULL for the ExecBuildGroupingEqual's 'lops'
+    parameter.  This means the ExprState's EEOP_*_FETCHSOME step won't
+    expect a fixed slot type.  This makes CheckOpSlotCompatibility() happy as
+    no checking is performed when the ExprEvalStep is not expecting a fixed
+    slot type.
+    
+    Reported-by: Richard Guo
+    Reviewed-by: Tom Lane
+    Discussion: https://postgr.es/m/CAMbWs4-8U9q2LAtf8+ghV11zeUReA3AmrYkxzBEv0vKnDxwkKA@mail.gmail.com
+    Backpatch-through: 13, all supported versions
+
+diff --git a/src/backend/executor/execGrouping.c b/src/backend/executor/execGrouping.c
+index 4a8f72305ce..a69fa0f8cc3 100644
+--- a/src/backend/executor/execGrouping.c
++++ b/src/backend/executor/execGrouping.c
+@@ -234,13 +234,12 @@ BuildTupleHashTableExt(PlanState *parent,
+ 														keyColIdx,
+ 														allow_jit ? parent : NULL,
+ 														hash_iv);
+ 
+ 	/* build comparator for all columns */
+-	/* XXX: should we support non-minimal tuples for the inputslot? */
+ 	hashtable->tab_eq_func = ExecBuildGroupingEqual(inputDesc, inputDesc,
+-													&TTSOpsMinimalTuple, &TTSOpsMinimalTuple,
++													NULL, &TTSOpsMinimalTuple,
+ 													numCols,
+ 													keyColIdx, eqfuncoids, collations,
+ 													allow_jit ? parent : NULL);
+ 
+ 	/*
+diff --git a/src/test/regress/expected/with.out b/src/test/regress/expected/with.out
+index ff9754603bd..7a51e2eb757 100644
+--- a/src/test/regress/expected/with.out
++++ b/src/test/regress/expected/with.out
+@@ -654,10 +654,25 @@ SELECT t1.id, t2.path, t2 FROM t AS t1 JOIN t AS t2 ON
+  14 | {2,4,9,14}  | (14,"{2,4,9,14}")
+  15 | {3,7,11,15} | (15,"{3,7,11,15}")
+  16 | {3,7,11,16} | (16,"{3,7,11,16}")
+ (16 rows)
+ 
++CREATE TEMP TABLE duplicates (a INT NOT NULL);
++INSERT INTO duplicates VALUES(1), (1);
++-- Try out a recursive UNION case where the non-recursive part's table slot
++-- uses TTSOpsBufferHeapTuple and contains duplicate rows.
++WITH RECURSIVE cte (a) as (
++	SELECT a FROM duplicates
++	UNION
++	SELECT a FROM cte
++)
++SELECT a FROM cte;
++ a 
++---
++ 1
++(1 row)
++
+ -- test that column statistics from a materialized CTE are available
+ -- to upper planner (otherwise, we'd get a stupider plan)
+ explain (costs off)
+ with x as materialized (select unique1 from tenk1 b)
+ select count(*) from tenk1 a
+diff --git a/src/test/regress/sql/with.sql b/src/test/regress/sql/with.sql
+index aca7bae6ddd..dcdaab5eff0 100644
+--- a/src/test/regress/sql/with.sql
++++ b/src/test/regress/sql/with.sql
+@@ -359,10 +359,22 @@ UNION ALL
+     FROM tree JOIN t ON (tree.parent_id = t.id)
+ )
+ SELECT t1.id, t2.path, t2 FROM t AS t1 JOIN t AS t2 ON
+ (t1.id=t2.id);
+ 
++CREATE TEMP TABLE duplicates (a INT NOT NULL);
++INSERT INTO duplicates VALUES(1), (1);
++
++-- Try out a recursive UNION case where the non-recursive part's table slot
++-- uses TTSOpsBufferHeapTuple and contains duplicate rows.
++WITH RECURSIVE cte (a) as (
++	SELECT a FROM duplicates
++	UNION
++	SELECT a FROM cte
++)
++SELECT a FROM cte;
++
+ -- test that column statistics from a materialized CTE are available
+ -- to upper planner (otherwise, we'd get a stupider plan)
+ explain (costs off)
+ with x as materialized (select unique1 from tenk1 b)
+ select count(*) from tenk1 a

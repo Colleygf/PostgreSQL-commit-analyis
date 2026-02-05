@@ -1,0 +1,127 @@
+commit 0c2b7174c362d3092eb7eabf0117a8d47c64ce0e
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Wed Jul 2 13:26:33 2025 -0500
+
+    Fix cross-version upgrade test breakage from commit fe07100e82.
+    
+    In commit fe07100e82, I renamed a couple of functions in
+    test_dsm_registry to make it clear what they are testing.  However,
+    the buildfarm's cross-version upgrade tests run pg_upgrade with the
+    test modules installed, so this caused errors like:
+    
+        ERROR:  could not find function "get_val_in_shmem" in file ".../test_dsm_registry.so"
+    
+    To fix, revert those renames.  I could probably get away with only
+    un-renaming the C symbols, but I figured I'd avoid introducing
+    function name mismatches.  Also, AFAICT the buildfarm's
+    cross-version upgrade tests do not run the test module tests
+    post-upgrade, else we'll need to properly version the extension.
+    
+    Per buildfarm member crake.
+    
+    Discussion: https://postgr.es/m/aGVuYUNW23tStUYs%40nathan
+
+diff --git a/src/test/modules/test_dsm_registry/expected/test_dsm_registry.out b/src/test/modules/test_dsm_registry/expected/test_dsm_registry.out
+index 7ee02bb51e3..8ded82e59d6 100644
+--- a/src/test/modules/test_dsm_registry/expected/test_dsm_registry.out
++++ b/src/test/modules/test_dsm_registry/expected/test_dsm_registry.out
+@@ -1,23 +1,23 @@
+ CREATE EXTENSION test_dsm_registry;
+-SELECT set_val_in_dsm(1236);
+- set_val_in_dsm 
+-----------------
++SELECT set_val_in_shmem(1236);
++ set_val_in_shmem 
++------------------
+  
+ (1 row)
+ 
+ SELECT set_val_in_hash('test', '1414');
+  set_val_in_hash 
+ -----------------
+  
+ (1 row)
+ 
+ \c
+-SELECT get_val_in_dsm();
+- get_val_in_dsm 
+-----------------
+-           1236
++SELECT get_val_in_shmem();
++ get_val_in_shmem 
++------------------
++             1236
+ (1 row)
+ 
+ SELECT get_val_in_hash('test');
+  get_val_in_hash 
+ -----------------
+diff --git a/src/test/modules/test_dsm_registry/sql/test_dsm_registry.sql b/src/test/modules/test_dsm_registry/sql/test_dsm_registry.sql
+index 7076f825260..c2e25cddaae 100644
+--- a/src/test/modules/test_dsm_registry/sql/test_dsm_registry.sql
++++ b/src/test/modules/test_dsm_registry/sql/test_dsm_registry.sql
+@@ -1,6 +1,6 @@
+ CREATE EXTENSION test_dsm_registry;
+-SELECT set_val_in_dsm(1236);
++SELECT set_val_in_shmem(1236);
+ SELECT set_val_in_hash('test', '1414');
+ \c
+-SELECT get_val_in_dsm();
++SELECT get_val_in_shmem();
+ SELECT get_val_in_hash('test');
+diff --git a/src/test/modules/test_dsm_registry/test_dsm_registry--1.0.sql b/src/test/modules/test_dsm_registry/test_dsm_registry--1.0.sql
+index 74ceeccfd3b..5da45155be9 100644
+--- a/src/test/modules/test_dsm_registry/test_dsm_registry--1.0.sql
++++ b/src/test/modules/test_dsm_registry/test_dsm_registry--1.0.sql
+@@ -1,14 +1,14 @@
+ /* src/test/modules/test_dsm_registry/test_dsm_registry--1.0.sql */
+ 
+ -- complain if script is sourced in psql, rather than via CREATE EXTENSION
+ \echo Use "CREATE EXTENSION test_dsm_registry" to load this file. \quit
+ 
+-CREATE FUNCTION set_val_in_dsm(val INT) RETURNS VOID
++CREATE FUNCTION set_val_in_shmem(val INT) RETURNS VOID
+ 	AS 'MODULE_PATHNAME' LANGUAGE C;
+ 
+-CREATE FUNCTION get_val_in_dsm() RETURNS INT
++CREATE FUNCTION get_val_in_shmem() RETURNS INT
+ 	AS 'MODULE_PATHNAME' LANGUAGE C;
+ 
+ CREATE FUNCTION set_val_in_hash(key TEXT, val TEXT) RETURNS VOID
+ 	AS 'MODULE_PATHNAME' LANGUAGE C;
+ 
+diff --git a/src/test/modules/test_dsm_registry/test_dsm_registry.c b/src/test/modules/test_dsm_registry/test_dsm_registry.c
+index a9e60c4126b..141c8ed1b34 100644
+--- a/src/test/modules/test_dsm_registry/test_dsm_registry.c
++++ b/src/test/modules/test_dsm_registry/test_dsm_registry.c
+@@ -68,26 +68,26 @@ tdr_attach_shmem(void)
+ 
+ 	if (tdr_hash == NULL)
+ 		tdr_hash = GetNamedDSHash("test_dsm_registry_hash", &dsh_params, &found);
+ }
+ 
+-PG_FUNCTION_INFO_V1(set_val_in_dsm);
++PG_FUNCTION_INFO_V1(set_val_in_shmem);
+ Datum
+-set_val_in_dsm(PG_FUNCTION_ARGS)
++set_val_in_shmem(PG_FUNCTION_ARGS)
+ {
+ 	tdr_attach_shmem();
+ 
+ 	LWLockAcquire(&tdr_dsm->lck, LW_EXCLUSIVE);
+ 	tdr_dsm->val = PG_GETARG_INT32(0);
+ 	LWLockRelease(&tdr_dsm->lck);
+ 
+ 	PG_RETURN_VOID();
+ }
+ 
+-PG_FUNCTION_INFO_V1(get_val_in_dsm);
++PG_FUNCTION_INFO_V1(get_val_in_shmem);
+ Datum
+-get_val_in_dsm(PG_FUNCTION_ARGS)
++get_val_in_shmem(PG_FUNCTION_ARGS)
+ {
+ 	int			ret;
+ 
+ 	tdr_attach_shmem();
+ 

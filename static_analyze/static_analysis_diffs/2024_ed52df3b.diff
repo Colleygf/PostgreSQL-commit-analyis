@@ -1,0 +1,131 @@
+commit ed52df3b19ee77cca7cb5f202950704f6b12feb9
+Author: John Naylor <john.naylor@postgresql.org>
+Date:   Sat Apr 27 14:42:01 2024 +0700
+
+    Small cosmetic fixes in radix tree template
+    
+    - Bring memory context names in line with other naming
+    - Fix typos, reported off-list by Alexander Lakhin
+    - Remove copy-paste errors from comments
+    - Remove duplicate #undef
+
+diff --git a/src/include/lib/radixtree.h b/src/include/lib/radixtree.h
+index 2896a6efc52..338e1d741d4 100644
+--- a/src/include/lib/radixtree.h
++++ b/src/include/lib/radixtree.h
+@@ -641,31 +641,31 @@ typedef struct RT_SIZE_CLASS_ELEM
+ }			RT_SIZE_CLASS_ELEM;
+ 
+ 
+ static const RT_SIZE_CLASS_ELEM RT_SIZE_CLASS_INFO[] = {
+ 	[RT_CLASS_4] = {
+-		.name = RT_STR(RT_PREFIX) "radix_tree node4",
++		.name = RT_STR(RT_PREFIX) "_radix_tree node4",
+ 		.fanout = RT_FANOUT_4,
+ 		.allocsize = sizeof(RT_NODE_4) + RT_FANOUT_4 * sizeof(RT_PTR_ALLOC),
+ 	},
+ 	[RT_CLASS_16_LO] = {
+-		.name = RT_STR(RT_PREFIX) "radix_tree node16_lo",
++		.name = RT_STR(RT_PREFIX) "_radix_tree node16_lo",
+ 		.fanout = RT_FANOUT_16_LO,
+ 		.allocsize = sizeof(RT_NODE_16) + RT_FANOUT_16_LO * sizeof(RT_PTR_ALLOC),
+ 	},
+ 	[RT_CLASS_16_HI] = {
+-		.name = RT_STR(RT_PREFIX) "radix_tree node16_hi",
++		.name = RT_STR(RT_PREFIX) "_radix_tree node16_hi",
+ 		.fanout = RT_FANOUT_16_HI,
+ 		.allocsize = sizeof(RT_NODE_16) + RT_FANOUT_16_HI * sizeof(RT_PTR_ALLOC),
+ 	},
+ 	[RT_CLASS_48] = {
+-		.name = RT_STR(RT_PREFIX) "radix_tree node48",
++		.name = RT_STR(RT_PREFIX) "_radix_tree node48",
+ 		.fanout = RT_FANOUT_48,
+ 		.allocsize = sizeof(RT_NODE_48) + RT_FANOUT_48 * sizeof(RT_PTR_ALLOC),
+ 	},
+ 	[RT_CLASS_256] = {
+-		.name = RT_STR(RT_PREFIX) "radix_tree node256",
++		.name = RT_STR(RT_PREFIX) "_radix_tree node256",
+ 		.fanout = RT_FANOUT_256,
+ 		.allocsize = sizeof(RT_NODE_256),
+ 	},
+ };
+ 
+@@ -1835,11 +1835,11 @@ RT_CREATE(MemoryContext ctx)
+ 	/*
+ 	 * Separate context for iteration in case the tree context doesn't support
+ 	 * pfree
+ 	 */
+ 	tree->iter_context = AllocSetContextCreate(ctx,
+-											   RT_STR(RT_PREFIX) "radix_tree iter context",
++											   RT_STR(RT_PREFIX) "_radix_tree iter context",
+ 											   ALLOCSET_SMALL_SIZES);
+ 
+ #ifdef RT_SHMEM
+ 	tree->dsa = dsa;
+ 	dp = dsa_allocate0(dsa, sizeof(RT_RADIX_TREE_CONTROL));
+@@ -1871,11 +1871,11 @@ RT_CREATE(MemoryContext ctx)
+ 	 * For leaves storing fixed-length values, we use a slab context to avoid
+ 	 * the possibility of space wastage by power-of-2 rounding up.
+ 	 */
+ 	if (sizeof(RT_VALUE_TYPE) > sizeof(RT_PTR_ALLOC))
+ 		tree->leaf_context = SlabContextCreate(ctx,
+-											   RT_STR(RT_PREFIX) "radix_tree leaf contex",
++											   RT_STR(RT_PREFIX) "_radix_tree leaf context",
+ 											   RT_SLAB_BLOCK_SIZE(sizeof(RT_VALUE_TYPE)),
+ 											   sizeof(RT_VALUE_TYPE));
+ #endif							/* !RT_VARLEN_VALUE_SIZE */
+ #endif							/* RT_SHMEM */
+ 
+@@ -2303,11 +2303,11 @@ RT_COPY_ARRAYS_AND_DELETE(uint8 *dst_chunks, RT_PTR_ALLOC * dst_children,
+ }
+ 
+ /*
+  * Note: While all node-growing functions are called to perform an insertion
+  * when no more space is available, shrinking is not a hard-and-fast requirement.
+- * When shrinking nodes, we generally wait until the count is about 3/4* of
++ * When shrinking nodes, we generally wait until the count is about 3/4 of
+  * the next lower node's fanout. This prevents ping-ponging between different
+  * node sizes.
+  *
+  * Some shrinking functions delete first and then shrink, either because we
+  * must or because it's fast and simple that way. Sometimes it's faster to
+@@ -2554,13 +2554,11 @@ RT_REMOVE_CHILD_4(RT_RADIX_TREE * tree, RT_PTR_ALLOC * parent_slot, RT_CHILD_PTR
+ 		n4->base.count--;
+ 	}
+ }
+ 
+ /*
+- * Search for the child pointer corresponding to "key" in the given node.
+- *
+- * Delete the node and return true if the key is found, otherwise return false.
++ * Delete the child pointer corresponding to "key" in the given node.
+  */
+ static inline void
+ RT_NODE_DELETE(RT_RADIX_TREE * tree, RT_PTR_ALLOC * parent_slot, RT_CHILD_PTR node, uint8 chunk, RT_PTR_ALLOC * slot)
+ {
+ 	switch ((node.local)->kind)
+@@ -2660,11 +2658,11 @@ RT_DELETE(RT_RADIX_TREE * tree, uint64 key)
+ 	}
+ 
+ 	return deleted;
+ }
+ 
+-#endif							/* USE_RT_DELETE */
++#endif							/* RT_USE_DELETE */
+ 
+ /***************** UTILITY FUNCTIONS *****************/
+ 
+ /*
+  * Return the statistics of the amount of memory used by the radix tree.
+@@ -2997,11 +2995,10 @@ RT_DUMP_NODE(RT_NODE * node)
+ #undef RT_FIND
+ #undef RT_SET
+ #undef RT_BEGIN_ITERATE
+ #undef RT_ITERATE_NEXT
+ #undef RT_END_ITERATE
+-#undef RT_USE_DELETE
+ #undef RT_DELETE
+ #undef RT_MEMORY_USAGE
+ #undef RT_DUMP_NODE
+ #undef RT_STATS
+ 

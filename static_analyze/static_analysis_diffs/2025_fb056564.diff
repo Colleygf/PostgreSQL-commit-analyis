@@ -1,0 +1,87 @@
+commit fb056564ec5bc1c18dd670c963c893cdb6de927e
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Fri Feb 7 13:41:42 2025 -0500
+
+    Fix pgbench performance issue induced by commit af35fe501.
+    
+    Commit af35fe501 caused "pgbench -i" to emit a '\r' character
+    for each data row loaded (when stderr is a terminal).
+    That's effectively invisible on-screen, but it causes the
+    connected terminal program to consume a lot of cycles.
+    It's even worse if you're connected over ssh, as the data
+    then has to pass through the ssh tunnel.
+    
+    Simplest fix is to move the added logic inside the if-tests
+    that check whether to print a progress line.  We could do
+    it another way that avoids duplicating these few lines,
+    but on the whole this seems the most transparent way to
+    write it.
+    
+    Like the previous commit, back-patch to all supported versions.
+    
+    Reported-by: Andres Freund <andres@anarazel.de>
+    Author: Tom Lane <tgl@sss.pgh.pa.us>
+    Reviewed-by: Nathan Bossart <nathandbossart@gmail.com>
+    Discussion: https://postgr.es/m/4k4drkh7bcmdezq6zbkhp25mnrzpswqi2o75d5uv2eeg3aq6q7@b7kqdmzzwzgb
+    Backpatch-through: 13
+
+diff --git a/src/bin/pgbench/pgbench.c b/src/bin/pgbench/pgbench.c
+index 40592e62606..f303bdeec8d 100644
+--- a/src/bin/pgbench/pgbench.c
++++ b/src/bin/pgbench/pgbench.c
+@@ -5009,10 +5009,20 @@ initPopulateTable(PGconn *con, const char *table, int64 base,
+ 
+ 			chars = fprintf(stderr, INT64_FORMAT " of " INT64_FORMAT " tuples (%d%%) of %s done (elapsed %.2f s, remaining %.2f s)",
+ 							j, total,
+ 							(int) ((j * 100) / total),
+ 							table, elapsed_sec, remaining_sec);
++
++			/*
++			 * If the previous progress message is longer than the current
++			 * one, add spaces to the current line to fully overwrite any
++			 * remaining characters from the previous message.
++			 */
++			if (prev_chars > chars)
++				fprintf(stderr, "%*c", prev_chars - chars, ' ');
++			fputc(eol, stderr);
++			prev_chars = chars;
+ 		}
+ 		/* let's not call the timing for each row, but only each 100 rows */
+ 		else if (use_quiet && (j % 100 == 0))
+ 		{
+ 			double		elapsed_sec = PG_TIME_GET_DOUBLE(pg_time_now() - start);
+@@ -5024,24 +5034,24 @@ initPopulateTable(PGconn *con, const char *table, int64 base,
+ 				chars = fprintf(stderr, INT64_FORMAT " of " INT64_FORMAT " tuples (%d%%) of %s done (elapsed %.2f s, remaining %.2f s)",
+ 								j, total,
+ 								(int) ((j * 100) / total),
+ 								table, elapsed_sec, remaining_sec);
+ 
++				/*
++				 * If the previous progress message is longer than the current
++				 * one, add spaces to the current line to fully overwrite any
++				 * remaining characters from the previous message.
++				 */
++				if (prev_chars > chars)
++					fprintf(stderr, "%*c", prev_chars - chars, ' ');
++				fputc(eol, stderr);
++				prev_chars = chars;
++
+ 				/* skip to the next interval */
+ 				log_interval = (int) ceil(elapsed_sec / LOG_STEP_SECONDS);
+ 			}
+ 		}
+-
+-		/*
+-		 * If the previous progress message is longer than the current one,
+-		 * add spaces to the current line to fully overwrite any remaining
+-		 * characters from the previous message.
+-		 */
+-		if (prev_chars > chars)
+-			fprintf(stderr, "%*c", prev_chars - chars, ' ');
+-		fputc(eol, stderr);
+-		prev_chars = chars;
+ 	}
+ 
+ 	if (chars != 0 && eol != '\n')
+ 		fprintf(stderr, "%*c\r", chars, ' ');	/* Clear the current line */
+ 

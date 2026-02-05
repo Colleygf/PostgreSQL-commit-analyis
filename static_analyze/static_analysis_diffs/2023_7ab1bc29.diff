@@ -1,0 +1,166 @@
+commit 7ab1bc2939f32aa995bdb81eaac3bb28f908e980
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Thu Mar 2 13:49:39 2023 +0100
+
+    Fix outdated references to guc.c
+    
+    Commit 0a20ff54f split out the GUC variables from guc.c into a new file
+    guc_tables.c. This updates comments referencing guc.c regarding variables
+    which are now in guc_tables.c.
+    
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/6B50C70C-8C1F-4F9A-A7C0-EEAFCC032406@yesql.se
+
+diff --git a/src/backend/commands/variable.c b/src/backend/commands/variable.c
+index bb0f5de4c2c..f0f2e076552 100644
+--- a/src/backend/commands/variable.c
++++ b/src/backend/commands/variable.c
+@@ -875,11 +875,11 @@ assign_session_authorization(const char *newval, void *extra)
+  *
+  * The SQL spec requires "SET ROLE NONE" to unset the role, so we hardwire
+  * a translation of "none" to InvalidOid.  Otherwise this is much like
+  * SET SESSION AUTHORIZATION.
+  */
+-extern char *role_string;		/* in guc.c */
++extern char *role_string;		/* in guc_tables.c */
+ 
+ bool
+ check_role(char **newval, void **extra, GucSource source)
+ {
+ 	HeapTuple	roleTup;
+diff --git a/src/backend/libpq/be-secure-openssl.c b/src/backend/libpq/be-secure-openssl.c
+index b3747f4fd87..685aa2ed69d 100644
+--- a/src/backend/libpq/be-secure-openssl.c
++++ b/src/backend/libpq/be-secure-openssl.c
+@@ -1555,11 +1555,12 @@ X509_NAME_to_cstring(X509_NAME *name)
+ 
+ /*
+  * Convert TLS protocol version GUC enum to OpenSSL values
+  *
+  * This is a straightforward one-to-one mapping, but doing it this way makes
+- * guc.c independent of OpenSSL availability and version.
++ * the definitions of ssl_min_protocol_version and ssl_max_protocol_version
++ * independent of OpenSSL availability and version.
+  *
+  * If a version is passed that is not supported by the current OpenSSL
+  * version, then we return -1.  If a nonnegative value is returned,
+  * subsequent code can assume it's working with a supported version.
+  *
+diff --git a/src/backend/storage/lmgr/predicate.c b/src/backend/storage/lmgr/predicate.c
+index bfc352aed86..0f7f7ba5f11 100644
+--- a/src/backend/storage/lmgr/predicate.c
++++ b/src/backend/storage/lmgr/predicate.c
+@@ -362,13 +362,13 @@ static SERIALIZABLEXACT *OldCommittedSxact;
+  * These configuration variables are used to set the predicate lock table size
+  * and to control promotion of predicate locks to coarser granularity in an
+  * attempt to degrade performance (mostly as false positive serialization
+  * failure) gracefully in the face of memory pressure.
+  */
+-int			max_predicate_locks_per_xact;	/* set by guc.c */
+-int			max_predicate_locks_per_relation;	/* set by guc.c */
+-int			max_predicate_locks_per_page;	/* set by guc.c */
++int			max_predicate_locks_per_xact;	/* in guc_tables.c */
++int			max_predicate_locks_per_relation;	/* in guc_tables.c */
++int			max_predicate_locks_per_page;	/* in guc_tables.c */
+ 
+ /*
+  * This provides a list of objects in order to track transactions
+  * participating in predicate locking.  Entries in the list are fixed size,
+  * and reside in shared memory.  The memory address of an entry must remain
+diff --git a/src/bin/pg_dump/dumputils.c b/src/bin/pg_dump/dumputils.c
+index 9753a6d8682..079693585ce 100644
+--- a/src/bin/pg_dump/dumputils.c
++++ b/src/bin/pg_dump/dumputils.c
+@@ -681,11 +681,11 @@ emitShSecLabels(PGconn *conn, PGresult *res, PQExpBuffer buffer,
+  * It'd be better if we could inquire this directly from the backend; but even
+  * if there were a function for that, it could only tell us about variables
+  * currently known to guc.c, so that it'd be unsafe for extensions to declare
+  * GUC_LIST_QUOTE variables anyway.  Lacking a solution for that, it doesn't
+  * seem worth the work to do more than have this list, which must be kept in
+- * sync with the variables actually marked GUC_LIST_QUOTE in guc.c.
++ * sync with the variables actually marked GUC_LIST_QUOTE in guc_tables.c.
+  */
+ bool
+ variable_is_guc_list_quote(const char *name)
+ {
+ 	if (pg_strcasecmp(name, "local_preload_libraries") == 0 ||
+diff --git a/src/include/miscadmin.h b/src/include/miscadmin.h
+index c309e0233d6..06a86f9ac1f 100644
+--- a/src/include/miscadmin.h
++++ b/src/include/miscadmin.h
+@@ -289,11 +289,11 @@ extern bool stack_is_too_deep(void);
+ /* in tcop/utility.c */
+ extern void PreventCommandIfReadOnly(const char *cmdname);
+ extern void PreventCommandIfParallelMode(const char *cmdname);
+ extern void PreventCommandDuringRecovery(const char *cmdname);
+ 
+-/* in utils/misc/guc.c */
++/* in utils/misc/guc_tables.c */
+ extern PGDLLIMPORT int trace_recovery_messages;
+ extern int	trace_recovery(int trace_level);
+ 
+ /*****************************************************************************
+  *	  pdir.h --																 *
+diff --git a/src/test/modules/test_misc/t/003_check_guc.pl b/src/test/modules/test_misc/t/003_check_guc.pl
+index 1786cd19299..e9f33f3c775 100644
+--- a/src/test/modules/test_misc/t/003_check_guc.pl
++++ b/src/test/modules/test_misc/t/003_check_guc.pl
+@@ -11,11 +11,11 @@ my $node = PostgreSQL::Test::Cluster->new('main');
+ $node->init;
+ $node->start;
+ 
+ # Grab the names of all the parameters that can be listed in the
+ # configuration sample file.  config_file is an exception, it is not
+-# in postgresql.conf.sample but is part of the lists from guc.c.
++# in postgresql.conf.sample but is part of the lists from guc_tables.c.
+ my $all_params = $node->safe_psql(
+ 	'postgres',
+ 	"SELECT name
+      FROM pg_settings
+    WHERE NOT 'NOT_IN_SAMPLE' = ANY (pg_settings_get_flags(name)) AND
+@@ -80,25 +80,25 @@ my %not_in_sample_hash = map { $_ => 1 } @not_in_sample_array;
+ my @missing_from_file = grep(!$gucs_in_file_hash{$_}, @all_params_array);
+ is(scalar(@missing_from_file),
+ 	0, "no parameters missing from postgresql.conf.sample");
+ 
+ my @missing_from_list = grep(!$all_params_hash{$_}, @gucs_in_file);
+-is(scalar(@missing_from_list), 0, "no parameters missing from guc.c");
++is(scalar(@missing_from_list), 0, "no parameters missing from guc_tables.c");
+ 
+ my @sample_intersect = grep($not_in_sample_hash{$_}, @gucs_in_file);
+ is(scalar(@sample_intersect),
+ 	0, "no parameters marked as NOT_IN_SAMPLE in postgresql.conf.sample");
+ 
+ # These would log some information only on errors.
+ foreach my $param (@missing_from_file)
+ {
+-	print("found GUC $param in guc.c, missing from postgresql.conf.sample\n");
++	print("found GUC $param in guc_tables.c, missing from postgresql.conf.sample\n");
+ }
+ foreach my $param (@missing_from_list)
+ {
+ 	print(
+-		"found GUC $param in postgresql.conf.sample, with incorrect info in guc.c\n"
++		"found GUC $param in postgresql.conf.sample, with incorrect info in guc_tables.c\n"
+ 	);
+ }
+ foreach my $param (@sample_intersect)
+ {
+ 	print(
+diff --git a/src/timezone/pgtz.c b/src/timezone/pgtz.c
+index 89b69fd2af2..c03078f7c83 100644
+--- a/src/timezone/pgtz.c
++++ b/src/timezone/pgtz.c
+@@ -362,11 +362,11 @@ pg_timezone_initialize(void)
+ {
+ 	/*
+ 	 * We may not yet know where PGSHAREDIR is (in particular this is true in
+ 	 * an EXEC_BACKEND subprocess).  So use "GMT", which pg_tzset forces to be
+ 	 * interpreted without reference to the filesystem.  This corresponds to
+-	 * the bootstrap default for these variables in guc.c, although in
++	 * the bootstrap default for these variables in guc_tables.c, although in
+ 	 * principle it could be different.
+ 	 */
+ 	session_timezone = pg_tzset("GMT");
+ 	log_timezone = session_timezone;
+ }

@@ -1,0 +1,64 @@
+commit a7f2f6adc240a2823c2344b89e90bb630dea8803
+Author: Jeff Davis <jdavis@postgresql.org>
+Date:   Wed Oct 16 12:21:13 2024 -0700
+
+    Whitespace fixup from generated unicode tables.
+    
+    When running the 'update-unicode' build target, generate files that
+    conform to pgindent whitespace rules.
+
+diff --git a/src/common/unicode/generate-unicode_case_table.pl b/src/common/unicode/generate-unicode_case_table.pl
+index 508b05af8e9..464dec04db6 100644
+--- a/src/common/unicode/generate-unicode_case_table.pl
++++ b/src/common/unicode/generate-unicode_case_table.pl
+@@ -90,17 +90,17 @@ typedef enum
+ {
+ 	CaseLower = 0,
+ 	CaseTitle = 1,
+ 	CaseUpper = 2,
+ 	NCaseKind
+-}			CaseKind;
++} CaseKind;
+ 
+ typedef struct
+ {
+ 	pg_wchar	codepoint;		/* Unicode codepoint */
+ 	pg_wchar	simplemap[NCaseKind];
+-}			pg_case_map;
++} pg_case_map;
+ 
+ /*
+  * Case mapping table. Dense for codepoints < 0x80 (enabling fast lookup),
+  * sparse for higher codepoints (requiring scan or binary search).
+  */
+diff --git a/src/common/unicode/generate-unicode_category_table.pl b/src/common/unicode/generate-unicode_category_table.pl
+index 12914c02433..d023aa0aafa 100644
+--- a/src/common/unicode/generate-unicode_category_table.pl
++++ b/src/common/unicode/generate-unicode_category_table.pl
+@@ -367,23 +367,23 @@ print $OT <<"EOS";
+ typedef struct
+ {
+ 	uint32		first;			/* Unicode codepoint */
+ 	uint32		last;			/* Unicode codepoint */
+ 	uint8		category;		/* General Category */
+-}			pg_category_range;
++} pg_category_range;
+ 
+ typedef struct
+ {
+ 	uint32		first;			/* Unicode codepoint */
+ 	uint32		last;			/* Unicode codepoint */
+-}			pg_unicode_range;
++} pg_unicode_range;
+ 
+ typedef struct
+ {
+ 	uint8		category;
+ 	uint8		properties;
+-}			pg_unicode_properties;
++} pg_unicode_properties;
+ 
+ /*
+  * The properties currently used, in no particular order. Fits in a uint8, but
+  * if more properties are added, a wider integer will be needed.
+  */

@@ -1,0 +1,100 @@
+commit 5ee75e32fa734e8ae85ff096f1523be8e16e1b8d
+Author: Andres Freund <andres@anarazel.de>
+Date:   Mon Feb 24 05:39:27 2025 -0500
+
+    Add static asserts for MAX_BACKENDS limiting factors
+    
+    So far the various dependencies were documented in the comment above
+    MAX_BACKENDS, but not checked.
+    
+    Discussion: https://postgr.es/m/CA+COZaBO_s3LfALq=b+HcBHFSOEGiApVjrRacCe4VP9m7CJsNQ@mail.gmail.com
+
+diff --git a/src/backend/storage/lmgr/deadlock.c b/src/backend/storage/lmgr/deadlock.c
+index dc6923f8132..c4bfaaa67ac 100644
+--- a/src/backend/storage/lmgr/deadlock.c
++++ b/src/backend/storage/lmgr/deadlock.c
+@@ -28,10 +28,11 @@
+ #include "miscadmin.h"
+ #include "pg_trace.h"
+ #include "pgstat.h"
+ #include "storage/lmgr.h"
+ #include "storage/proc.h"
++#include "storage/procnumber.h"
+ #include "utils/memutils.h"
+ 
+ 
+ /*
+  * One edge in the waits-for graph.
+@@ -189,10 +190,12 @@ InitDeadLockChecking(void)
+ 	 * can survive if we run low on space by doing excess runs of
+ 	 * TestConfiguration to re-compute constraint lists each time needed.) The
+ 	 * last MaxBackends entries in possibleConstraints[] are reserved as
+ 	 * output workspace for FindLockCycle.
+ 	 */
++	StaticAssertStmt(MAX_BACKENDS_BITS <= (32 - 3),
++					 "MAX_BACKENDS_BITS too big for * 4");
+ 	maxPossibleConstraints = MaxBackends * 4;
+ 	possibleConstraints =
+ 		(EDGE *) palloc(maxPossibleConstraints * sizeof(EDGE));
+ 
+ 	MemoryContextSwitchTo(oldcxt);
+diff --git a/src/backend/utils/cache/inval.c b/src/backend/utils/cache/inval.c
+index 6aff1ec01d7..700ccb6df9b 100644
+--- a/src/backend/utils/cache/inval.c
++++ b/src/backend/utils/cache/inval.c
+@@ -118,10 +118,11 @@
+ #include "access/xact.h"
+ #include "access/xloginsert.h"
+ #include "catalog/catalog.h"
+ #include "catalog/pg_constraint.h"
+ #include "miscadmin.h"
++#include "storage/procnumber.h"
+ #include "storage/sinval.h"
+ #include "storage/smgr.h"
+ #include "utils/catcache.h"
+ #include "utils/injection_point.h"
+ #include "utils/inval.h"
+@@ -1649,10 +1650,14 @@ CacheInvalidateRelcacheByRelid(Oid relid)
+ void
+ CacheInvalidateSmgr(RelFileLocatorBackend rlocator)
+ {
+ 	SharedInvalidationMessage msg;
+ 
++	/* verify optimization stated above stays valid */
++	StaticAssertStmt(MAX_BACKENDS_BITS <= 23,
++					 "MAX_BACKEND_BITS is too big for inval.c");
++
+ 	msg.sm.id = SHAREDINVALSMGR_ID;
+ 	msg.sm.backend_hi = rlocator.backend >> 16;
+ 	msg.sm.backend_lo = rlocator.backend & 0xffff;
+ 	msg.sm.rlocator = rlocator.locator;
+ 	/* check AddCatcacheInvalidationMessage() for an explanation */
+diff --git a/src/include/storage/buf_internals.h b/src/include/storage/buf_internals.h
+index d830d5c9841..8b32fb108b0 100644
+--- a/src/include/storage/buf_internals.h
++++ b/src/include/storage/buf_internals.h
+@@ -19,10 +19,11 @@
+ #include "port/atomics.h"
+ #include "storage/buf.h"
+ #include "storage/bufmgr.h"
+ #include "storage/condition_variable.h"
+ #include "storage/lwlock.h"
++#include "storage/procnumber.h"
+ #include "storage/shmem.h"
+ #include "storage/smgr.h"
+ #include "storage/spin.h"
+ #include "utils/relcache.h"
+ #include "utils/resowner.h"
+@@ -84,10 +85,12 @@ StaticAssertDecl(BUF_REFCOUNT_BITS + BUF_USAGECOUNT_BITS + BUF_FLAG_BITS == 32,
+  */
+ #define BM_MAX_USAGE_COUNT	5
+ 
+ StaticAssertDecl(BM_MAX_USAGE_COUNT < (1 << BUF_USAGECOUNT_BITS),
+ 				 "BM_MAX_USAGE_COUNT doesn't fit in BUF_USAGECOUNT_BITS bits");
++StaticAssertDecl(MAX_BACKENDS_BITS <= BUF_REFCOUNT_BITS,
++				 "MAX_BACKENDS_BITS needs to be <= BUF_REFCOUNT_BITS");
+ 
+ /*
+  * Buffer tag identifies which disk block the buffer contains.
+  *
+  * Note: the BufferTag data must be sufficient to determine where to write the

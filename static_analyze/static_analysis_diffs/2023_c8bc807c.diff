@@ -1,0 +1,58 @@
+commit c8bc807cf8bc741c83bc74553326856affee5a4f
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Tue Dec 19 09:53:33 2023 +0530
+
+    pgoutput: Raise an error for missing protocol version parameter.
+    
+    Currently, we give a misleading error if the user omits to pass the
+    required parameter 'proto_version' in SQL API
+    pg_logical_slot_get_changes() or during START_REPLICATION protocol
+    message. The error raised is as follows which indicates that the wrong
+    version is passed.
+    ERROR:  client sent proto_version=0 but server only supports protocol 1 or higher
+    
+    Author: Emre Hasegeli
+    Reviewed-by: Peter Smith, Amit Kapila
+    Discussion: https://postgr.es/m/CAE2gYzwdwtUbs-tPSV-QBwgTubiyGD2ZGsSnAVsDfAGGLDrGOA@mail.gmail.com
+
+diff --git a/src/backend/replication/pgoutput/pgoutput.c b/src/backend/replication/pgoutput/pgoutput.c
+index f9ed1083df7..25a95076cf7 100644
+--- a/src/backend/replication/pgoutput/pgoutput.c
++++ b/src/backend/replication/pgoutput/pgoutput.c
+@@ -398,10 +398,20 @@ parse_output_parameters(List *options, PGOutputData *data)
+ 						errmsg("unrecognized origin value: \"%s\"", origin));
+ 		}
+ 		else
+ 			elog(ERROR, "unrecognized pgoutput option: %s", defel->defname);
+ 	}
++
++	/* Check required options */
++	if (!protocol_version_given)
++		ereport(ERROR,
++				errcode(ERRCODE_INVALID_PARAMETER_VALUE),
++				errmsg("proto_version option missing"));
++	if (!publication_names_given)
++		ereport(ERROR,
++				errcode(ERRCODE_INVALID_PARAMETER_VALUE),
++				errmsg("publication_names option missing"));
+ }
+ 
+ /*
+  * Initialize this plugin
+  */
+@@ -447,15 +457,10 @@ pgoutput_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt,
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+ 					 errmsg("client sent proto_version=%d but server only supports protocol %d or higher",
+ 							data->protocol_version, LOGICALREP_PROTO_MIN_VERSION_NUM)));
+ 
+-		if (data->publication_names == NIL)
+-			ereport(ERROR,
+-					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+-					 errmsg("publication_names parameter missing")));
+-
+ 		/*
+ 		 * Decide whether to enable streaming. It is disabled by default, in
+ 		 * which case we just update the flag in decoding context. Otherwise
+ 		 * we only allow it with sufficient version of the protocol, and when
+ 		 * the output plugin supports it.

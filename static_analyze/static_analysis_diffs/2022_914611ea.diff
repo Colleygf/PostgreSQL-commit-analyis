@@ -1,0 +1,158 @@
+commit 914611ea738a3601717990faff0f5d71a0f14a3d
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu Apr 21 17:12:49 2022 -0400
+
+    Fix missed cases in libpq's error handling.
+    
+    Commit 618c16707 invented an "error_result" flag in PGconn, which
+    intends to represent the state that we have an error condition and
+    need to build a PGRES_FATAL_ERROR PGresult from the message text in
+    conn->errorMessage, but have not yet done so.  (Postponing construction
+    of the error object simplifies dealing with out-of-memory conditions
+    and with concatenation of messages for multiple errors.)  For nearly all
+    purposes, this "virtual" PGresult object should act the same as if it
+    were already materialized.  But a couple of places in fe-protocol3.c
+    didn't get that memo, and were only testing conn->result as they used
+    to, without also checking conn->error_result.
+    
+    In hopes of reducing the probability of similar mistakes in future,
+    I invented a pgHavePendingResult() macro that includes both tests.
+    
+    Per report from Peter Eisentraut.
+    
+    Discussion: https://postgr.es/m/b52277b9-fa66-b027-4a37-fb8989c73ff8@enterprisedb.com
+
+diff --git a/src/interfaces/libpq/fe-exec.c b/src/interfaces/libpq/fe-exec.c
+index 78cff4475cc..919cf5741d4 100644
+--- a/src/interfaces/libpq/fe-exec.c
++++ b/src/interfaces/libpq/fe-exec.c
+@@ -1194,10 +1194,11 @@ pqSaveParameterStatus(PGconn *conn, const char *name, const char *value)
+  * pqRowProcessor
+  *	  Add the received row to the current async result (conn->result).
+  *	  Returns 1 if OK, 0 if error occurred.
+  *
+  * On error, *errmsgp can be set to an error string to be returned.
++ * (Such a string should already be translated via libpq_gettext().)
+  * If it is left NULL, the error is presumed to be "out of memory".
+  *
+  * In single-row mode, we create a new result holding just the current row,
+  * stashing the previous result in conn->next_result so that it becomes
+  * active again after pqPrepareAsyncResult().  This allows the result metadata
+@@ -1984,11 +1985,11 @@ PQsetSingleRowMode(PGconn *conn)
+ 		return 0;
+ 	if (!conn->cmd_queue_head ||
+ 		(conn->cmd_queue_head->queryclass != PGQUERY_SIMPLE &&
+ 		 conn->cmd_queue_head->queryclass != PGQUERY_EXTENDED))
+ 		return 0;
+-	if (conn->result || conn->error_result)
++	if (pgHavePendingResult(conn))
+ 		return 0;
+ 
+ 	/* OK, set flag */
+ 	conn->singleRowMode = true;
+ 	return 1;
+@@ -2939,11 +2940,11 @@ PQfn(PGconn *conn,
+ 							 libpq_gettext("PQfn not allowed in pipeline mode\n"));
+ 		return NULL;
+ 	}
+ 
+ 	if (conn->sock == PGINVALID_SOCKET || conn->asyncStatus != PGASYNC_IDLE ||
+-		conn->result || conn->error_result)
++		pgHavePendingResult(conn))
+ 	{
+ 		appendPQExpBufferStr(&conn->errorMessage,
+ 							 libpq_gettext("connection in wrong state\n"));
+ 		return NULL;
+ 	}
+diff --git a/src/interfaces/libpq/fe-protocol3.c b/src/interfaces/libpq/fe-protocol3.c
+index 94b4a448b90..10c76daf6ed 100644
+--- a/src/interfaces/libpq/fe-protocol3.c
++++ b/src/interfaces/libpq/fe-protocol3.c
+@@ -207,11 +207,11 @@ pqParseInput3(PGconn *conn)
+ 			switch (id)
+ 			{
+ 				case 'C':		/* command complete */
+ 					if (pqGets(&conn->workBuffer, conn))
+ 						return;
+-					if (conn->result == NULL)
++					if (!pgHavePendingResult(conn))
+ 					{
+ 						conn->result = PQmakeEmptyPGresult(conn,
+ 														   PGRES_COMMAND_OK);
+ 						if (!conn->result)
+ 						{
+@@ -261,11 +261,11 @@ pqParseInput3(PGconn *conn)
+ 							pqCommandQueueAdvance(conn);
+ 						conn->asyncStatus = PGASYNC_IDLE;
+ 					}
+ 					break;
+ 				case 'I':		/* empty query */
+-					if (conn->result == NULL)
++					if (!pgHavePendingResult(conn))
+ 					{
+ 						conn->result = PQmakeEmptyPGresult(conn,
+ 														   PGRES_EMPTY_QUERY);
+ 						if (!conn->result)
+ 						{
+@@ -279,11 +279,11 @@ pqParseInput3(PGconn *conn)
+ 				case '1':		/* Parse Complete */
+ 					/* If we're doing PQprepare, we're done; else ignore */
+ 					if (conn->cmd_queue_head &&
+ 						conn->cmd_queue_head->queryclass == PGQUERY_PREPARE)
+ 					{
+-						if (conn->result == NULL)
++						if (!pgHavePendingResult(conn))
+ 						{
+ 							conn->result = PQmakeEmptyPGresult(conn,
+ 															   PGRES_COMMAND_OK);
+ 							if (!conn->result)
+ 							{
+@@ -360,11 +360,11 @@ pqParseInput3(PGconn *conn)
+ 					 * ignore this message.
+ 					 */
+ 					if (conn->cmd_queue_head &&
+ 						conn->cmd_queue_head->queryclass == PGQUERY_DESCRIBE)
+ 					{
+-						if (conn->result == NULL)
++						if (!pgHavePendingResult(conn))
+ 						{
+ 							conn->result = PQmakeEmptyPGresult(conn,
+ 															   PGRES_COMMAND_OK);
+ 							if (!conn->result)
+ 							{
+@@ -2131,11 +2131,11 @@ pqFunctionCall3(PGconn *conn, Oid fnid,
+ 				 * If we already have a result object (probably an error), use
+ 				 * that.  Otherwise, if we saw a function result message,
+ 				 * report COMMAND_OK.  Otherwise, the backend violated the
+ 				 * protocol, so complain.
+ 				 */
+-				if (!(conn->result || conn->error_result))
++				if (!pgHavePendingResult(conn))
+ 				{
+ 					if (status == PGRES_COMMAND_OK)
+ 					{
+ 						conn->result = PQmakeEmptyPGresult(conn, status);
+ 						if (!conn->result)
+diff --git a/src/interfaces/libpq/libpq-int.h b/src/interfaces/libpq/libpq-int.h
+index e0cee4b142f..3db6a17db4d 100644
+--- a/src/interfaces/libpq/libpq-int.h
++++ b/src/interfaces/libpq/libpq-int.h
+@@ -850,10 +850,18 @@ extern void pqTraceOutputNoTypeByteMessage(PGconn *conn, const char *message);
+  */
+ #define pqClearConnErrorState(conn) \
+ 	(resetPQExpBuffer(&(conn)->errorMessage), \
+ 	 (conn)->errorReported = 0)
+ 
++/*
++ * Check whether we have a PGresult pending to be returned --- either a
++ * constructed one in conn->result, or a "virtual" error result that we
++ * don't intend to materialize until the end of the query cycle.
++ */
++#define pgHavePendingResult(conn) \
++	((conn)->result != NULL || (conn)->error_result)
++
+ /*
+  * this is so that we can check if a connection is non-blocking internally
+  * without the overhead of a function call
+  */
+ #define pqIsnonblocking(conn)	((conn)->nonblocking)

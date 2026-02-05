@@ -1,0 +1,182 @@
+commit 3ad5f07c0fe9a734fb4e2484c7165f9280dbefa7
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri Jun 23 16:36:17 2023 +0200
+
+    Error message refactoring
+    
+    Take some untranslatable things out of the message and replace by
+    format placeholders, to reduce translatable strings and reduce
+    translation mistakes.
+
+diff --git a/src/backend/replication/logical/launcher.c b/src/backend/replication/logical/launcher.c
+index 87b5593d2db..8395ae7b23c 100644
+--- a/src/backend/replication/logical/launcher.c
++++ b/src/backend/replication/logical/launcher.c
+@@ -420,11 +420,11 @@ retry:
+ 	{
+ 		LWLockRelease(LogicalRepWorkerLock);
+ 		ereport(WARNING,
+ 				(errcode(ERRCODE_CONFIGURATION_LIMIT_EXCEEDED),
+ 				 errmsg("out of logical replication worker slots"),
+-				 errhint("You might need to increase max_logical_replication_workers.")));
++				 errhint("You might need to increase %s.", "max_logical_replication_workers")));
+ 		return false;
+ 	}
+ 
+ 	/* Prepare the worker slot. */
+ 	worker->launch_time = now;
+@@ -494,11 +494,11 @@ retry:
+ 		LWLockRelease(LogicalRepWorkerLock);
+ 
+ 		ereport(WARNING,
+ 				(errcode(ERRCODE_CONFIGURATION_LIMIT_EXCEEDED),
+ 				 errmsg("out of background worker slots"),
+-				 errhint("You might need to increase max_worker_processes.")));
++				 errhint("You might need to increase %s.", "max_worker_processes")));
+ 		return false;
+ 	}
+ 
+ 	/* Now wait until it attaches. */
+ 	return WaitForReplicationWorkerAttach(worker, generation, bgw_handle);
+diff --git a/src/backend/replication/slot.c b/src/backend/replication/slot.c
+index 8021aaa0a8c..1dc27264f61 100644
+--- a/src/backend/replication/slot.c
++++ b/src/backend/replication/slot.c
+@@ -1285,11 +1285,11 @@ ReportSlotInvalidation(ReplicationSlotInvalidationCause cause,
+ 			errmsg("terminating process %d to release replication slot \"%s\"",
+ 				   pid, NameStr(slotname)) :
+ 			errmsg("invalidating obsolete replication slot \"%s\"",
+ 				   NameStr(slotname)),
+ 			errdetail_internal("%s", err_detail.data),
+-			hint ? errhint("You might need to increase max_slot_wal_keep_size.") : 0);
++			hint ? errhint("You might need to increase %s.", "max_slot_wal_keep_size") : 0);
+ 
+ 	pfree(err_detail.data);
+ }
+ 
+ /*
+diff --git a/src/backend/storage/lmgr/lock.c b/src/backend/storage/lmgr/lock.c
+index 193f50fc0f4..0a692ee0a6d 100644
+--- a/src/backend/storage/lmgr/lock.c
++++ b/src/backend/storage/lmgr/lock.c
+@@ -978,11 +978,11 @@ LockAcquireExtended(const LOCKTAG *locktag,
+ 				*locallockp = NULL;
+ 			if (reportMemoryError)
+ 				ereport(ERROR,
+ 						(errcode(ERRCODE_OUT_OF_MEMORY),
+ 						 errmsg("out of shared memory"),
+-						 errhint("You might need to increase max_locks_per_transaction.")));
++						 errhint("You might need to increase %s.", "max_locks_per_transaction")));
+ 			else
+ 				return LOCKACQUIRE_NOT_AVAIL;
+ 		}
+ 	}
+ 
+@@ -1016,11 +1016,11 @@ LockAcquireExtended(const LOCKTAG *locktag,
+ 			*locallockp = NULL;
+ 		if (reportMemoryError)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_OUT_OF_MEMORY),
+ 					 errmsg("out of shared memory"),
+-					 errhint("You might need to increase max_locks_per_transaction.")));
++					 errhint("You might need to increase %s.", "max_locks_per_transaction")));
+ 		else
+ 			return LOCKACQUIRE_NOT_AVAIL;
+ 	}
+ 	locallock->proclock = proclock;
+ 	lock = proclock->tag.myLock;
+@@ -2806,11 +2806,11 @@ FastPathGetRelationLockEntry(LOCALLOCK *locallock)
+ 			LWLockRelease(partitionLock);
+ 			LWLockRelease(&MyProc->fpInfoLock);
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_OUT_OF_MEMORY),
+ 					 errmsg("out of shared memory"),
+-					 errhint("You might need to increase max_locks_per_transaction.")));
++					 errhint("You might need to increase %s.", "max_locks_per_transaction")));
+ 		}
+ 		GrantLock(proclock->tag.myLock, proclock, lockmode);
+ 		FAST_PATH_CLEAR_LOCKMODE(MyProc, f, lockmode);
+ 
+ 		LWLockRelease(partitionLock);
+@@ -4191,11 +4191,11 @@ lock_twophase_recover(TransactionId xid, uint16 info,
+ 	{
+ 		LWLockRelease(partitionLock);
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_OUT_OF_MEMORY),
+ 				 errmsg("out of shared memory"),
+-				 errhint("You might need to increase max_locks_per_transaction.")));
++				 errhint("You might need to increase %s.", "max_locks_per_transaction")));
+ 	}
+ 
+ 	/*
+ 	 * if it's a new lock object, initialize it
+ 	 */
+@@ -4256,11 +4256,11 @@ lock_twophase_recover(TransactionId xid, uint16 info,
+ 		}
+ 		LWLockRelease(partitionLock);
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_OUT_OF_MEMORY),
+ 				 errmsg("out of shared memory"),
+-				 errhint("You might need to increase max_locks_per_transaction.")));
++				 errhint("You might need to increase %s.", "max_locks_per_transaction")));
+ 	}
+ 
+ 	/*
+ 	 * If new, initialize the new entry
+ 	 */
+@@ -4606,11 +4606,11 @@ VirtualXactLock(VirtualTransactionId vxid, bool wait)
+ 			LWLockRelease(partitionLock);
+ 			LWLockRelease(&proc->fpInfoLock);
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_OUT_OF_MEMORY),
+ 					 errmsg("out of shared memory"),
+-					 errhint("You might need to increase max_locks_per_transaction.")));
++					 errhint("You might need to increase %s.", "max_locks_per_transaction")));
+ 		}
+ 		GrantLock(proclock->tag.myLock, proclock, ExclusiveLock);
+ 
+ 		LWLockRelease(partitionLock);
+ 
+diff --git a/src/backend/storage/lmgr/predicate.c b/src/backend/storage/lmgr/predicate.c
+index 533f6165412..1af41213b41 100644
+--- a/src/backend/storage/lmgr/predicate.c
++++ b/src/backend/storage/lmgr/predicate.c
+@@ -2408,11 +2408,11 @@ CreatePredicateLock(const PREDICATELOCKTARGETTAG *targettag,
+ 									HASH_ENTER_NULL, &found);
+ 	if (!target)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_OUT_OF_MEMORY),
+ 				 errmsg("out of shared memory"),
+-				 errhint("You might need to increase max_pred_locks_per_transaction.")));
++				 errhint("You might need to increase %s.", "max_pred_locks_per_transaction")));
+ 	if (!found)
+ 		dlist_init(&target->predicateLocks);
+ 
+ 	/* We've got the sxact and target, make sure they're joined. */
+ 	locktag.myTarget = target;
+@@ -2423,11 +2423,11 @@ CreatePredicateLock(const PREDICATELOCKTARGETTAG *targettag,
+ 									HASH_ENTER_NULL, &found);
+ 	if (!lock)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_OUT_OF_MEMORY),
+ 				 errmsg("out of shared memory"),
+-				 errhint("You might need to increase max_pred_locks_per_transaction.")));
++				 errhint("You might need to increase %s.", "max_pred_locks_per_transaction")));
+ 
+ 	if (!found)
+ 	{
+ 		dlist_push_tail(&target->predicateLocks, &lock->targetLink);
+ 		dlist_push_tail(&sxact->predicateLocks, &lock->xactLink);
+@@ -3820,11 +3820,11 @@ ReleaseOneSerializableXact(SERIALIZABLEXACT *sxact, bool partial,
+ 												   HASH_ENTER_NULL, &found);
+ 			if (!predlock)
+ 				ereport(ERROR,
+ 						(errcode(ERRCODE_OUT_OF_MEMORY),
+ 						 errmsg("out of shared memory"),
+-						 errhint("You might need to increase max_pred_locks_per_transaction.")));
++						 errhint("You might need to increase %s.", "max_pred_locks_per_transaction")));
+ 			if (found)
+ 			{
+ 				Assert(predlock->commitSeqNo != 0);
+ 				Assert(predlock->commitSeqNo != InvalidSerCommitSeqNo);
+ 				if (predlock->commitSeqNo < sxact->commitSeqNo)

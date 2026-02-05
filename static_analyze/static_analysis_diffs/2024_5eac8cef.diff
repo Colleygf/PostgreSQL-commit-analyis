@@ -1,0 +1,79 @@
+commit 5eac8cef24543767015a9b248af08bbfa10b1b70
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Mon Apr 1 15:15:03 2024 -0400
+
+    Avoid possible longjmp-induced logic error in PLy_trigger_build_args.
+    
+    The "pltargs" variable wasn't marked volatile, which makes it unsafe
+    to change its value within the PG_TRY block.  It looks like the worst
+    outcome would be to fail to release a refcount on Py_None during an
+    (improbable) error exit, which would likely go unnoticed in the field.
+    Still, it's a bug.  A one-liner fix could be to mark pltargs volatile,
+    but on the whole it seems cleaner to arrange things so that we don't
+    change its value within PG_TRY.
+    
+    Per report from Xing Guo.  This has been there for quite awhile,
+    so back-patch to all supported branches.
+    
+    Discussion: https://postgr.es/m/CACpMh+DLrk=fDv07MNpBT4J413fDAm+gmMXgi8cjPONE+jvzuw@mail.gmail.com
+
+diff --git a/src/pl/plpython/plpy_exec.c b/src/pl/plpython/plpy_exec.c
+index e06fde1dd90..3145c696996 100644
+--- a/src/pl/plpython/plpy_exec.c
++++ b/src/pl/plpython/plpy_exec.c
+@@ -687,11 +687,11 @@ PLy_trigger_build_args(FunctionCallInfo fcinfo, PLyProcedure *proc, HeapTuple *r
+ 			   *pltwhen,
+ 			   *pltlevel,
+ 			   *pltrelid,
+ 			   *plttablename,
+ 			   *plttableschema,
+-			   *pltargs = NULL,
++			   *pltargs,
+ 			   *pytnew,
+ 			   *pytold,
+ 			   *pltdata;
+ 	char	   *stroid;
+ 
+@@ -711,10 +711,15 @@ PLy_trigger_build_args(FunctionCallInfo fcinfo, PLyProcedure *proc, HeapTuple *r
+ 		{
+ 			Py_DECREF(pltdata);
+ 			return NULL;
+ 		}
+ 	}
++	else
++	{
++		Py_INCREF(Py_None);
++		pltargs = Py_None;
++	}
+ 
+ 	PG_TRY();
+ 	{
+ 		pltname = PLyUnicode_FromString(tdata->tg_trigger->tgname);
+ 		PyDict_SetItemString(pltdata, "name", pltname);
+@@ -854,11 +859,11 @@ PLy_trigger_build_args(FunctionCallInfo fcinfo, PLyProcedure *proc, HeapTuple *r
+ 			 */
+ 			int			i;
+ 			PyObject   *pltarg;
+ 
+ 			/* pltargs should have been allocated before the PG_TRY block. */
+-			Assert(pltargs);
++			Assert(pltargs && pltargs != Py_None);
+ 
+ 			for (i = 0; i < tdata->tg_trigger->tgnargs; i++)
+ 			{
+ 				pltarg = PLyUnicode_FromString(tdata->tg_trigger->tgargs[i]);
+ 
+@@ -868,12 +873,11 @@ PLy_trigger_build_args(FunctionCallInfo fcinfo, PLyProcedure *proc, HeapTuple *r
+ 				PyList_SetItem(pltargs, i, pltarg);
+ 			}
+ 		}
+ 		else
+ 		{
+-			Py_INCREF(Py_None);
+-			pltargs = Py_None;
++			Assert(pltargs == Py_None);
+ 		}
+ 		PyDict_SetItemString(pltdata, "args", pltargs);
+ 		Py_DECREF(pltargs);
+ 	}
+ 	PG_CATCH();

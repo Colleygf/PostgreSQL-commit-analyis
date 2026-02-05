@@ -1,0 +1,72 @@
+commit c754bdd8a2e5ae388d48dc2a219f9f6b65e3ca3a
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Fri Apr 4 13:09:06 2025 +0900
+
+    Fix logical decoding regression tests to correctly check slot existence.
+    
+    The regression tests for logical decoding verify whether a logical slot
+    exists or has been dropped. Previously, these tests attempted to
+    retrieve "slot_name" from the result of slot(), but since "slot_name" was
+    not included in the result, slot()->{'slot_name'} always returned undef,
+    leading to incorrect behavior.
+    
+    This commit fixes the issue by checking the "plugin" field in the result
+    of slot() instead, ensuring the tests properly verify slot existence.
+    
+    Back-patch to all supported versions.
+    
+    Author: Hayato Kuroda <kuroda.hayato@fujitsu.com>
+    Reviewed-by: Fujii Masao <masao.fujii@gmail.com>
+    Discussion: https://postgr.es/m/OSCPR01MB149667EC4E738769CA80B7EA5F5AE2@OSCPR01MB14966.jpnprd01.prod.outlook.com
+    Backpatch-through: 13
+
+diff --git a/src/test/recovery/t/006_logical_decoding.pl b/src/test/recovery/t/006_logical_decoding.pl
+index a5678bc4dc4..2137c4e5e30 100644
+--- a/src/test/recovery/t/006_logical_decoding.pl
++++ b/src/test/recovery/t/006_logical_decoding.pl
+@@ -159,22 +159,22 @@ SKIP:
+ 		"SELECT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = 'otherdb_slot' AND active_pid IS NOT NULL)"
+ 	) or die "slot never became active";
+ 	is($node_primary->psql('postgres', 'DROP DATABASE otherdb'),
+ 		3, 'dropping a DB with active logical slots fails');
+ 	$pg_recvlogical->kill_kill;
+-	is($node_primary->slot('otherdb_slot')->{'slot_name'},
+-		undef, 'logical slot still exists');
++	is($node_primary->slot('otherdb_slot')->{'plugin'},
++		'test_decoding', 'logical slot still exists');
+ }
+ 
+ $node_primary->poll_query_until('otherdb',
+ 	"SELECT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = 'otherdb_slot' AND active_pid IS NULL)"
+ ) or die "slot never became inactive";
+ 
+ is($node_primary->psql('postgres', 'DROP DATABASE otherdb'),
+ 	0, 'dropping a DB with inactive logical slots succeeds');
+-is($node_primary->slot('otherdb_slot')->{'slot_name'},
+-	undef, 'logical slot was actually dropped with DB');
++is($node_primary->slot('otherdb_slot')->{'plugin'},
++	'', 'logical slot was actually dropped with DB');
+ 
+ # Test logical slot advancing and its durability.
+ # Passing failover=true (last arg) should not have any impact on advancing.
+ my $logical_slot = 'logical_slot';
+ $node_primary->safe_psql('postgres',
+diff --git a/src/test/recovery/t/010_logical_decoding_timelines.pl b/src/test/recovery/t/010_logical_decoding_timelines.pl
+index 08615f1fca8..0199ae95abf 100644
+--- a/src/test/recovery/t/010_logical_decoding_timelines.pl
++++ b/src/test/recovery/t/010_logical_decoding_timelines.pl
+@@ -92,12 +92,12 @@ is($node_primary->psql('postgres', 'DROP DATABASE dropme'),
+ $node_primary->wait_for_catchup($node_replica);
+ is( $node_replica->safe_psql(
+ 		'postgres', q[SELECT 1 FROM pg_database WHERE datname = 'dropme']),
+ 	'',
+ 	'dropped DB dropme on standby');
+-is($node_primary->slot('dropme_slot')->{'slot_name'},
+-	undef, 'logical slot was actually dropped on standby');
++is($node_primary->slot('dropme_slot')->{'plugin'},
++	'', 'logical slot was actually dropped on standby');
+ 
+ # Back to testing failover...
+ $node_primary->safe_psql('postgres',
+ 	"SELECT pg_create_logical_replication_slot('after_basebackup', 'test_decoding');"
+ );

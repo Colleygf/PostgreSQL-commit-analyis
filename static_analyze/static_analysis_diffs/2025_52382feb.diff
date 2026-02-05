@@ -1,0 +1,63 @@
+commit 52382feb782b76c42552e96f0bc382a87fd7c1e4
+Author: David Rowley <drowley@postgresql.org>
+Date:   Tue Dec 9 14:41:30 2025 +1300
+
+    Doc: fix typo in hash index documentation
+    
+    Plus a similar fix to the README.
+    
+    Backpatch as far back as the sgml issue exists.  The README issue does
+    exist in v14, but that seems unlikely to harm anyone.
+    
+    Author: David Geier <geidav.pg@gmail.com>
+    Discussion: https://postgr.es/m/ed3db7ea-55b4-4809-86af-81ad3bb2c7d3@gmail.com
+    Backpatch-through: 15
+
+diff --git a/doc/src/sgml/hash.sgml b/doc/src/sgml/hash.sgml
+index 9e69ef91fe8..34f3b2cb0c1 100644
+--- a/doc/src/sgml/hash.sgml
++++ b/doc/src/sgml/hash.sgml
+@@ -123,15 +123,14 @@
+ 
+  <para>
+   Both scanning the index and inserting tuples require locating the bucket
+   where a given tuple ought to be located. To do this, we need the bucket
+   count, highmask, and lowmask from the metapage; however, it's undesirable
+-  for performance reasons to have to have to lock and pin the metapage for
+-  every such operation. Instead, we retain a cached copy of the metapage
+-  in each backend's relcache entry. This will produce the correct bucket
+-  mapping as long as the target bucket hasn't been split since the last
+-  cache refresh.
++  for performance reasons to have to lock and pin the metapage for every such
++  operation. Instead, we retain a cached copy of the metapage in each
++  backend's relcache entry. This will produce the correct bucket mapping as
++  long as the target bucket hasn't been split since the last cache refresh.
+  </para>
+ 
+  <para>
+   Primary bucket pages and overflow pages are allocated independently since
+   any given index might need more or fewer overflow pages relative to its
+diff --git a/src/backend/access/hash/README b/src/backend/access/hash/README
+index 13dc59c124a..fc9031117c9 100644
+--- a/src/backend/access/hash/README
++++ b/src/backend/access/hash/README
+@@ -169,15 +169,14 @@ Metapage Caching
+ ----------------
+ 
+ Both scanning the index and inserting tuples require locating the bucket
+ where a given tuple ought to be located.  To do this, we need the bucket
+ count, highmask, and lowmask from the metapage; however, it's undesirable
+-for performance reasons to have to have to lock and pin the metapage for
+-every such operation.  Instead, we retain a cached copy of the metapage
+-in each backend's relcache entry.  This will produce the correct
+-bucket mapping as long as the target bucket hasn't been split since the
+-last cache refresh.
++for performance reasons to have to lock and pin the metapage for every such
++operation.  Instead, we retain a cached copy of the metapage in each backend's
++relcache entry.  This will produce the correct bucket mapping as long as the
++target bucket hasn't been split since the last cache refresh.
+ 
+ To guard against the possibility that such a split has occurred, the
+ primary page of each bucket chain stores the number of buckets that
+ existed as of the time the bucket was last split, or if never split as
+ of the time it was created, in the space normally used for the

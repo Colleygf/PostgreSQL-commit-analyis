@@ -1,0 +1,150 @@
+commit cccfa08c39e194e7737d444974173e47a87b62c8
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Oct 25 09:40:55 2023 +0900
+
+    doc: Fix some typos and grammar
+    
+    Author: Ekaterina Kiryanova, Elena Indrupskaya, Oleg Sibiryakov, Maxim
+    Yablokov
+    Discussion: https://postgr.es/m/7aad518b-3e6d-47f3-9184-b1d69cb412e7@postgrespro.ru
+    Backpatch-through: 11
+
+diff --git a/doc/src/sgml/charset.sgml b/doc/src/sgml/charset.sgml
+index 25febcac4c0..975b9dc9523 100644
+--- a/doc/src/sgml/charset.sgml
++++ b/doc/src/sgml/charset.sgml
+@@ -1156,11 +1156,11 @@ SELECT 'w;x*y-z' = 'wxyz' COLLATE num_ignore_punct; -- true
+     </para>
+ 
+     <para>
+      <xref linkend="icu-collation-levels"/> shows which textual feature
+      differences are considered significant when determining equality at the
+-     given level. The unicode character <literal>U+2063</literal> is an
++     given level. The Unicode character <literal>U+2063</literal> is an
+      invisible separator, and as seen in the table, is ignored for at all
+      levels of comparison less than <literal>identic</literal>.
+     </para>
+ 
+      <table id="icu-collation-levels">
+diff --git a/doc/src/sgml/client-auth.sgml b/doc/src/sgml/client-auth.sgml
+index 73e3b39e8b4..2f1bd6fc8a7 100644
+--- a/doc/src/sgml/client-auth.sgml
++++ b/doc/src/sgml/client-auth.sgml
+@@ -982,11 +982,11 @@ mymap   /^(.*)@otherdomain\.com$   guest
+   <para>
+    If the <replaceable>database-username</replaceable> field starts with
+    a slash (<literal>/</literal>), the remainder of the field is treated
+    as a regular expression (see <xref linkend="posix-syntax-details"/>
+    for details of <productname>PostgreSQL</productname>'s regular
+-   expression syntax. It is not possible to use <literal>\1</literal>
++   expression syntax). It is not possible to use <literal>\1</literal>
+    to use a capture from regular expression on
+    <replaceable>system-username</replaceable> for a regular expression
+    on <replaceable>database-username</replaceable>.
+   </para>
+ 
+diff --git a/doc/src/sgml/installation.sgml b/doc/src/sgml/installation.sgml
+index 8e0b2705d34..9b25e9fdb1b 100644
+--- a/doc/src/sgml/installation.sgml
++++ b/doc/src/sgml/installation.sgml
+@@ -2088,13 +2088,13 @@ ninja
+    <para>
+     If you'd like to build with a backend other than ninja, you can use
+     configure with the <option>--backend</option> option to select the one you
+     want to use and then build using <literal>meson compile</literal>. To
+     learn more about these backends and other arguments you can provide to
+-    ninja, you can refer to the meson <ulink
++    ninja, you can refer to the <ulink
+     url="https://mesonbuild.com/Running-Meson.html#building-from-the-source">
+-    documentation</ulink>.
++    Meson documentation</ulink>.
+    </para>
+   </step>
+ 
+   <step>
+    <title>Regression Tests</title>
+diff --git a/doc/src/sgml/nls.sgml b/doc/src/sgml/nls.sgml
+index 9b6a7da870d..0ad1b2c9c45 100644
+--- a/doc/src/sgml/nls.sgml
++++ b/doc/src/sgml/nls.sgml
+@@ -203,11 +203,11 @@ make update-po
+    <title>Editing the PO Files</title>
+ 
+    <para>
+     The PO files can be edited with a regular text editor. There are also
+     several specialized editors for PO files which can help the process with
+-    translation specific features.
++    translation-specific features.
+     There is (unsurprisingly) a PO mode for Emacs, which can be quite
+     useful.
+    </para>
+ 
+    <para>
+diff --git a/doc/src/sgml/pgwalinspect.sgml b/doc/src/sgml/pgwalinspect.sgml
+index 762ad698176..3a8121c70f1 100644
+--- a/doc/src/sgml/pgwalinspect.sgml
++++ b/doc/src/sgml/pgwalinspect.sgml
+@@ -207,11 +207,11 @@ block_fpi_data    |
+      </para>
+      <tip>
+       <para>
+        The <function>pg_filenode_relation</function> function (see
+        <xref linkend="functions-admin-dblocation"/>) can help you to
+-       determine which relation was modified during original execution
++       determine which relation was modified during original execution.
+       </para>
+      </tip>
+      <para>
+       It is possible for clients to avoid the overhead of
+       materializing block data.  This may make function execution
+diff --git a/doc/src/sgml/ref/create_foreign_table.sgml b/doc/src/sgml/ref/create_foreign_table.sgml
+index ae1f94b9de7..dc4b9075990 100644
+--- a/doc/src/sgml/ref/create_foreign_table.sgml
++++ b/doc/src/sgml/ref/create_foreign_table.sgml
+@@ -374,11 +374,11 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
+    <para>
+     Within a partitioned table containing foreign-table partitions,
+     an <command>UPDATE</command> that changes the partition key value can
+     cause a row to be moved from a local partition to a foreign-table
+     partition, provided the foreign data wrapper supports tuple routing.
+-    However it is not currently possible to move a row from a
++    However, it is not currently possible to move a row from a
+     foreign-table partition to another partition.
+     An <command>UPDATE</command> that would require doing that will fail
+     due to the partitioning constraint, assuming that that is properly
+     enforced by the remote server.
+    </para>
+diff --git a/doc/src/sgml/system-views.sgml b/doc/src/sgml/system-views.sgml
+index 2b35c2f91b3..970b3bd44b0 100644
+--- a/doc/src/sgml/system-views.sgml
++++ b/doc/src/sgml/system-views.sgml
+@@ -1606,11 +1606,11 @@
+    so the <structfield>database</structfield> column is meaningful for an advisory lock.
+   </para>
+ 
+   <para>
+    Apply transaction locks are used in parallel mode to apply the transaction
+-   in logical replication. The remote transaction id is displayed in the
++   in logical replication. The remote transaction ID is displayed in the
+    <structfield>transactionid</structfield> column. The <structfield>objsubid</structfield>
+    displays the lock subtype which is 0 for the lock used to synchronize the
+    set of changes, and 1 for the lock used to wait for the transaction to
+    finish to ensure commit order.
+   </para>
+diff --git a/doc/src/sgml/xact.sgml b/doc/src/sgml/xact.sgml
+index 1813cd07748..0f768a23a69 100644
+--- a/doc/src/sgml/xact.sgml
++++ b/doc/src/sgml/xact.sgml
+@@ -154,11 +154,11 @@
+   </para>
+ 
+   <para>
+    When a top-level transaction with an xid commits, all of its
+    subcommitted child subtransactions are also persistently recorded
+-   as committed in the <filename>pg_xact</filename> directory.  If the
++   as committed in the <filename>pg_xact</filename> subdirectory.  If the
+    top-level transaction aborts, all its subtransactions are also aborted,
+    even if they were subcommitted.
+   </para>
+ 
+   <para>

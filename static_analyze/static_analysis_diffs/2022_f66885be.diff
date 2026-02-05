@@ -1,0 +1,46 @@
+commit f66885bec0df509ee9b604a83c17dbd7eb9959b1
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Tue Jan 4 13:01:05 2022 -0300
+
+    Allow special SKIP LOCKED condition in Assert()
+    
+    Under concurrency, it is possible for two sessions to be merrily locking
+    and releasing a tuple and marking it again as HEAP_XMAX_INVALID all the
+    while a third session attempts to lock it, miserably fails at it, and
+    then contemplates life, the universe and everything only to eventually
+    fail an assertion that said bit is not set.  Before SKIP LOCKED that was
+    indeed a reasonable expectation, but alas! commit df630b0dd5ea falsified
+    it.
+    
+    This bug is as old as time itself, and even older, if you think time
+    begins with the oldest supported branch.  Therefore, backpatch to all
+    supported branches.
+    
+    Author: Simon Riggs <simon.riggs@enterprisedb.com>
+    Discussion: https://postgr.es/m/CANbhV-FeEwMnN8yuMyss7if1ZKjOKfjcgqB26n8pqu1e=q0ebg@mail.gmail.com
+
+diff --git a/src/backend/access/heap/heapam.c b/src/backend/access/heap/heapam.c
+index 0b4a46b31ba..b0b33072aff 100644
+--- a/src/backend/access/heap/heapam.c
++++ b/src/backend/access/heap/heapam.c
+@@ -4749,11 +4749,19 @@ l3:
+ failed:
+ 	if (result != TM_Ok)
+ 	{
+ 		Assert(result == TM_SelfModified || result == TM_Updated ||
+ 			   result == TM_Deleted || result == TM_WouldBlock);
+-		Assert(!(tuple->t_data->t_infomask & HEAP_XMAX_INVALID));
++
++		/*
++		 * When locking a tuple under LockWaitSkip semantics and we fail with
++		 * TM_WouldBlock above, it's possible for concurrent transactions to
++		 * release the lock and set HEAP_XMAX_INVALID in the meantime.  So
++		 * this assert is slightly different from the equivalent one in
++		 * heap_delete and heap_update.
++		 */
++		Assert(TM_WouldBlock || !(tuple->t_data->t_infomask & HEAP_XMAX_INVALID));
+ 		Assert(result != TM_Updated ||
+ 			   !ItemPointerEquals(&tuple->t_self, &tuple->t_data->t_ctid));
+ 		tmfd->ctid = tuple->t_data->t_ctid;
+ 		tmfd->xmax = HeapTupleHeaderGetUpdateXid(tuple->t_data);
+ 		if (result == TM_SelfModified)

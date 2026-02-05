@@ -1,0 +1,118 @@
+commit 25799850867292efecf34da73db4ea1ad1aad573
+Author: John Naylor <john.naylor@postgresql.org>
+Date:   Thu Feb 8 10:04:57 2024 +0700
+
+    Fix warnings in cpluspluscheck
+    
+    Various int variables were compared to macros that are of type size_t,
+    which caused -Wsign-compare warnings in cpluspluscheck.  Change those
+    to size_t, which also better describes their purpose.
+    
+    Per report from Peter Eisentraut
+    
+    Discussion: https://postgr.es/m/486847dc-6de5-464a-938e-bac98ec2438b%40eisentraut.org
+
+diff --git a/src/include/common/hashfn_unstable.h b/src/include/common/hashfn_unstable.h
+index af80e65fef8..791750d136c 100644
+--- a/src/include/common/hashfn_unstable.h
++++ b/src/include/common/hashfn_unstable.h
+@@ -136,11 +136,11 @@ fasthash_combine(fasthash_state *hs)
+ 	hs->accum = 0;
+ }
+ 
+ /* accumulate up to 8 bytes of input and combine it into the hash */
+ static inline void
+-fasthash_accum(fasthash_state *hs, const char *k, int len)
++fasthash_accum(fasthash_state *hs, const char *k, size_t len)
+ {
+ 	uint32		lower_four;
+ 
+ 	Assert(hs->accum == 0);
+ 	Assert(len <= FH_SIZEOF_ACCUM);
+@@ -187,18 +187,18 @@ fasthash_accum(fasthash_state *hs, const char *k, int len)
+ 	(((v) - 0x0101010101010101) & ~(v) & 0x8080808080808080)
+ 
+ /*
+  * all-purpose workhorse for fasthash_accum_cstring
+  */
+-static inline int
++static inline size_t
+ fasthash_accum_cstring_unaligned(fasthash_state *hs, const char *str)
+ {
+ 	const char *const start = str;
+ 
+ 	while (*str)
+ 	{
+-		int			chunk_len = 0;
++		size_t		chunk_len = 0;
+ 
+ 		while (chunk_len < FH_SIZEOF_ACCUM && str[chunk_len] != '\0')
+ 			chunk_len++;
+ 
+ 		fasthash_accum(hs, str, chunk_len);
+@@ -213,15 +213,15 @@ fasthash_accum_cstring_unaligned(fasthash_state *hs, const char *str)
+  *
+  * With an aligned pointer, we consume the string a word at a time.
+  * Loading the word containing the NUL terminator cannot segfault since
+  * allocation boundaries are suitably aligned.
+  */
+-static inline int
++static inline size_t
+ fasthash_accum_cstring_aligned(fasthash_state *hs, const char *str)
+ {
+ 	const char *const start = str;
+-	int			remainder;
++	size_t		remainder;
+ 	uint64		zero_byte_low;
+ 
+ 	Assert(PointerIsAligned(start, uint64));
+ 
+ 	/*
+@@ -267,18 +267,18 @@ fasthash_accum_cstring_aligned(fasthash_state *hs, const char *str)
+ }
+ 
+ /*
+  * Mix 'str' into the hash state and return the length of the string.
+  */
+-static inline int
++static inline size_t
+ fasthash_accum_cstring(fasthash_state *hs, const char *str)
+ {
+ #if SIZEOF_VOID_P >= 8
+ 
+-	int			len;
++	size_t		len;
+ #ifdef USE_ASSERT_CHECKING
+-	int			len_check;
++	size_t		len_check;
+ 	fasthash_state hs_check;
+ 
+ 	memcpy(&hs_check, hs, sizeof(fasthash_state));
+ 	len_check = fasthash_accum_cstring_unaligned(&hs_check, str);
+ #endif
+@@ -338,11 +338,11 @@ fasthash_final32(fasthash_state *hs, uint64 tweak)
+  * interface. Returns a 64-bit hashcode. 'len' controls not only how
+  * many bytes to hash, but also modifies the internal seed.
+  * 'seed' can be zero.
+  */
+ static inline uint64
+-fasthash64(const char *k, int len, uint64 seed)
++fasthash64(const char *k, size_t len, uint64 seed)
+ {
+ 	fasthash_state hs;
+ 
+ 	fasthash_init(&hs, 0);
+ 
+@@ -360,11 +360,11 @@ fasthash64(const char *k, int len, uint64 seed)
+ 	return fasthash_final64(&hs, 0);
+ }
+ 
+ /* like fasthash64, but returns a 32-bit hashcode */
+ static inline uint64
+-fasthash32(const char *k, int len, uint64 seed)
++fasthash32(const char *k, size_t len, uint64 seed)
+ {
+ 	return fasthash_reduce32(fasthash64(k, len, seed));
+ }
+ 
+ #endif							/* HASHFN_UNSTABLE_H */

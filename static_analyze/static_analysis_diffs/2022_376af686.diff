@@ -1,0 +1,52 @@
+commit 376af686111e57929c626254eb403c0e810d8e22
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Fri Sep 2 16:44:52 2022 +0530
+
+    Doc: fix column list vs. replica identity rules.
+    
+    It was not strictly correct to say that a column list must always include
+    replica identity columns because that is true for only updates and
+    deletes.
+    
+    Author: Peter Smith
+    Reviwed-by: Vignesh C, Amit Kapila
+    Backpatch-through: 15, where it was introduced
+    Discussion: https://postgr.es/m/CAHut+PvOuc9=_4TbASc5=VUqh16UWtFO3GzcKQK_5m1hrW3vqg@mail.gmail.com
+
+diff --git a/doc/src/sgml/ref/create_publication.sgml b/doc/src/sgml/ref/create_publication.sgml
+index 5790d762705..b0d59ef47d2 100644
+--- a/doc/src/sgml/ref/create_publication.sgml
++++ b/doc/src/sgml/ref/create_publication.sgml
+@@ -88,12 +88,12 @@ CREATE PUBLICATION <replaceable class="parameter">name</replaceable>
+      </para>
+ 
+      <para>
+       When a column list is specified, only the named columns are replicated.
+       If no column list is specified, all columns of the table are replicated
+-      through this publication, including any columns added later.  If a column
+-      list is specified, it must include the replica identity columns.
++      through this publication, including any columns added later. It has no
++      effect on <literal>TRUNCATE</literal> commands.
+      </para>
+ 
+      <para>
+       Only persistent base tables and partitioned tables can be part of a
+       publication.  Temporary tables, unlogged tables, foreign tables,
+@@ -250,10 +250,17 @@ CREATE PUBLICATION <replaceable class="parameter">name</replaceable>
+    and/or <command>DELETE</command> operations must have
+    <literal>REPLICA IDENTITY</literal> defined.  Otherwise those operations will be
+    disallowed on those tables.
+   </para>
+ 
++  <para>
++   Any column list must include the <literal>REPLICA IDENTITY</literal> columns
++   in order for <command>UPDATE</command> or <command>DELETE</command>
++   operations to be published. There are no column list restrictions if the
++   publication publishes only <command>INSERT</command> operations.
++  </para>
++
+   <para>
+    A row filter expression (i.e., the <literal>WHERE</literal> clause) must contain only
+    columns that are covered by the <literal>REPLICA IDENTITY</literal>, in
+    order for <command>UPDATE</command> and <command>DELETE</command> operations
+    to be published. For publication of <command>INSERT</command> operations,

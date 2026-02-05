@@ -1,0 +1,125 @@
+commit a6060f1cbec39575634043baeeaeb11e86042fa6
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Tue May 20 16:31:00 2025 -0500
+
+    pg_dump: Fix array literals in fetchAttributeStats().
+    
+    Presently, fetchAttributeStats() builds array literals by treating
+    the elements as SQL identifiers.  This is incorrect for a couple of
+    reasons:
+    
+    * Array literal content must match the external text representation
+      of the array, i.e., what array_out() would return.  One notable
+      problem is that double quotes are escaped with "" in identifiers
+      but with \" in array literals.  To fix, build the array content
+      using the pre-existing appendPGArray() function.
+    
+    * Array literals must be written as string constants.  A notable
+      problem here is that single quotes are escaped via '' in strings
+      but are not escaped in the text representation of an array.  To
+      fix, append the aforementioned array literal content to the query
+      with appendStringLiteralAH().
+    
+    While at it, modify a test case to use an identifier that would
+    cause the test to fail without this change.
+    
+    Oversight in commit 9c02e3a986.
+    
+    Reported-by: Philippe Beaudoin <pbh.emaj@free.fr>
+    Author: Jian He <jian.universality@gmail.com>
+    Co-authored-by: Nathan Bossart <nathandbossart@gmail.com>
+    Co-authored-by: Stepan Neretin <slpmcf@gmail.com>
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Bug: #18923
+    Discussion: https://postgr.es/m/18923-e79273f87c6bed69%40postgresql.org
+
+diff --git a/src/bin/pg_dump/pg_dump.c b/src/bin/pg_dump/pg_dump.c
+index e2e7975b34e..c73e73a87d1 100644
+--- a/src/bin/pg_dump/pg_dump.c
++++ b/src/bin/pg_dump/pg_dump.c
+@@ -10763,10 +10763,13 @@ fetchAttributeStats(Archive *fout)
+ 	{
+ 		te = AH->toc->next;
+ 		restarted = true;
+ 	}
+ 
++	appendPQExpBufferChar(nspnames, '{');
++	appendPQExpBufferChar(relnames, '{');
++
+ 	/*
+ 	 * Scan the TOC for the next set of relevant stats entries.  We assume
+ 	 * that statistics are dumped in the order they are listed in the TOC.
+ 	 * This is perhaps not the sturdiest assumption, so we verify it matches
+ 	 * reality in dumpRelationStats_dumper().
+@@ -10774,27 +10777,29 @@ fetchAttributeStats(Archive *fout)
+ 	for (; te != AH->toc && count < max_rels; te = te->next)
+ 	{
+ 		if ((te->reqs & REQ_STATS) != 0 &&
+ 			strcmp(te->desc, "STATISTICS DATA") == 0)
+ 		{
+-			appendPQExpBuffer(nspnames, "%s%s", count ? "," : "",
+-							  fmtId(te->namespace));
+-			appendPQExpBuffer(relnames, "%s%s", count ? "," : "",
+-							  fmtId(te->tag));
++			appendPGArray(nspnames, te->namespace);
++			appendPGArray(relnames, te->tag);
+ 			count++;
+ 		}
+ 	}
+ 
++	appendPQExpBufferChar(nspnames, '}');
++	appendPQExpBufferChar(relnames, '}');
++
+ 	/* Execute the query for the next batch of relations. */
+ 	if (count > 0)
+ 	{
+ 		PQExpBuffer query = createPQExpBuffer();
+ 
+-		appendPQExpBuffer(query, "EXECUTE getAttributeStats("
+-						  "'{%s}'::pg_catalog.name[],"
+-						  "'{%s}'::pg_catalog.name[])",
+-						  nspnames->data, relnames->data);
++		appendPQExpBufferStr(query, "EXECUTE getAttributeStats(");
++		appendStringLiteralAH(query, nspnames->data, fout);
++		appendPQExpBufferStr(query, "::pg_catalog.name[],");
++		appendStringLiteralAH(query, relnames->data, fout);
++		appendPQExpBufferStr(query, "::pg_catalog.name[])");
+ 		res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
+ 		destroyPQExpBuffer(query);
+ 	}
+ 
+ 	destroyPQExpBuffer(nspnames);
+diff --git a/src/bin/pg_dump/t/002_pg_dump.pl b/src/bin/pg_dump/t/002_pg_dump.pl
+index 55d892d9c16..cf34f71ea11 100644
+--- a/src/bin/pg_dump/t/002_pg_dump.pl
++++ b/src/bin/pg_dump/t/002_pg_dump.pl
+@@ -4832,26 +4832,26 @@ my %tests = (
+ 	'statistics_import' => {
+ 		create_sql => '
+ 			CREATE TABLE dump_test.has_stats
+ 			AS SELECT g.g AS x, g.g / 2 AS y FROM generate_series(1,100) AS g(g);
+ 			CREATE MATERIALIZED VIEW dump_test.has_stats_mv AS SELECT * FROM dump_test.has_stats;
+-			CREATE INDEX dup_test_post_data_ix ON dump_test.has_stats(x, (x - 1));
++			CREATE INDEX """dump_test""\'s post-data index" ON dump_test.has_stats(x, (x - 1));
+ 			ANALYZE dump_test.has_stats, dump_test.has_stats_mv;',
+ 		regexp => qr/^
+ 			\QSELECT * FROM pg_catalog.pg_restore_relation_stats(\E\s+
+ 			'version',\s'\d+'::integer,\s+
+ 			'schemaname',\s'dump_test',\s+
+-			'relname',\s'dup_test_post_data_ix',\s+
++			'relname',\s'"dump_test"''s\ post-data\ index',\s+
+ 			'relpages',\s'\d+'::integer,\s+
+ 			'reltuples',\s'\d+'::real,\s+
+ 			'relallvisible',\s'\d+'::integer,\s+
+ 			'relallfrozen',\s'\d+'::integer\s+
+ 			\);\s+
+ 			\QSELECT * FROM pg_catalog.pg_restore_attribute_stats(\E\s+
+ 			'version',\s'\d+'::integer,\s+
+ 			'schemaname',\s'dump_test',\s+
+-			'relname',\s'dup_test_post_data_ix',\s+
++			'relname',\s'"dump_test"''s\ post-data\ index',\s+
+ 			'attnum',\s'2'::smallint,\s+
+ 			'inherited',\s'f'::boolean,\s+
+ 			'null_frac',\s'0'::real,\s+
+ 			'avg_width',\s'4'::integer,\s+
+ 			'n_distinct',\s'-1'::real,\s+

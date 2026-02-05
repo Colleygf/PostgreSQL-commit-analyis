@@ -1,0 +1,65 @@
+commit 9ecbf54075a91ed155cc779fcc1870de0fff5fef
+Author: Jeff Davis <jdavis@postgresql.org>
+Date:   Fri Feb 16 10:35:42 2024 -0800
+
+    Add assert to WALReadFromBuffers().
+    
+    Per suggestion from Andres.
+    
+    Discussion: https://postgr.es/m/20240214025508.6mcblauossthvaw3@awork3.anarazel.de
+
+diff --git a/src/backend/access/transam/xlog.c b/src/backend/access/transam/xlog.c
+index 4e14c242b15..50c347a6795 100644
+--- a/src/backend/access/transam/xlog.c
++++ b/src/backend/access/transam/xlog.c
+@@ -1708,44 +1708,32 @@ GetXLogBuffer(XLogRecPtr ptr, TimeLineID tli)
+ /*
+  * Read WAL data directly from WAL buffers, if available. Returns the number
+  * of bytes read successfully.
+  *
+  * Fewer than 'count' bytes may be read if some of the requested WAL data has
+- * already been evicted from the WAL buffers, or if the caller requests data
+- * that is not yet available.
++ * already been evicted.
+  *
+  * No locks are taken.
+  *
+- * The 'tli' argument is only used as a convenient safety check so that
++ * Caller should ensure that it reads no further than LogwrtResult.Write
++ * (which should have been updated by the caller when determining how far to
++ * read). The 'tli' argument is only used as a convenient safety check so that
+  * callers do not read from WAL buffers on a historical timeline.
+  */
+ Size
+ WALReadFromBuffers(char *dstbuf, XLogRecPtr startptr, Size count,
+ 				   TimeLineID tli)
+ {
+ 	char	   *pdst = dstbuf;
+ 	XLogRecPtr	recptr = startptr;
+-	XLogRecPtr	upto;
+-	Size		nbytes;
++	Size		nbytes = count;
+ 
+ 	if (RecoveryInProgress() || tli != GetWALInsertionTimeLine())
+ 		return 0;
+ 
+ 	Assert(!XLogRecPtrIsInvalid(startptr));
+-
+-	/*
+-	 * Don't read past the available WAL data.
+-	 *
+-	 * Check using local copy of LogwrtResult. Ordinarily it's been updated by
+-	 * the caller when determining how far to read; but if not, it just means
+-	 * we'll read less data.
+-	 *
+-	 * XXX: the available WAL could be extended to the WAL insert pointer by
+-	 * calling WaitXLogInsertionsToFinish().
+-	 */
+-	upto = Min(startptr + count, LogwrtResult.Write);
+-	nbytes = upto - startptr;
++	Assert(startptr + count <= LogwrtResult.Write);
+ 
+ 	/*
+ 	 * Loop through the buffers without a lock. For each buffer, atomically
+ 	 * read and verify the end pointer, then copy the data out, and finally
+ 	 * re-read and re-verify the end pointer.

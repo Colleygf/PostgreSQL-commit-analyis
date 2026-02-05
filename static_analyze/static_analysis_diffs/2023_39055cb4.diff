@@ -1,0 +1,81 @@
+commit 39055cb4ccd5b521ceb802b6a8194de912a422cc
+Author: John Naylor <john.naylor@postgresql.org>
+Date:   Mon Jul 31 13:34:29 2023 +0700
+
+    Bring some MSVC asserts in line with other platforms
+    
+    MSVC's _BitScan* functions return a boolean indicating whether any
+    bits were set in the input, and we were previously asserting that
+    they returned true, per our API. This is correct. However, other
+    platforms simply assert that the input is non-zero, so do that to be
+    more consistent.
+    
+    Noted while investigating a hypothesis from Ranier Vilela about
+    undefined behavior, but this is not his proposed patch.
+    
+    Discussion: https://www.postgresql.org/message-id/CAEudQAoDhUZyKGJ1vbMGcgVUOcsixe-%3DjcVaDWarqkUg163D2w%40mail.gmail.com
+
+diff --git a/src/include/port/pg_bitutils.h b/src/include/port/pg_bitutils.h
+index 21a4fa03410..4f1a13dba93 100644
+--- a/src/include/port/pg_bitutils.h
++++ b/src/include/port/pg_bitutils.h
+@@ -46,12 +46,13 @@ pg_leftmost_one_pos32(uint32 word)
+ 	return 31 - __builtin_clz(word);
+ #elif defined(_MSC_VER)
+ 	unsigned long result;
+ 	bool		non_zero;
+ 
++	Assert(word != 0);
++
+ 	non_zero = _BitScanReverse(&result, word);
+-	Assert(non_zero);
+ 	return (int) result;
+ #else
+ 	int			shift = 32 - 8;
+ 
+ 	Assert(word != 0);
+@@ -83,12 +84,13 @@ pg_leftmost_one_pos64(uint64 word)
+ 
+ #elif defined(_MSC_VER) && (defined(_M_AMD64) || defined(_M_ARM64))
+ 	unsigned long result;
+ 	bool		non_zero;
+ 
++	Assert(word != 0);
++
+ 	non_zero = _BitScanReverse64(&result, word);
+-	Assert(non_zero);
+ 	return (int) result;
+ #else
+ 	int			shift = 64 - 8;
+ 
+ 	Assert(word != 0);
+@@ -114,12 +116,13 @@ pg_rightmost_one_pos32(uint32 word)
+ 	return __builtin_ctz(word);
+ #elif defined(_MSC_VER)
+ 	unsigned long result;
+ 	bool		non_zero;
+ 
++	Assert(word != 0);
++
+ 	non_zero = _BitScanForward(&result, word);
+-	Assert(non_zero);
+ 	return (int) result;
+ #else
+ 	int			result = 0;
+ 
+ 	Assert(word != 0);
+@@ -154,12 +157,13 @@ pg_rightmost_one_pos64(uint64 word)
+ 
+ #elif defined(_MSC_VER) && (defined(_M_AMD64) || defined(_M_ARM64))
+ 	unsigned long result;
+ 	bool		non_zero;
+ 
++	Assert(word != 0);
++
+ 	non_zero = _BitScanForward64(&result, word);
+-	Assert(non_zero);
+ 	return (int) result;
+ #else
+ 	int			result = 0;
+ 
+ 	Assert(word != 0);

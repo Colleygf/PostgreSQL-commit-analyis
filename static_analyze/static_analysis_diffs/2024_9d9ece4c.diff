@@ -1,0 +1,87 @@
+commit 9d9ece4c16dbbaf3b9d60c2fe201b8e99a407be3
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Mon Apr 29 20:23:26 2024 -0400
+
+    Fix test case from b0c5b215d.
+    
+    I'd not checked that this iteration of the test actually worked
+    with a bootstrap superuser not named 'postgres'.  It didn't,
+    because the coercion rules for CASE caused us to try to cast
+    the 'postgres' literal to regrole.  Mea culpa.
+    
+    Per buildfarm (via Alexander Korotkov)
+    
+    Discussion: https://postgr.es/m/CAPpHfdsV=iTvH6B858hnH1bLgewYH6cdTnO_eOOw9EOa8kehkA@mail.gmail.com
+
+diff --git a/src/test/modules/test_pg_dump/expected/test_pg_dump.out b/src/test/modules/test_pg_dump/expected/test_pg_dump.out
+index fcfa78aafc0..dc493e5be26 100644
+--- a/src/test/modules/test_pg_dump/expected/test_pg_dump.out
++++ b/src/test/modules/test_pg_dump/expected/test_pg_dump.out
+@@ -63,13 +63,13 @@ GRANT UPDATE ON test_pg_dump_mv1 TO regress_dump_test_role;
+ GRANT USAGE ON SCHEMA test_pg_dump_s1 TO regress_dump_test_role;
+ GRANT USAGE ON TYPE test_pg_dump_e1 TO regress_dump_test_role;
+ -- Substitute for current user's name to keep test output consistent
+ SELECT s.obj,
+   CASE WHEN a.grantor::regrole::name = current_user THEN 'postgres'
+-    ELSE a.grantor::regrole END,
++    ELSE a.grantor::regrole::name END,
+   CASE WHEN a.grantee::regrole::name = current_user THEN 'postgres'
+-    ELSE a.grantee::regrole END,
++    ELSE a.grantee::regrole::name END,
+   a.privilege_type, a.is_grantable
+ FROM
+   (SELECT pg_describe_object(classoid,objoid,objsubid) AS obj, initprivs
+    FROM pg_init_privs WHERE privtype = 'e' ORDER BY 1) s,
+   aclexplode(s.initprivs) a;
+@@ -200,13 +200,13 @@ ALTER EXTENSION test_pg_dump DROP TYPE test_pg_dump_e1;
+ ALTER EXTENSION test_pg_dump DROP VIEW test_pg_dump_v1;
+ DROP OWNED BY regress_dump_test_role RESTRICT;
+ -- Substitute for current user's name to keep test output consistent
+ SELECT s.obj,
+   CASE WHEN a.grantor::regrole::name = current_user THEN 'postgres'
+-    ELSE a.grantor::regrole END,
++    ELSE a.grantor::regrole::name END,
+   CASE WHEN a.grantee::regrole::name = current_user THEN 'postgres'
+-    ELSE a.grantee::regrole END,
++    ELSE a.grantee::regrole::name END,
+   a.privilege_type, a.is_grantable
+ FROM
+   (SELECT pg_describe_object(classoid,objoid,objsubid) AS obj, initprivs
+    FROM pg_init_privs WHERE privtype = 'e' ORDER BY 1) s,
+   aclexplode(s.initprivs) a;
+diff --git a/src/test/modules/test_pg_dump/sql/test_pg_dump.sql b/src/test/modules/test_pg_dump/sql/test_pg_dump.sql
+index 41f1d8dfc5c..48e99bb5ccd 100644
+--- a/src/test/modules/test_pg_dump/sql/test_pg_dump.sql
++++ b/src/test/modules/test_pg_dump/sql/test_pg_dump.sql
+@@ -76,13 +76,13 @@ GRANT USAGE ON SCHEMA test_pg_dump_s1 TO regress_dump_test_role;
+ GRANT USAGE ON TYPE test_pg_dump_e1 TO regress_dump_test_role;
+ 
+ -- Substitute for current user's name to keep test output consistent
+ SELECT s.obj,
+   CASE WHEN a.grantor::regrole::name = current_user THEN 'postgres'
+-    ELSE a.grantor::regrole END,
++    ELSE a.grantor::regrole::name END,
+   CASE WHEN a.grantee::regrole::name = current_user THEN 'postgres'
+-    ELSE a.grantee::regrole END,
++    ELSE a.grantee::regrole::name END,
+   a.privilege_type, a.is_grantable
+ FROM
+   (SELECT pg_describe_object(classoid,objoid,objsubid) AS obj, initprivs
+    FROM pg_init_privs WHERE privtype = 'e' ORDER BY 1) s,
+   aclexplode(s.initprivs) a;
+@@ -128,13 +128,13 @@ ALTER EXTENSION test_pg_dump DROP VIEW test_pg_dump_v1;
+ DROP OWNED BY regress_dump_test_role RESTRICT;
+ 
+ -- Substitute for current user's name to keep test output consistent
+ SELECT s.obj,
+   CASE WHEN a.grantor::regrole::name = current_user THEN 'postgres'
+-    ELSE a.grantor::regrole END,
++    ELSE a.grantor::regrole::name END,
+   CASE WHEN a.grantee::regrole::name = current_user THEN 'postgres'
+-    ELSE a.grantee::regrole END,
++    ELSE a.grantee::regrole::name END,
+   a.privilege_type, a.is_grantable
+ FROM
+   (SELECT pg_describe_object(classoid,objoid,objsubid) AS obj, initprivs
+    FROM pg_init_privs WHERE privtype = 'e' ORDER BY 1) s,
+   aclexplode(s.initprivs) a;

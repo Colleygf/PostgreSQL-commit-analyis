@@ -1,0 +1,70 @@
+commit 664da2a389e5d1d4ebf0f98c82997739cd496e8e
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu Jun 16 17:21:04 2022 +0900
+
+    Fix comment in regression tests for large objects
+    
+    The values assigned to INV_WRITE and INV_READ were reversed in the
+    tests, which would be confusing when writing tests specific to read or
+    write operations on LOs.
+    
+    Author: Yugo Nagata
+    Discussion: https://postgr.es/m/20220527153028.61a4608f66abcd026fd3806f@sraoss.co.jp
+
+diff --git a/src/test/regress/expected/largeobject.out b/src/test/regress/expected/largeobject.out
+index 8e32de04e64..60d7b991c19 100644
+--- a/src/test/regress/expected/largeobject.out
++++ b/src/test/regress/expected/largeobject.out
+@@ -48,12 +48,12 @@ CREATE TABLE lotest_stash_values (loid oid, fd integer);
+ INSERT INTO lotest_stash_values (loid) SELECT lo_creat(42);
+ -- NOTE: large objects require transactions
+ BEGIN;
+ -- lo_open(lobjId oid, mode integer) returns integer
+ -- The mode parameter to lo_open uses two constants:
+---   INV_READ  = 0x20000
+---   INV_WRITE = 0x40000
++--   INV_WRITE = 0x20000
++--   INV_READ  = 0x40000
+ -- The return value is a file descriptor-like value which remains valid for the
+ -- transaction.
+ UPDATE lotest_stash_values SET fd = lo_open(loid, CAST(x'20000' | x'40000' AS integer));
+ -- loread/lowrite names are wonky, different from other functions which are lo_*
+ -- lowrite(fd integer, data bytea) returns integer
+diff --git a/src/test/regress/expected/largeobject_1.out b/src/test/regress/expected/largeobject_1.out
+index 561065da586..30c8d3da800 100644
+--- a/src/test/regress/expected/largeobject_1.out
++++ b/src/test/regress/expected/largeobject_1.out
+@@ -48,12 +48,12 @@ CREATE TABLE lotest_stash_values (loid oid, fd integer);
+ INSERT INTO lotest_stash_values (loid) SELECT lo_creat(42);
+ -- NOTE: large objects require transactions
+ BEGIN;
+ -- lo_open(lobjId oid, mode integer) returns integer
+ -- The mode parameter to lo_open uses two constants:
+---   INV_READ  = 0x20000
+---   INV_WRITE = 0x40000
++--   INV_WRITE = 0x20000
++--   INV_READ  = 0x40000
+ -- The return value is a file descriptor-like value which remains valid for the
+ -- transaction.
+ UPDATE lotest_stash_values SET fd = lo_open(loid, CAST(x'20000' | x'40000' AS integer));
+ -- loread/lowrite names are wonky, different from other functions which are lo_*
+ -- lowrite(fd integer, data bytea) returns integer
+diff --git a/src/test/regress/sql/largeobject.sql b/src/test/regress/sql/largeobject.sql
+index fd3518889eb..2ef03cfdae0 100644
+--- a/src/test/regress/sql/largeobject.sql
++++ b/src/test/regress/sql/largeobject.sql
+@@ -32,12 +32,12 @@ INSERT INTO lotest_stash_values (loid) SELECT lo_creat(42);
+ -- NOTE: large objects require transactions
+ BEGIN;
+ 
+ -- lo_open(lobjId oid, mode integer) returns integer
+ -- The mode parameter to lo_open uses two constants:
+---   INV_READ  = 0x20000
+---   INV_WRITE = 0x40000
++--   INV_WRITE = 0x20000
++--   INV_READ  = 0x40000
+ -- The return value is a file descriptor-like value which remains valid for the
+ -- transaction.
+ UPDATE lotest_stash_values SET fd = lo_open(loid, CAST(x'20000' | x'40000' AS integer));
+ 
+ -- loread/lowrite names are wonky, different from other functions which are lo_*

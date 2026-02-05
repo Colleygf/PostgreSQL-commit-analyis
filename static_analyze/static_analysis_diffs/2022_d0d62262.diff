@@ -1,0 +1,102 @@
+commit d0d62262d34154965511cfda6b98609d27752d5a
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Sat Jan 8 09:12:21 2022 +0900
+
+    Fix thinko coming from 000f3adf
+    
+    pg_basebackup.c relies on the compression level to not be 0 to decide if
+    compression should be used, but 000f3adf missed the fact that the
+    default compression (Z_DEFAULT_COMPRESSION) is -1, which would be used
+    if specifying --gzip without --compress.
+    
+    While on it, add some coverage for --gzip, as this is rather easy to
+    miss.
+    
+    Reported-by: Christoph Berg
+    Discussion: https://postgr.es/m/YdhRDMLjabtXOnhY@msg.df7cb.de
+
+diff --git a/src/bin/pg_basebackup/pg_basebackup.c b/src/bin/pg_basebackup/pg_basebackup.c
+index f40a750774b..aa43fc09241 100644
+--- a/src/bin/pg_basebackup/pg_basebackup.c
++++ b/src/bin/pg_basebackup/pg_basebackup.c
+@@ -522,11 +522,11 @@ LogStreamerMain(logstreamer_param *param)
+ 		stream.walmethod = CreateWalDirectoryMethod(param->xlog,
+ 													COMPRESSION_NONE, 0,
+ 													stream.do_sync);
+ 	else
+ 		stream.walmethod = CreateWalTarMethod(param->xlog,
+-											  (compresslevel > 0) ?
++											  (compresslevel != 0) ?
+ 											  COMPRESSION_GZIP : COMPRESSION_NONE,
+ 											  compresslevel,
+ 											  stream.do_sync);
+ 
+ 	if (!ReceiveXlogStream(param->bgconn, &stream))
+diff --git a/src/bin/pg_basebackup/t/010_pg_basebackup.pl b/src/bin/pg_basebackup/t/010_pg_basebackup.pl
+index 194644a03e7..872fec3d350 100644
+--- a/src/bin/pg_basebackup/t/010_pg_basebackup.pl
++++ b/src/bin/pg_basebackup/t/010_pg_basebackup.pl
+@@ -8,11 +8,11 @@ use Config;
+ use File::Basename qw(basename dirname);
+ use File::Path qw(rmtree);
+ use Fcntl qw(:seek);
+ use PostgreSQL::Test::Cluster;
+ use PostgreSQL::Test::Utils;
+-use Test::More tests => 113;
++use Test::More tests => 115;
+ 
+ program_help_ok('pg_basebackup');
+ program_version_ok('pg_basebackup');
+ program_options_handling_ok('pg_basebackup');
+ 
+@@ -628,34 +628,47 @@ $node->safe_psql('postgres', "DROP TABLE corrupt2;");
+ note "Testing pg_basebackup with compression methods";
+ 
+ # Check ZLIB compression if available.
+ SKIP:
+ {
+-	skip "postgres was not built with ZLIB support", 3
++	skip "postgres was not built with ZLIB support", 5
+ 	  if (!check_pg_config("#define HAVE_LIBZ 1"));
+ 
+ 	$node->command_ok(
+ 		[
+ 			'pg_basebackup',        '-D',
+ 			"$tempdir/backup_gzip", '--compress',
+ 			'1',                    '--no-sync',
+ 			'--format',             't'
+ 		],
+ 		'pg_basebackup with --compress');
++	$node->command_ok(
++		[
++			'pg_basebackup',         '-D',
++			"$tempdir/backup_gzip2", '--gzip',
++			'--no-sync',             '--format',
++			't'
++		],
++		'pg_basebackup with --gzip');
+ 
+ 	# Verify that the stored files are generated with their expected
+ 	# names.
+ 	my @zlib_files = glob "$tempdir/backup_gzip/*.tar.gz";
+ 	is(scalar(@zlib_files), 2,
+-		"two files created with gzip (base.tar.gz and pg_wal.tar.gz)");
++		"two files created with --compress (base.tar.gz and pg_wal.tar.gz)");
++	my @zlib_files2 = glob "$tempdir/backup_gzip2/*.tar.gz";
++	is(scalar(@zlib_files2), 2,
++		"two files created with --gzip (base.tar.gz and pg_wal.tar.gz)");
+ 
+ 	# Check the integrity of the files generated.
+ 	my $gzip = $ENV{GZIP_PROGRAM};
+ 	skip "program gzip is not found in your system", 1
+ 	  if ( !defined $gzip
+ 		|| $gzip eq ''
+ 		|| system_log($gzip, '--version') != 0);
+ 
+-	my $gzip_is_valid = system_log($gzip, '--test', @zlib_files);
++	my $gzip_is_valid =
++	  system_log($gzip, '--test', @zlib_files, @zlib_files2);
+ 	is($gzip_is_valid, 0, "gzip verified the integrity of compressed data");
+ 	rmtree("$tempdir/backup_gzip");
++	rmtree("$tempdir/backup_gzip2");
+ }

@@ -1,0 +1,98 @@
+commit eaa5ebe046c4f247d843bdfd36da4c28be9dbfab
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Sat May 21 12:01:48 2022 +0900
+
+    Improve and fix some issues in the TAP tests of pg_upgrade
+    
+    This is based on a set of suggestions from Noah, with the following
+    changes made:
+    - The set of databases created in the tests are now prefixed with
+    "regression" to not trigger any warnings with name restrictions when
+    compiling the code with -DENFORCE_REGRESSION_TEST_NAME_RESTRICTIONS, and
+    now only the first name checks after the Windows case of double quotes
+    mixed with backslashes.
+    - Fix an issue with EXTRA_REGRESS_OPTS, which were not processed in a
+    way consistent with 027_stream_regress.pl (missing space between the
+    option string and pg_regress).  This got introduced in 7dd3ee5.
+    - Add a check on the exit code of the pg_regress command, to catch
+    failures after running the regression tests.
+    
+    Reviewed-by: Noah Misch
+    Discussion: https://postgr.es/m/YoHhWD5vQzb2mmiF@paquier.xyz
+
+diff --git a/src/bin/pg_upgrade/t/002_pg_upgrade.pl b/src/bin/pg_upgrade/t/002_pg_upgrade.pl
+index 8372a85e6ef..75ac768a96e 100644
+--- a/src/bin/pg_upgrade/t/002_pg_upgrade.pl
++++ b/src/bin/pg_upgrade/t/002_pg_upgrade.pl
+@@ -11,22 +11,20 @@ use PostgreSQL::Test::Utils;
+ use Test::More;
+ 
+ # Generate a database with a name made of a range of ASCII characters.
+ sub generate_db
+ {
+-	my ($node, $from_char, $to_char) = @_;
++	my ($node, $prefix, $from_char, $to_char, $suffix) = @_;
+ 
+-	my $dbname = '';
++	my $dbname = $prefix;
+ 	for my $i ($from_char .. $to_char)
+ 	{
+ 		next if $i == 7 || $i == 10 || $i == 13;    # skip BEL, LF, and CR
+ 		$dbname = $dbname . sprintf('%c', $i);
+ 	}
+ 
+-	# Exercise backslashes adjacent to double quotes, a Windows special
+-	# case.
+-	$dbname = '\\"\\' . $dbname . '\\\\"\\\\\\';
++	$dbname .= $suffix;
+ 	$node->command_ok([ 'createdb', $dbname ]);
+ }
+ 
+ # The test of pg_upgrade requires two clusters, an old one and a new one
+ # that gets upgraded.  Before running the upgrade, a logical dump of the
+@@ -77,14 +75,16 @@ if (defined($ENV{olddump}))
+ }
+ else
+ {
+ 	# Default is to use pg_regress to set up the old instance.
+ 
+-	# Create databases with names covering most ASCII bytes
+-	generate_db($oldnode, 1,  45);
+-	generate_db($oldnode, 46, 90);
+-	generate_db($oldnode, 91, 127);
++	# Create databases with names covering most ASCII bytes.  The
++	# first name exercises backslashes adjacent to double quotes, a
++	# Windows special case.
++	generate_db($oldnode, 'regression\\"\\', 1,  45,  '\\\\"\\\\\\');
++	generate_db($oldnode, 'regression',      46, 90,  '');
++	generate_db($oldnode, 'regression',      91, 127, '');
+ 
+ 	# Grab any regression options that may be passed down by caller.
+ 	my $extra_opts = $ENV{EXTRA_REGRESS_OPTS} || "";
+ 
+ 	# --dlpath is needed to be able to find the location of regress.so
+@@ -97,11 +97,11 @@ else
+ 	# --inputdir points to the path of the input files.
+ 	my $inputdir = "$srcdir/src/test/regress";
+ 
+ 	my $rc =
+ 	  system($ENV{PG_REGRESS}
+-		  . "$extra_opts "
++		  . " $extra_opts "
+ 		  . "--dlpath=\"$dlpath\" "
+ 		  . "--bindir= "
+ 		  . "--host="
+ 		  . $oldnode->host . " "
+ 		  . "--port="
+@@ -119,10 +119,11 @@ else
+ 			print "=== dumping $diffs ===\n";
+ 			print slurp_file($diffs);
+ 			print "=== EOF ===\n";
+ 		}
+ 	}
++	is($rc, 0, 'regression tests pass');
+ }
+ 
+ # Before dumping, get rid of objects not existing or not supported in later
+ # versions. This depends on the version of the old server used, and matters
+ # only if different major versions are used for the dump.

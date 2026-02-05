@@ -1,0 +1,64 @@
+commit c89f409749c35bf18fab8e025a34645dd925390c
+Author: Andres Freund <andres@anarazel.de>
+Date:   Sun Jan 30 14:29:04 2022 -0800
+
+    plperl: windows: Use Perl_setlocale on 5.28+, fixing compile failure.
+    
+    For older versions we need our own copy of perl's setlocale(), because it was
+    not exposed (why we need the setlocale in the first place is explained in
+    plperl_init_interp) . The copy stopped working in 5.28, as some of the used
+    macros are not public anymore.  But Perl_setlocale is available in 5.28, so
+    use that.
+    
+    Author: Victor Wagner <vitus@wagner.pp.ru>
+    Reviewed-By: Dagfinn Ilmari Mannsåker <ilmari@ilmari.org>
+    Discussion: https://postgr.es/m/20200501134711.08750c5f@antares.wagner.home
+    Backpatch: all versions
+
+diff --git a/src/pl/plperl/plperl.c b/src/pl/plperl/plperl.c
+index 1ae8195e023..3f785b1e8d5 100644
+--- a/src/pl/plperl/plperl.c
++++ b/src/pl/plperl/plperl.c
+@@ -296,13 +296,15 @@ static void plperl_exec_callback(void *arg);
+ static void plperl_inline_callback(void *arg);
+ static char *strip_trailing_ws(const char *msg);
+ static OP  *pp_require_safe(pTHX);
+ static void activate_interpreter(plperl_interp_desc *interp_desc);
+ 
+-#ifdef WIN32
++#if defined(WIN32) && PERL_VERSION_LT(5, 28, 0)
+ static char *setlocale_perl(int category, char *locale);
+-#endif
++#else
++#define setlocale_perl(a,b)  Perl_setlocale(a,b)
++#endif							/* defined(WIN32) && PERL_VERSION_LT(5, 28, 0) */
+ 
+ /*
+  * Decrement the refcount of the given SV within the active Perl interpreter
+  *
+  * This is handy because it reloads the active-interpreter pointer, saving
+@@ -4128,12 +4130,14 @@ plperl_inline_callback(void *arg)
+ 
+ 
+ /*
+  * Perl's own setlocale(), copied from POSIX.xs
+  * (needed because of the calls to new_*())
++ *
++ * Starting in 5.28, perl exposes Perl_setlocale to do so.
+  */
+-#ifdef WIN32
++#if defined(WIN32) && PERL_VERSION_LT(5, 28, 0)
+ static char *
+ setlocale_perl(int category, char *locale)
+ {
+ 	dTHX;
+ 	char	   *RETVAL = setlocale(category, locale);
+@@ -4197,7 +4201,6 @@ setlocale_perl(int category, char *locale)
+ #endif							/* USE_LOCALE_NUMERIC */
+ 	}
+ 
+ 	return RETVAL;
+ }
+-
+-#endif							/* WIN32 */
++#endif							/* defined(WIN32) && PERL_VERSION_LT(5, 28, 0) */

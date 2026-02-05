@@ -1,0 +1,79 @@
+commit 7e65ad197f9dff7466cea7986450f9573adb4448
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Thu Mar 21 23:31:57 2024 +0100
+
+    Fix dumping role comments when using --no-role-passwords
+    
+    Commit 9a83d56b38c added support for allowing pg_dumpall to dump
+    roles without including passwords, which accidentally made dumps
+    omit COMMENTs on roles.  This fixes it by using pg_authid to get
+    the comment.
+    
+    Backpatch to all supported versions. Patch simultaneously written
+    independently by Álvaro and myself.
+    
+    Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+    Author: Daniel Gustafsson <daniel@yesql.se>
+    Reported-by: Bartosz Chroł <bartosz.chrol@handen.pl>
+    Discussion: https://postgr.es/m/AS8P194MB1271CDA0ADCA7B75FCD8E767F7332@AS8P194MB1271.EURP194.PROD.OUTLOOK.COM
+    Discussion: https://postgr.es/m/CAEP4nAz9V4H41_4ESJd1Gf0v%3DdevkqO1%3Dpo91jUw-GJSx8Hxqg%40mail.gmail.com
+    Backpatch-through: v12
+
+diff --git a/src/bin/pg_dump/pg_dumpall.c b/src/bin/pg_dump/pg_dumpall.c
+index 491311fe790..046c0dc3b36 100644
+--- a/src/bin/pg_dump/pg_dumpall.c
++++ b/src/bin/pg_dump/pg_dumpall.c
+@@ -767,43 +767,46 @@ dumpRoles(PGconn *conn)
+ 				i_rolbypassrls,
+ 				i_rolcomment,
+ 				i_is_current_user;
+ 	int			i;
+ 
+-	/* note: rolconfig is dumped later */
++	/*
++	 * Notes: rolconfig is dumped later, and pg_authid must be used for
++	 * extracting rolcomment regardless of role_catalog.
++	 */
+ 	if (server_version >= 90600)
+ 		printfPQExpBuffer(buf,
+ 						  "SELECT oid, rolname, rolsuper, rolinherit, "
+ 						  "rolcreaterole, rolcreatedb, "
+ 						  "rolcanlogin, rolconnlimit, rolpassword, "
+ 						  "rolvaliduntil, rolreplication, rolbypassrls, "
+-						  "pg_catalog.shobj_description(oid, '%s') as rolcomment, "
++						  "pg_catalog.shobj_description(oid, 'pg_authid') as rolcomment, "
+ 						  "rolname = current_user AS is_current_user "
+ 						  "FROM %s "
+ 						  "WHERE rolname !~ '^pg_' "
+-						  "ORDER BY 2", role_catalog, role_catalog);
++						  "ORDER BY 2", role_catalog);
+ 	else if (server_version >= 90500)
+ 		printfPQExpBuffer(buf,
+ 						  "SELECT oid, rolname, rolsuper, rolinherit, "
+ 						  "rolcreaterole, rolcreatedb, "
+ 						  "rolcanlogin, rolconnlimit, rolpassword, "
+ 						  "rolvaliduntil, rolreplication, rolbypassrls, "
+-						  "pg_catalog.shobj_description(oid, '%s') as rolcomment, "
++						  "pg_catalog.shobj_description(oid, 'pg_authid') as rolcomment, "
+ 						  "rolname = current_user AS is_current_user "
+ 						  "FROM %s "
+-						  "ORDER BY 2", role_catalog, role_catalog);
++						  "ORDER BY 2", role_catalog);
+ 	else
+ 		printfPQExpBuffer(buf,
+ 						  "SELECT oid, rolname, rolsuper, rolinherit, "
+ 						  "rolcreaterole, rolcreatedb, "
+ 						  "rolcanlogin, rolconnlimit, rolpassword, "
+ 						  "rolvaliduntil, rolreplication, "
+ 						  "false as rolbypassrls, "
+-						  "pg_catalog.shobj_description(oid, '%s') as rolcomment, "
++						  "pg_catalog.shobj_description(oid, 'pg_authid') as rolcomment, "
+ 						  "rolname = current_user AS is_current_user "
+ 						  "FROM %s "
+-						  "ORDER BY 2", role_catalog, role_catalog);
++						  "ORDER BY 2", role_catalog);
+ 
+ 	res = executeQuery(conn, buf->data);
+ 
+ 	i_oid = PQfnumber(res, "oid");
+ 	i_rolname = PQfnumber(res, "rolname");

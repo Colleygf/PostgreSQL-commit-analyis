@@ -1,0 +1,88 @@
+commit 126552c85c1cfb6ce6445159b8024cfa5631f33e
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Mon Jul 3 16:20:01 2023 +1200
+
+    Fix race in SSI interaction with gin fast path.
+    
+    The ginfast.c code previously checked for conflicts in before locking
+    the relevant buffer, leaving a window where a RW conflict could be
+    missed.  Re-order.
+    
+    There was also a place where buffer ID and block number were confused
+    while trying to predicate-lock a page, noted by visual inspection.
+    
+    Back-patch to all supported releases.  Fixes one more problem discovered
+    with the reproducer from bug #17949, in this case when Dmitry tried
+    other index types.
+    
+    Reported-by: Artem Anisimov <artem.anisimov.255@gmail.com>
+    Reported-by: Dmitry Dolgov <9erthalion6@gmail.com>
+    Reviewed-by: Heikki Linnakangas <hlinnaka@iki.fi>
+    Discussion: https://postgr.es/m/17949-a0f17035294a55e2%40postgresql.org
+
+diff --git a/src/backend/access/gin/ginfast.c b/src/backend/access/gin/ginfast.c
+index ca7d770d864..eb6c5548318 100644
+--- a/src/backend/access/gin/ginfast.c
++++ b/src/backend/access/gin/ginfast.c
+@@ -243,13 +243,14 @@ ginHeapTupleFastInsert(GinState *ginstate, GinTupleCollector *collector)
+ 	metapage = BufferGetPage(metabuffer);
+ 
+ 	/*
+ 	 * An insertion to the pending list could logically belong anywhere in the
+ 	 * tree, so it conflicts with all serializable scans.  All scans acquire a
+-	 * predicate lock on the metabuffer to represent that.
++	 * predicate lock on the metabuffer to represent that.  Therefore we'll
++	 * check for conflicts in, but not until we have the page locked and are
++	 * ready to modify the page.
+ 	 */
+-	CheckForSerializableConflictIn(index, NULL, GIN_METAPAGE_BLKNO);
+ 
+ 	if (collector->sumsize + collector->ntuples * sizeof(ItemIdData) > GinListPageSize)
+ 	{
+ 		/*
+ 		 * Total size is greater than one page => make sublist
+@@ -289,10 +290,12 @@ ginHeapTupleFastInsert(GinState *ginstate, GinTupleCollector *collector)
+ 		 * metapage was unlocked, see above
+ 		 */
+ 		LockBuffer(metabuffer, GIN_EXCLUSIVE);
+ 		metadata = GinPageGetMeta(metapage);
+ 
++		CheckForSerializableConflictIn(index, NULL, GIN_METAPAGE_BLKNO);
++
+ 		if (metadata->head == InvalidBlockNumber)
+ 		{
+ 			/*
+ 			 * Main list is empty, so just insert sublist as main list
+ 			 */
+@@ -351,10 +354,12 @@ ginHeapTupleFastInsert(GinState *ginstate, GinTupleCollector *collector)
+ 		int			i,
+ 					tupsize;
+ 		char	   *ptr;
+ 		char	   *collectordata;
+ 
++		CheckForSerializableConflictIn(index, NULL, GIN_METAPAGE_BLKNO);
++
+ 		buffer = ReadBuffer(index, metadata->tail);
+ 		LockBuffer(buffer, GIN_EXCLUSIVE);
+ 		page = BufferGetPage(buffer);
+ 
+ 		off = (PageIsEmpty(page)) ? FirstOffsetNumber :
+diff --git a/src/backend/access/gin/ginget.c b/src/backend/access/gin/ginget.c
+index cb676a710fb..1f0214498cd 100644
+--- a/src/backend/access/gin/ginget.c
++++ b/src/backend/access/gin/ginget.c
+@@ -138,11 +138,13 @@ collectMatchBitmap(GinBtreeData *btree, GinBtreeStack *stack,
+ 
+ 	/*
+ 	 * Predicate lock entry leaf page, following pages will be locked by
+ 	 * moveRightIfItNeeded()
+ 	 */
+-	PredicateLockPage(btree->index, stack->buffer, snapshot);
++	PredicateLockPage(btree->index,
++					  BufferGetBlockNumber(stack->buffer),
++					  snapshot);
+ 
+ 	for (;;)
+ 	{
+ 		Page		page;
+ 		IndexTuple	itup;

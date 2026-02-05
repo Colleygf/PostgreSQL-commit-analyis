@@ -1,0 +1,83 @@
+commit a69959fab2f3633992b5cabec85acecbac6074c8
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Tue Aug 2 19:55:59 2022 +0900
+
+    doc: Fix typos in protocol.sgml
+    
+    Author: Ekaterina Kiryanova
+    Discussion: https://postgr.es/m/745414e7-efb2-a6ae-5b83-fcbdf35aabc8@postgrespro.ru
+    Backpatch-through: 15
+
+diff --git a/doc/src/sgml/protocol.sgml b/doc/src/sgml/protocol.sgml
+index 46ec4acd40b..0d4b720cfd0 100644
+--- a/doc/src/sgml/protocol.sgml
++++ b/doc/src/sgml/protocol.sgml
+@@ -2742,13 +2742,13 @@ psql "dbname=postgres replication=database" -c "IDENTIFY_SYSTEM;"
+           <para>
+            Specifies details for the chosen compression method. This should only
+            be used in conjunction with the <literal>COMPRESSION</literal>
+            option.  If the value is an integer, it specifies the compression
+            level.  Otherwise, it should be a comma-separated list of items,
+-           each of the form <literal>keyword</literal> or
+-           <literal>keyword=value</literal>. Currently, the supported keywords
+-           are <literal>level</literal> and <literal>workers</literal>.
++           each of the form <replaceable>keyword</replaceable> or
++           <replaceable>keyword=value</replaceable>. Currently, the supported
++           keywords are <literal>level</literal> and <literal>workers</literal>.
+           </para>
+ 
+           <para>
+            The <literal>level</literal> keyword sets the compression level.
+            For <literal>gzip</literal> the compression level should be an
+@@ -2902,11 +2902,11 @@ psql "dbname=postgres replication=database" -c "IDENTIFY_SYSTEM;"
+         <listitem>
+          <variablelist>
+           <varlistentry>
+            <term>Byte1('n')</term>
+            <listitem><para>
+-            Identifes the messaage as indicating the start of a new archive.
++            Identifies the message as indicating the start of a new archive.
+             There will be one archive for the main data directory and one
+             for each additional tablespace; each will use tar format
+             (following the <quote>ustar interchange format</quote> specified
+             in the POSIX 1003.1-2008 standard).
+            </para></listitem>
+@@ -2936,11 +2936,11 @@ psql "dbname=postgres replication=database" -c "IDENTIFY_SYSTEM;"
+         <listitem>
+          <variablelist>
+           <varlistentry>
+            <term>Byte1('m')</term>
+            <listitem><para>
+-            Identifes the message as indicating the start of the backup
++            Identifies the message as indicating the start of the backup
+             manifest.
+            </para></listitem>
+           </varlistentry>
+          </variablelist>
+         </listitem>
+@@ -2951,11 +2951,11 @@ psql "dbname=postgres replication=database" -c "IDENTIFY_SYSTEM;"
+         <listitem>
+          <variablelist>
+           <varlistentry>
+            <term>Byte1('d')</term>
+            <listitem><para>
+-            Identifes the message as containing archive or manifest data.
++            Identifies the message as containing archive or manifest data.
+            </para></listitem>
+           </varlistentry>
+ 
+           <varlistentry>
+            <term>Byte<replaceable>n</replaceable></term>
+@@ -2972,11 +2972,11 @@ psql "dbname=postgres replication=database" -c "IDENTIFY_SYSTEM;"
+         <listitem>
+          <variablelist>
+           <varlistentry>
+            <term>Byte1('p')</term>
+            <listitem><para>
+-            Identifes the message as a progress report.
++            Identifies the message as a progress report.
+            </para></listitem>
+           </varlistentry>
+ 
+           <varlistentry>
+            <term>Int64</term>

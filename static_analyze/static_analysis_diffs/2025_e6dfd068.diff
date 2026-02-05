@@ -1,0 +1,88 @@
+commit e6dfd068ed453b8690551dac700d57fbf32ba187
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Jul 23 15:44:29 2025 -0400
+
+    Fix build breakage on Solaris-alikes with late-model GCC.
+    
+    Solaris has never bothered to add "const" to the second argument
+    of PAM conversation procs, as all other Unixen did decades ago.
+    This resulted in an "incompatible pointer" compiler warning when
+    building --with-pam, but had no more serious effect than that,
+    so we never did anything about it.  However, as of GCC 14 the
+    case is an error not warning by default.
+    
+    To complicate matters, recent OpenIndiana (and maybe illumos
+    in general?) *does* supply the "const" by default, so we can't
+    just assume that platforms using our solaris template need help.
+    
+    What we can do, short of building a configure-time probe,
+    is to make solaris.h #define _PAM_LEGACY_NONCONST, which
+    causes OpenIndiana's pam_appl.h to revert to the traditional
+    definition, and hopefully will have no effect anywhere else.
+    Then we can use that same symbol to control whether we include
+    "const" in the declaration of pam_passwd_conv_proc().
+    
+    Bug: #18995
+    Reported-by: Andrew Watkins <awatkins1966@gmail.com>
+    Author: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/18995-82058da9ab4337a7@postgresql.org
+    Backpatch-through: 13
+
+diff --git a/src/backend/libpq/auth.c b/src/backend/libpq/auth.c
+index 9f4d05ffbd4..4da46666439 100644
+--- a/src/backend/libpq/auth.c
++++ b/src/backend/libpq/auth.c
+@@ -92,12 +92,20 @@ static int	auth_peer(hbaPort *port);
+ #include <security/pam_appl.h>
+ #endif
+ 
+ #define PGSQL_PAM_SERVICE "postgresql"	/* Service name passed to PAM */
+ 
++/* Work around original Solaris' lack of "const" in the conv_proc signature */
++#ifdef _PAM_LEGACY_NONCONST
++#define PG_PAM_CONST
++#else
++#define PG_PAM_CONST const
++#endif
++
+ static int	CheckPAMAuth(Port *port, const char *user, const char *password);
+-static int	pam_passwd_conv_proc(int num_msg, const struct pam_message **msg,
++static int	pam_passwd_conv_proc(int num_msg,
++								 PG_PAM_CONST struct pam_message **msg,
+ 								 struct pam_response **resp, void *appdata_ptr);
+ 
+ static struct pam_conv pam_passw_conv = {
+ 	&pam_passwd_conv_proc,
+ 	NULL
+@@ -1915,11 +1923,11 @@ auth_peer(hbaPort *port)
+ /*
+  * PAM conversation function
+  */
+ 
+ static int
+-pam_passwd_conv_proc(int num_msg, const struct pam_message **msg,
++pam_passwd_conv_proc(int num_msg, PG_PAM_CONST struct pam_message **msg,
+ 					 struct pam_response **resp, void *appdata_ptr)
+ {
+ 	const char *passwd;
+ 	struct pam_response *reply;
+ 	int			i;
+diff --git a/src/include/port/solaris.h b/src/include/port/solaris.h
+index e63a3bd824d..8ff40007c7f 100644
+--- a/src/include/port/solaris.h
++++ b/src/include/port/solaris.h
+@@ -22,5 +22,14 @@
+ #endif
+ 
+ #if defined(__i386__)
+ #include <sys/isa_defs.h>
+ #endif
++
++/*
++ * On original Solaris, PAM conversation procs lack a "const" in their
++ * declaration; but recent OpenIndiana versions put it there by default.
++ * The least messy way to deal with this is to define _PAM_LEGACY_NONCONST,
++ * which causes OpenIndiana to declare pam_conv per the Solaris tradition,
++ * and also use that symbol to control omitting the "const" in our own code.
++ */
++#define _PAM_LEGACY_NONCONST 1

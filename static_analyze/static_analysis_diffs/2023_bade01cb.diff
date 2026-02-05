@@ -1,0 +1,76 @@
+commit bade01cb4dd88f63bd9024cfdaec3d5001a805f3
+Author: Peter Geoghegan <pg@bowt.ie>
+Date:   Tue Mar 28 10:53:48 2023 -0700
+
+    Fix recent pg_walinspect fpi_length bug.
+    
+    Commit 0276ae42dd taught pg_walinspect's pg_get_wal_record_info()
+    function to output NULLs rather than empty strings for its record
+    description and block_ref output parameters.  However, it inadvertently
+    moved the function call that sets fpi_length until after it was already
+    set.  As a result, pg_get_wal_record_info() always output spurious
+    fpi_length values of 0.
+    
+    Fix by switching the order back (but keep the behavioral change).
+    
+    Author: Bharath Rupireddy <bharath.rupireddyforpostgres@gmail.com>
+    Discussion: https://postgr.es/m/CAH2-WzkJmgSYkt6-smQ+57SxSmov+EKqFZdSimFewosoL_JKoA@mail.gmail.com
+
+diff --git a/contrib/pg_walinspect/pg_walinspect.c b/contrib/pg_walinspect/pg_walinspect.c
+index 2933734122b..062e90dbce9 100644
+--- a/contrib/pg_walinspect/pg_walinspect.c
++++ b/contrib/pg_walinspect/pg_walinspect.c
+@@ -184,10 +184,11 @@ GetWALRecordInfo(XLogReaderState *record, Datum *values,
+ {
+ 	const char *id;
+ 	RmgrData	desc;
+ 	uint32		fpi_len = 0;
+ 	StringInfoData rec_desc;
++	StringInfoData rec_blk_ref;
+ 	int			i = 0;
+ 
+ 	desc = GetRmgr(XLogRecGetRmid(record));
+ 	id = desc.rm_identify(XLogRecGetInfo(record));
+ 
+@@ -195,35 +196,33 @@ GetWALRecordInfo(XLogReaderState *record, Datum *values,
+ 		id = psprintf("UNKNOWN (%x)", XLogRecGetInfo(record) & ~XLR_INFO_MASK);
+ 
+ 	initStringInfo(&rec_desc);
+ 	desc.rm_desc(&rec_desc, record);
+ 
++	if (XLogRecHasAnyBlockRefs(record))
++	{
++		initStringInfo(&rec_blk_ref);
++		XLogRecGetBlockRefInfo(record, false, true, &rec_blk_ref, &fpi_len);
++	}
++
+ 	values[i++] = LSNGetDatum(record->ReadRecPtr);
+ 	values[i++] = LSNGetDatum(record->EndRecPtr);
+ 	values[i++] = LSNGetDatum(XLogRecGetPrev(record));
+ 	values[i++] = TransactionIdGetDatum(XLogRecGetXid(record));
+ 	values[i++] = CStringGetTextDatum(desc.rm_name);
+ 	values[i++] = CStringGetTextDatum(id);
+ 	values[i++] = UInt32GetDatum(XLogRecGetTotalLen(record));
+ 	values[i++] = UInt32GetDatum(XLogRecGetDataLen(record));
+-
+ 	values[i++] = UInt32GetDatum(fpi_len);
+ 
+ 	if (rec_desc.len > 0)
+ 		values[i++] = CStringGetTextDatum(rec_desc.data);
+ 	else
+ 		nulls[i++] = true;
+ 
+-	/* Block references. */
+ 	if (XLogRecHasAnyBlockRefs(record))
+-	{
+-		StringInfoData rec_blk_ref;
+-
+-		initStringInfo(&rec_blk_ref);
+-		XLogRecGetBlockRefInfo(record, false, true, &rec_blk_ref, &fpi_len);
+ 		values[i++] = CStringGetTextDatum(rec_blk_ref.data);
+-	}
+ 	else
+ 		nulls[i++] = true;
+ 
+ 	Assert(i == ncols);
+ }

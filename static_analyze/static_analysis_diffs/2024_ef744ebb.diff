@@ -1,0 +1,128 @@
+commit ef744ebb7340d42361ebd88d068b27b17e69de18
+Author: Amit Langote <amitlan@postgresql.org>
+Date:   Thu Apr 18 14:38:12 2024 +0900
+
+    SQL/JSON: Miscellaneous fixes and improvements
+    
+    This addresses some post-commit review comments for commits 6185c973,
+    de3600452, and 9425c596a0, with the following changes:
+    
+    * Fix JSON_TABLE() syntax documentation to use the term
+      "path_expression" for JSON path expressions instead of
+      "json_path_specification" to be consistent with the other SQL/JSON
+      functions.
+    
+    * Fix a typo in the example code in JSON_TABLE() documentation.
+    
+    * Rewrite some newly added comments in jsonpath.h.
+    
+    * In JsonPathQuery(), add missing cast to int before printing an enum
+      value.
+    
+    Reported-by: Jian He <jian.universality@gmail.com>
+    Discussion: https://postgr.es/m/CACJufxG_e0QLCgaELrr2ZNz7AxPeGCNKAORe3fHtFCQLsH4J4Q@mail.gmail.com
+
+diff --git a/doc/src/sgml/func.sgml b/doc/src/sgml/func.sgml
+index 8dfb42ad4db..92a0f49e6a1 100644
+--- a/doc/src/sgml/func.sgml
++++ b/doc/src/sgml/func.sgml
+@@ -18940,11 +18940,11 @@ where <replaceable class="parameter">json_table_column</replaceable> is:
+         <optional> { KEEP | OMIT } QUOTES <optional> ON SCALAR STRING </optional> </optional>
+         <optional> { ERROR | NULL | EMPTY { ARRAY | OBJECT } | DEFAULT <replaceable>expression</replaceable> } ON EMPTY </optional>
+         <optional> { ERROR | NULL | EMPTY { ARRAY | OBJECT } | DEFAULT <replaceable>expression</replaceable> } ON ERROR </optional>
+   | <replaceable>name</replaceable> <replaceable>type</replaceable> EXISTS <optional> PATH <replaceable>path_expression</replaceable> </optional>
+         <optional> { ERROR | TRUE | FALSE | UNKNOWN } ON ERROR </optional>
+-  | NESTED <optional> PATH </optional> <replaceable>json_path_specification</replaceable> <optional> AS <replaceable>json_path_name</replaceable> </optional> COLUMNS ( <replaceable>json_table_column</replaceable> <optional>, ...</optional> )
++  | NESTED <optional> PATH </optional> <replaceable>path_expression</replaceable> <optional> AS <replaceable>json_path_name</replaceable> </optional> COLUMNS ( <replaceable>json_table_column</replaceable> <optional>, ...</optional> )
+ </synopsis>
+ 
+   <para>
+    Each syntax element is described below in more detail.
+   </para>
+@@ -19081,11 +19081,11 @@ where <replaceable class="parameter">json_table_column</replaceable> is:
+       </listitem>
+    </varlistentry>
+ 
+    <varlistentry>
+     <term>
+-      <literal>NESTED <optional> PATH </optional></literal> <replaceable>json_path_specification</replaceable> <optional> <literal>AS</literal> <replaceable>json_path_name</replaceable> </optional>
++      <literal>NESTED <optional> PATH </optional></literal> <replaceable>path_expression</replaceable> <optional> <literal>AS</literal> <replaceable>json_path_name</replaceable> </optional>
+           <literal>COLUMNS</literal> ( <replaceable>json_table_column</replaceable> <optional>, ...</optional> )
+     </term>
+     <listitem>
+ 
+     <para>
+@@ -19313,12 +19313,13 @@ SELECT * FROM JSON_TABLE (
+       [{"name": "One", "director": "John Doe"},
+        {"name": "Two", "director": "Don Joe"}],
+      "books":
+       [{"name": "Mystery", "authors": [{"name": "Brown Dan"}]},
+        {"name": "Wonder", "authors": [{"name": "Jun Murakami"}, {"name":"Craig Doe"}]}]
+-}}'::json, '$.favs[*]'
+-COLUMNS (user_id FOR ORDINALITY,
++}}'::json, '$.favorites[*]'
++COLUMNS (
++  user_id FOR ORDINALITY,
+   NESTED '$.movies[*]'
+     COLUMNS (
+     movie_id FOR ORDINALITY,
+     mname text PATH '$.name',
+     director text),
+diff --git a/src/backend/utils/adt/jsonpath_exec.c b/src/backend/utils/adt/jsonpath_exec.c
+index e74dc1b2d42..4daf1a68d9d 100644
+--- a/src/backend/utils/adt/jsonpath_exec.c
++++ b/src/backend/utils/adt/jsonpath_exec.c
+@@ -3933,11 +3933,11 @@ JsonPathQuery(Datum jb, JsonPath *jp, JsonWrapper wrapper, bool *empty,
+ 			IsAJsonbScalar(singleton) ||
+ 			(singleton->type == jbvBinary &&
+ 			 JsonContainerIsScalar(singleton->val.binary.data));
+ 	else
+ 	{
+-		elog(ERROR, "unrecognized json wrapper %d", wrapper);
++		elog(ERROR, "unrecognized json wrapper %d", (int) wrapper);
+ 		wrap = false;
+ 	}
+ 
+ 	if (wrap)
+ 		return JsonbPGetDatum(JsonbValueToJsonb(wrapItemsInArray(&found)));
+diff --git a/src/include/utils/jsonpath.h b/src/include/utils/jsonpath.h
+index 0bcc1ac569d..69c180c2e29 100644
+--- a/src/include/utils/jsonpath.h
++++ b/src/include/utils/jsonpath.h
+@@ -279,33 +279,31 @@ extern JsonPathParseResult *parsejsonpath(const char *str, int len,
+ 										  struct Node *escontext);
+ 
+ extern bool jspConvertRegexFlags(uint32 xflags, int *result,
+ 								 struct Node *escontext);
+ 
+-
+ /*
+- * Evaluation of jsonpath
++ * Struct for details about external variables passed into jsonpath executor
+  */
+-
+-/* External variable passed into jsonpath. */
+ typedef struct JsonPathVariable
+ {
+ 	char	   *name;
+ 	Oid			typid;
+ 	int32		typmod;
+ 	Datum		value;
+ 	bool		isnull;
+ } JsonPathVariable;
+ 
+ 
+-/* SQL/JSON item */
++/* SQL/JSON query functions */
+ extern bool JsonPathExists(Datum jb, JsonPath *path, bool *error, List *vars);
+ extern Datum JsonPathQuery(Datum jb, JsonPath *jp, JsonWrapper wrapper,
+ 						   bool *empty, bool *error, List *vars,
+ 						   const char *column_name);
+ extern JsonbValue *JsonPathValue(Datum jb, JsonPath *jp, bool *empty,
+ 								 bool *error, List *vars,
+ 								 const char *column_name);
+ 
++/* For JSON_TABLE() */
+ extern PGDLLIMPORT const TableFuncRoutine JsonbTableRoutine;
+ 
+ #endif

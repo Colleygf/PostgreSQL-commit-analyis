@@ -1,0 +1,68 @@
+commit c09a06918dff9a1651ed12a24eb03712331b234b
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Tue Nov 4 11:59:17 2025 +0100
+
+    Error message stylistic correction
+    
+    Fixup for commit ef5e60a9d35: The inconsistent use of articles was a
+    bit awkward.
+
+diff --git a/src/backend/parser/parse_expr.c b/src/backend/parser/parse_expr.c
+index 12119f147fc..32d6ae918ca 100644
+--- a/src/backend/parser/parse_expr.c
++++ b/src/backend/parser/parse_expr.c
+@@ -4770,11 +4770,11 @@ transformJsonBehavior(ParseState *pstate, JsonExpr *jsexpr,
+ 				exprcoll = get_typcollation(exprType(expr));
+ 			if (OidIsValid(targetcoll) && OidIsValid(exprcoll) &&
+ 				targetcoll != exprcoll)
+ 				ereport(ERROR,
+ 						errcode(ERRCODE_COLLATION_MISMATCH),
+-						errmsg("the collation of DEFAULT expression conflicts with RETURNING clause"),
++						errmsg("collation of DEFAULT expression conflicts with RETURNING clause"),
+ 						errdetail("\"%s\" versus \"%s\"",
+ 								  get_collation_name(exprcoll),
+ 								  get_collation_name(targetcoll)),
+ 						parser_errposition(pstate, exprLocation(expr)));
+ 		}
+diff --git a/src/test/regress/expected/collate.icu.utf8.out b/src/test/regress/expected/collate.icu.utf8.out
+index 05d8b3b369e..b8579a1efc6 100644
+--- a/src/test/regress/expected/collate.icu.utf8.out
++++ b/src/test/regress/expected/collate.icu.utf8.out
+@@ -2709,16 +2709,16 @@ SELECT JSON_VALUE('{"a": "A"}', '$.a' RETURNING d1 DEFAULT 'C' ON EMPTY) = 'a';
+ ----------
+  t
+ (1 row)
+ 
+ SELECT JSON_VALUE('{"a": "A"}', '$.a' RETURNING d1 DEFAULT 'C'::d2 ON EMPTY) = 'a'; -- error
+-ERROR:  the collation of DEFAULT expression conflicts with RETURNING clause
++ERROR:  collation of DEFAULT expression conflicts with RETURNING clause
+ LINE 1: ...ON_VALUE('{"a": "A"}', '$.a' RETURNING d1 DEFAULT 'C'::d2 ON...
+                                                              ^
+ DETAIL:  "C" versus "case_insensitive"
+ SELECT JSON_VALUE('{"a": "A"}', '$.a' RETURNING d1 DEFAULT 'C' COLLATE "C" ON EMPTY) = 'a'; -- error
+-ERROR:  the collation of DEFAULT expression conflicts with RETURNING clause
++ERROR:  collation of DEFAULT expression conflicts with RETURNING clause
+ LINE 1: ...ON_VALUE('{"a": "A"}', '$.a' RETURNING d1 DEFAULT 'C' COLLAT...
+                                                              ^
+ DETAIL:  "C" versus "case_insensitive"
+ SELECT JSON_VALUE('{"a": "A"}', '$.c' RETURNING d1 DEFAULT 'A' ON EMPTY) = 'a'; -- true
+  ?column? 
+@@ -2731,16 +2731,16 @@ SELECT JSON_VALUE('{"a": "A"}', '$.c' RETURNING d1 DEFAULT 'A' COLLATE case_inse
+ ----------
+  t
+ (1 row)
+ 
+ SELECT JSON_VALUE('{"a": "A"}', '$.c' RETURNING d1 DEFAULT 'A'::d2 ON EMPTY) = 'a'; -- error
+-ERROR:  the collation of DEFAULT expression conflicts with RETURNING clause
++ERROR:  collation of DEFAULT expression conflicts with RETURNING clause
+ LINE 1: ...ON_VALUE('{"a": "A"}', '$.c' RETURNING d1 DEFAULT 'A'::d2 ON...
+                                                              ^
+ DETAIL:  "C" versus "case_insensitive"
+ SELECT JSON_VALUE('{"a": "A"}', '$.c' RETURNING d1 DEFAULT 'A' COLLATE "C" ON EMPTY) = 'a'; -- error
+-ERROR:  the collation of DEFAULT expression conflicts with RETURNING clause
++ERROR:  collation of DEFAULT expression conflicts with RETURNING clause
+ LINE 1: ...ON_VALUE('{"a": "A"}', '$.c' RETURNING d1 DEFAULT 'A' COLLAT...
+                                                              ^
+ DETAIL:  "C" versus "case_insensitive"
+ DROP DOMAIN d1, d2;
+ -- cleanup

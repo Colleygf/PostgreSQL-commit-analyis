@@ -1,0 +1,56 @@
+commit f71007fbb3b83fba21daae9144cc07e205f2365c
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Tue Oct 25 15:21:42 2022 +1300
+
+    Fix readlink() for non-PostgreSQL junction points on Windows.
+    
+    Since commit c5cb8f3b taught stat() to follow symlinks, and since initdb
+    uses pg_mkdir_p(), and that examines parent directories, our humble
+    readlink() implementation can now be exposed to junction points not of
+    PostgreSQL origin.  Those might be corrupted by our naive path mangling,
+    which doesn't really understand NT paths in general.
+    
+    Simply decline to transform paths that don't look like a drive absolute
+    path.  That means that readlink() returns the NT path directly when
+    checking a parent directory of PGDATA that happen to point to a drive
+    using "rooted" format.  That  works for the purposes of our stat()
+    emulation.
+    
+    Reported-by: Roman Zharkov <r.zharkov@postgrespro.ru>
+    Reviewed-by: Roman Zharkov <r.zharkov@postgrespro.ru>
+    Discussion: https://postgr.es/m/4590c37927d7b8ee84f9855d83229018%40postgrespro.ru
+    Discussion: https://postgr.es/m/CA%2BhUKG%2BajSQ_8eu2AogTncOnZ5me2D-Cn66iN_-wZnRjLN%2Bicg%40mail.gmail.com
+
+diff --git a/src/port/dirmod.c b/src/port/dirmod.c
+index 398787360a2..d83316d6a2a 100644
+--- a/src/port/dirmod.c
++++ b/src/port/dirmod.c
+@@ -361,14 +361,25 @@ pgreadlink(const char *path, char *buf, size_t size)
+ 
+ 	/* r includes the null terminator */
+ 	r -= 1;
+ 
+ 	/*
+-	 * If the path starts with "\??\", which it will do in most (all?) cases,
+-	 * strip those out.
++	 * If the path starts with "\??\" followed by a "drive absolute" path
++	 * (known to Windows APIs as RtlPathTypeDriveAbsolute), then strip that
++	 * prefix.  This undoes some of the transformation performed by
++	 * pqsymlink(), to get back to a format that users are used to seeing.  We
++	 * don't know how to transform other path types that might be encountered
++	 * outside PGDATA, so we just return them directly.
+ 	 */
+-	if (r > 4 && strncmp(buf, "\\??\\", 4) == 0)
++	if (r >= 7 &&
++		buf[0] == '\\' &&
++		buf[1] == '?' &&
++		buf[2] == '?' &&
++		buf[3] == '\\' &&
++		isalpha(buf[4]) &&
++		buf[5] == ':' &&
++		buf[6] == '\\')
+ 	{
+ 		memmove(buf, buf + 4, strlen(buf + 4) + 1);
+ 		r -= 4;
+ 	}
+ 	return r;

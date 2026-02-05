@@ -1,0 +1,60 @@
+commit 7e5f5177996150bf3845562d00d41d1e1847d7e3
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Thu Nov 30 05:33:55 2023 +0100
+
+    Improve "user mapping not found" error message
+    
+    Display the name of the foreign server for which the user mapping was
+    not found.
+    
+    Author: Ian Lawrence Barwick <barwick@gmail.com>
+    Reviewed-by: Laurenz Albe <laurenz.albe@cybertec.at>
+    Reviewed-by: Peter Eisentraut <peter@eisentraut.org>
+    Discussion: https://www.postgresql.org/message-id/flat/CAB8KJ=jFzNaeyFtLcTZNOc6fd1+F93pGVLFa-wyt31wn7VNxqQ@mail.gmail.com
+
+diff --git a/contrib/postgres_fdw/expected/postgres_fdw.out b/contrib/postgres_fdw/expected/postgres_fdw.out
+index 22cae37a1eb..0a5bdf8bcc0 100644
+--- a/contrib/postgres_fdw/expected/postgres_fdw.out
++++ b/contrib/postgres_fdw/expected/postgres_fdw.out
+@@ -2715,14 +2715,14 @@ GRANT SELECT ON ft4 TO regress_view_owner_another;
+ ALTER FOREIGN TABLE ft4 OPTIONS (ADD use_remote_estimate 'true');
+ -- The following should query the remote backing table of ft4 as user
+ -- regress_view_owner_another, the view owner, though it fails as expected
+ -- due to the lack of a user mapping for that user.
+ EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM v4;
+-ERROR:  user mapping not found for "regress_view_owner_another"
++ERROR:  user mapping not found for user "regress_view_owner_another", server "loopback"
+ -- Likewise, but with the query under an UNION ALL
+ EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM (SELECT * FROM v4 UNION ALL SELECT * FROM v4);
+-ERROR:  user mapping not found for "regress_view_owner_another"
++ERROR:  user mapping not found for user "regress_view_owner_another", server "loopback"
+ -- Should not get that error once a user mapping is created
+ CREATE USER MAPPING FOR regress_view_owner_another SERVER loopback OPTIONS (password_required 'false');
+ EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM v4;
+                     QUERY PLAN                    
+ --------------------------------------------------
+diff --git a/src/backend/foreign/foreign.c b/src/backend/foreign/foreign.c
+index ca3ad55b628..fc3edef2a86 100644
+--- a/src/backend/foreign/foreign.c
++++ b/src/backend/foreign/foreign.c
+@@ -215,14 +215,18 @@ GetUserMapping(Oid userid, Oid serverid)
+ 							 ObjectIdGetDatum(InvalidOid),
+ 							 ObjectIdGetDatum(serverid));
+ 	}
+ 
+ 	if (!HeapTupleIsValid(tp))
++	{
++		ForeignServer *server = GetForeignServer(serverid);
++
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_UNDEFINED_OBJECT),
+-				 errmsg("user mapping not found for \"%s\"",
+-						MappingUserName(userid))));
++				 errmsg("user mapping not found for user \"%s\", server \"%s\"",
++						MappingUserName(userid), server->servername)));
++	}
+ 
+ 	um = (UserMapping *) palloc(sizeof(UserMapping));
+ 	um->umid = ((Form_pg_user_mapping) GETSTRUCT(tp))->oid;
+ 	um->userid = userid;
+ 	um->serverid = serverid;

@@ -1,0 +1,79 @@
+commit 01d56eecee4cfa0f796c4ee3e2e0ac615b9350bb
+Author: Noah Misch <noah@leadboat.com>
+Date:   Sat Jul 1 10:00:39 2023 -0700
+
+    Fix test of pg_stat_io for wal_level=minimal.
+    
+    Back-patch to v16, which introduced the test.
+
+diff --git a/contrib/amcheck/expected/check_heap.out b/contrib/amcheck/expected/check_heap.out
+index 8f1beb4681c..979e5e84e72 100644
+--- a/contrib/amcheck/expected/check_heap.out
++++ b/contrib/amcheck/expected/check_heap.out
+@@ -74,15 +74,19 @@ INSERT INTO heaptest (a, b)
+ -- verify_heapam to provide coverage instead of adding another expensive
+ -- operation to the main regression test suite.
+ --
+ -- Create an alternative tablespace and move the heaptest table to it, causing
+ -- it to be rewritten and all the blocks to reliably evicted from shared
+--- buffers -- guaranteeing actual reads when we next select from it.
++-- buffers -- guaranteeing actual reads when we next select from it in the
++-- same transaction.  The heaptest table is smaller than the default
++-- wal_skip_threshold, so a wal_level=minimal commit reads the table into
++-- shared_buffers.  A transaction delays that and excludes any autovacuum.
+ SET allow_in_place_tablespaces = true;
+ CREATE TABLESPACE regress_test_stats_tblspc LOCATION '';
+ SELECT sum(reads) AS stats_bulkreads_before
+   FROM pg_stat_io WHERE context = 'bulkread' \gset
++BEGIN;
+ ALTER TABLE heaptest SET TABLESPACE regress_test_stats_tblspc;
+ -- Check that valid options are not rejected nor corruption reported
+ -- for a non-empty table
+ SELECT * FROM verify_heapam(relation := 'heaptest', skip := 'none');
+  blkno | offnum | attnum | msg 
+@@ -102,10 +106,11 @@ SELECT * FROM verify_heapam(relation := 'heaptest', skip := 'all-visible');
+ SELECT * FROM verify_heapam(relation := 'heaptest', startblock := 0, endblock := 0);
+  blkno | offnum | attnum | msg 
+ -------+--------+--------+-----
+ (0 rows)
+ 
++COMMIT;
+ -- verify_heapam should have read in the page written out by
+ --   ALTER TABLE ... SET TABLESPACE ...
+ -- causing an additional bulkread, which should be reflected in pg_stat_io.
+ SELECT pg_stat_force_next_flush();
+  pg_stat_force_next_flush 
+diff --git a/contrib/amcheck/sql/check_heap.sql b/contrib/amcheck/sql/check_heap.sql
+index cf5ce4d0c0a..1745bae634e 100644
+--- a/contrib/amcheck/sql/check_heap.sql
++++ b/contrib/amcheck/sql/check_heap.sql
+@@ -34,23 +34,27 @@ INSERT INTO heaptest (a, b)
+ -- verify_heapam to provide coverage instead of adding another expensive
+ -- operation to the main regression test suite.
+ --
+ -- Create an alternative tablespace and move the heaptest table to it, causing
+ -- it to be rewritten and all the blocks to reliably evicted from shared
+--- buffers -- guaranteeing actual reads when we next select from it.
++-- buffers -- guaranteeing actual reads when we next select from it in the
++-- same transaction.  The heaptest table is smaller than the default
++-- wal_skip_threshold, so a wal_level=minimal commit reads the table into
++-- shared_buffers.  A transaction delays that and excludes any autovacuum.
+ SET allow_in_place_tablespaces = true;
+ CREATE TABLESPACE regress_test_stats_tblspc LOCATION '';
+ SELECT sum(reads) AS stats_bulkreads_before
+   FROM pg_stat_io WHERE context = 'bulkread' \gset
++BEGIN;
+ ALTER TABLE heaptest SET TABLESPACE regress_test_stats_tblspc;
+-
+ -- Check that valid options are not rejected nor corruption reported
+ -- for a non-empty table
+ SELECT * FROM verify_heapam(relation := 'heaptest', skip := 'none');
+ SELECT * FROM verify_heapam(relation := 'heaptest', skip := 'all-frozen');
+ SELECT * FROM verify_heapam(relation := 'heaptest', skip := 'all-visible');
+ SELECT * FROM verify_heapam(relation := 'heaptest', startblock := 0, endblock := 0);
++COMMIT;
+ 
+ -- verify_heapam should have read in the page written out by
+ --   ALTER TABLE ... SET TABLESPACE ...
+ -- causing an additional bulkread, which should be reflected in pg_stat_io.
+ SELECT pg_stat_force_next_flush();

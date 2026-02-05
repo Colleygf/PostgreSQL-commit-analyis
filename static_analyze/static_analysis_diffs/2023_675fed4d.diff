@@ -1,0 +1,60 @@
+commit 675fed4df5db4e78d40a0ce9cb785cfba9fa480f
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Mon Oct 30 10:34:15 2023 +0200
+
+    Fix indentation in contrib/amcheck/verify_nbtree.c
+    
+    Reported-by: Michael Paquier
+    Discussion: https://postgr.es/m/ZT9YoDPEQBUMrIHg%40paquier.xyz
+
+diff --git a/contrib/amcheck/verify_nbtree.c b/contrib/amcheck/verify_nbtree.c
+index 7282cf7fc80..877452f38c6 100644
+--- a/contrib/amcheck/verify_nbtree.c
++++ b/contrib/amcheck/verify_nbtree.c
+@@ -1054,13 +1054,13 @@ bt_entry_unique_check(BtreeCheckState *state, IndexTuple itup,
+ 										tid, targetblock,
+ 										offset, i);
+ 				}
+ 
+ 				/*
+-				 * Prevent double reporting unique constraint violation between
+-				 * the posting list entries of the first tuple on the page after
+-				 * cross-page check.
++				 * Prevent double reporting unique constraint violation
++				 * between the posting list entries of the first tuple on the
++				 * page after cross-page check.
+ 				 */
+ 				if (*lVis_block != targetblock && ItemPointerIsValid(*lVis_tid))
+ 					return;
+ 
+ 				*lVis_i = i;
+@@ -1070,12 +1070,12 @@ bt_entry_unique_check(BtreeCheckState *state, IndexTuple itup,
+ 			}
+ 		}
+ 	}
+ 
+ 	/*
+-	 * Current tuple has no posting list. If TID is visible save info about
+-	 * it for the next comparisons in the loop in bt_page_check(). Report
++	 * Current tuple has no posting list. If TID is visible save info about it
++	 * for the next comparisons in the loop in bt_page_check(). Report
+ 	 * duplicate if lVis_tid is already valid.
+ 	 */
+ 	else
+ 	{
+ 		tid = BTreeTupleGetHeapTID(itup);
+@@ -1692,12 +1692,12 @@ bt_target_page_check(BtreeCheckState *state)
+ 										nhtid,
+ 										LSN_FORMAT_ARGS(state->targetlsn))));
+ 		}
+ 
+ 		/*
+-		 * If the index is unique verify entries uniqueness by checking the heap
+-		 * tuples visibility.
++		 * If the index is unique verify entries uniqueness by checking the
++		 * heap tuples visibility.
+ 		 */
+ 		if (state->checkunique && state->indexinfo->ii_Unique &&
+ 			P_ISLEAF(topaque) && !skey->anynullkeys)
+ 			bt_entry_unique_check(state, itup, state->targetblock, offset,
+ 								  &lVis_i, &lVis_tid, &lVis_offset,

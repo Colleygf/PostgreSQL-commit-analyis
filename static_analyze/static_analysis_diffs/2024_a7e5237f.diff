@@ -1,0 +1,72 @@
+commit a7e5237f268ea378c514635d65a55aa47621958a
+Author: Tomas Vondra <tomas.vondra@postgresql.org>
+Date:   Mon Sep 23 11:37:12 2024 +0200
+
+    Fix asserts in fast-path locking code
+    
+    Commit c4d5cb71d229 introduced a couple asserts in the fast-path locking
+    code, upsetting Coverity.
+    
+    The assert in InitProcGlobal() is clearly wrong, as it assigns instead
+    of checking the value. This is harmless, but doesn't check anything.
+    
+    The asserts in FAST_PATH_ macros are written as if for signed values,
+    but the macros are only called for unsigned ones. That makes the check
+    for (val >= 0) useless. Checks written as ((uint32) x < max) work for
+    both signed and unsigned values. Negative values should wrap to values
+    greater than INT32_MAX.
+    
+    Per Coverity, report by Tom Lane.
+    
+    Reported-by: Tom Lane
+    Discussion: https://postgr.es/m/2891628.1727019959@sss.pgh.pa.us
+
+diff --git a/src/backend/storage/lmgr/lock.c b/src/backend/storage/lmgr/lock.c
+index 613b0d49944..bbd444745fd 100644
+--- a/src/backend/storage/lmgr/lock.c
++++ b/src/backend/storage/lmgr/lock.c
+@@ -216,23 +216,23 @@ int			FastPathLockGroupsPerBackend = 0;
+ /*
+  * Given the group/slot indexes, calculate the slot index in the whole array
+  * of fast-path lock slots.
+  */
+ #define FAST_PATH_SLOT(group, index) \
+-	(AssertMacro(((group) >= 0) && ((group) < FastPathLockGroupsPerBackend)), \
+-	 AssertMacro(((index) >= 0) && ((index) < FP_LOCK_SLOTS_PER_GROUP)), \
++	(AssertMacro((uint32) (group) < FastPathLockGroupsPerBackend), \
++	 AssertMacro((uint32) (index) < FP_LOCK_SLOTS_PER_GROUP), \
+ 	 ((group) * FP_LOCK_SLOTS_PER_GROUP + (index)))
+ 
+ /*
+  * Given a slot index (into the whole per-backend array), calculated using
+  * the FAST_PATH_SLOT macro, split it into group and index (in the group).
+  */
+ #define FAST_PATH_GROUP(index)	\
+-	(AssertMacro(((index) >= 0) && ((index) < FP_LOCK_SLOTS_PER_BACKEND)), \
++	(AssertMacro((uint32) (index) < FP_LOCK_SLOTS_PER_BACKEND), \
+ 	 ((index) / FP_LOCK_SLOTS_PER_GROUP))
+ #define FAST_PATH_INDEX(index)	\
+-	(AssertMacro(((index) >= 0) && ((index) < FP_LOCK_SLOTS_PER_BACKEND)), \
++	(AssertMacro((uint32) (index) < FP_LOCK_SLOTS_PER_BACKEND), \
+ 	 ((index) % FP_LOCK_SLOTS_PER_GROUP))
+ 
+ /* Macros for manipulating proc->fpLockBits */
+ #define FAST_PATH_BITS_PER_SLOT			3
+ #define FAST_PATH_LOCKNUMBER_OFFSET		1
+diff --git a/src/backend/storage/lmgr/proc.c b/src/backend/storage/lmgr/proc.c
+index 9b72829725a..0d8162a2cca 100644
+--- a/src/backend/storage/lmgr/proc.c
++++ b/src/backend/storage/lmgr/proc.c
+@@ -320,11 +320,11 @@ InitProcGlobal(void)
+ 		pg_atomic_init_u32(&(proc->clogGroupNext), INVALID_PROC_NUMBER);
+ 		pg_atomic_init_u64(&(proc->waitStart), 0);
+ 	}
+ 
+ 	/* Should have consumed exactly the expected amount of fast-path memory. */
+-	Assert(fpPtr = fpEndPtr);
++	Assert(fpPtr == fpEndPtr);
+ 
+ 	/*
+ 	 * Save pointers to the blocks of PGPROC structures reserved for auxiliary
+ 	 * processes and prepared transactions.
+ 	 */

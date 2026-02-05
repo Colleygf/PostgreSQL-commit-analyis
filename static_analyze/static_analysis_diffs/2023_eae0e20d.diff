@@ -1,0 +1,92 @@
+commit eae0e20deffb0a73f7cb0e94746f94a1347e71b1
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Tue Jan 31 11:57:47 2023 -0500
+
+    Remove over-optimistic Assert.
+    
+    In commit 2489d76c4, I'd thought it'd be safe to assert that a
+    PlaceHolderVar appearing in a scan-level expression has empty
+    nullingrels.  However this is not so, as when we determine that a
+    join relation is certainly empty we'll put its targetlist into a
+    Result-with-constant-false-qual node, and nothing is done to adjust
+    the nullingrels of the Vars or PHVs therein.  (Arguably, a Result
+    used in this way isn't really a scan-level node, but it certainly
+    isn't an upper node either ...)
+    
+    It's not clear this is worth any close analysis, so let's just
+    take out the faulty Assert.
+    
+    Per report from Robins Tharakan.  I added a test case based on
+    his example, just in case somebody tries to tighten this up.
+    
+    Discussion: https://postgr.es/m/CAEP4nAz7Enq3+DEthGG7j27DpuwSRZnW0Nh6jtNh75yErQ_nbA@mail.gmail.com
+
+diff --git a/src/backend/optimizer/plan/setrefs.c b/src/backend/optimizer/plan/setrefs.c
+index 4348bfef601..186fc8014b6 100644
+--- a/src/backend/optimizer/plan/setrefs.c
++++ b/src/backend/optimizer/plan/setrefs.c
+@@ -2203,11 +2203,11 @@ fix_scan_expr_mutator(Node *node, fix_scan_expr_context *context)
+ 	if (IsA(node, PlaceHolderVar))
+ 	{
+ 		/* At scan level, we should always just evaluate the contained expr */
+ 		PlaceHolderVar *phv = (PlaceHolderVar *) node;
+ 
+-		Assert(phv->phnullingrels == NULL);
++		/* XXX can we assert something about phnullingrels? */
+ 		return fix_scan_expr_mutator((Node *) phv->phexpr, context);
+ 	}
+ 	if (IsA(node, AlternativeSubPlan))
+ 		return fix_scan_expr_mutator(fix_alternative_subplan(context->root,
+ 															 (AlternativeSubPlan *) node,
+diff --git a/src/test/regress/expected/join.out b/src/test/regress/expected/join.out
+index 87e12768042..e73ba93ca3c 100644
+--- a/src/test/regress/expected/join.out
++++ b/src/test/regress/expected/join.out
+@@ -3597,10 +3597,24 @@ where f1 in ( select c3.f1 from ctetable c2 full join ctetable c3 on true );
+  f1 
+ ----
+   1
+ (1 row)
+ 
++-- Test PHV that winds up in a Result node, despite having nonempty nullingrels
++explain (verbose, costs off)
++select table_catalog, table_name
++from int4_tbl t1
++  inner join (int8_tbl t2
++              left join information_schema.column_udt_usage on null)
++  on null;
++                                                    QUERY PLAN                                                     
++-------------------------------------------------------------------------------------------------------------------
++ Result
++   Output: (current_database())::information_schema.sql_identifier, (c.relname)::information_schema.sql_identifier
++   One-Time Filter: false
++(3 rows)
++
+ --
+ -- test inlining of immutable functions
+ --
+ create function f_immutable_int4(i integer) returns integer as
+ $$ begin return i; end; $$ language plpgsql immutable;
+diff --git a/src/test/regress/sql/join.sql b/src/test/regress/sql/join.sql
+index 2bb24dbfcdc..ed26ffd8a86 100644
+--- a/src/test/regress/sql/join.sql
++++ b/src/test/regress/sql/join.sql
+@@ -1179,10 +1179,18 @@ where f1 in ( select c3.f1 from ctetable c2 full join ctetable c3 on true );
+ 
+ with ctetable as not materialized ( select 1 as f1 )
+ select * from ctetable c1
+ where f1 in ( select c3.f1 from ctetable c2 full join ctetable c3 on true );
+ 
++-- Test PHV that winds up in a Result node, despite having nonempty nullingrels
++explain (verbose, costs off)
++select table_catalog, table_name
++from int4_tbl t1
++  inner join (int8_tbl t2
++              left join information_schema.column_udt_usage on null)
++  on null;
++
+ --
+ -- test inlining of immutable functions
+ --
+ create function f_immutable_int4(i integer) returns integer as
+ $$ begin return i; end; $$ language plpgsql immutable;

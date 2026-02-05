@@ -1,0 +1,38 @@
+commit 4e465aac36ce9a9533c68dbdc83e67579880e628
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Tue Jul 18 14:04:31 2023 +0900
+
+    Fix indentation in twophase.c
+    
+    This has been missed in cb0cca1, noticed before buildfarm member koel
+    has been able to complain while poking at a different patch.  Like the
+    other commit, backpatch all the way down to limit the odds of merge
+    conflicts.
+    
+    Backpatch-through: 11
+
+diff --git a/src/backend/access/transam/twophase.c b/src/backend/access/transam/twophase.c
+index 669ba958e8c..c6af8cfd7e2 100644
+--- a/src/backend/access/transam/twophase.c
++++ b/src/backend/access/transam/twophase.c
+@@ -2479,15 +2479,15 @@ PrepareRedoAdd(char *buf, XLogRecPtr start_lsn,
+ 	 */
+ 
+ 	/*
+ 	 * In the event of a crash while a checkpoint was running, it may be
+ 	 * possible that some two-phase data found its way to disk while its
+-	 * corresponding record needs to be replayed in the follow-up recovery.
+-	 * As the 2PC data was on disk, it has already been restored at the
+-	 * beginning of recovery with restoreTwoPhaseData(), so skip this record
+-	 * to avoid duplicates in TwoPhaseState.  If a consistent state has been
+-	 * reached, the record is added to TwoPhaseState and it should have no
++	 * corresponding record needs to be replayed in the follow-up recovery. As
++	 * the 2PC data was on disk, it has already been restored at the beginning
++	 * of recovery with restoreTwoPhaseData(), so skip this record to avoid
++	 * duplicates in TwoPhaseState.  If a consistent state has been reached,
++	 * the record is added to TwoPhaseState and it should have no
+ 	 * corresponding file in pg_twophase.
+ 	 */
+ 	if (!XLogRecPtrIsInvalid(start_lsn))
+ 	{
+ 		char		path[MAXPGPATH];

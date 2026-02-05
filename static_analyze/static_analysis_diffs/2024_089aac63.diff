@@ -1,0 +1,129 @@
+commit 089aac631b5ba53be0ecf8ea2e8d81388d69629c
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu Oct 17 08:44:50 2024 +0900
+
+    Fix validation of COPY FORCE_NOT_NULL/FORCE_NULL for the all-column cases
+    
+    This commit adds missing checks for COPY FORCE_NOT_NULL and FORCE_NULL
+    when applied to all columns via "*".  These options now correctly
+    require CSV mode and are disallowed in COPY TO, making their behavior
+    consistent with FORCE_QUOTE.
+    
+    Some regression tests are added to verify the correct behavior for the
+    all-columns case, including FORCE_QUOTE, which was not tested.
+    
+    Backpatch down to 17, where support for the all-column grammar with
+    FORCE_NOT_NULL and FORCE_NULL has been added.
+    
+    Author: Joel Jacobson
+    Reviewed-by: Zhang Mingli
+    Discussion: https://postgr.es/m/65030d1d-5f90-4fa4-92eb-f5f50389858e@app.fastmail.com
+    Backpatch-through: 17
+
+diff --git a/src/backend/commands/copy.c b/src/backend/commands/copy.c
+index 0b093dbb2a3..3485ba8663f 100644
+--- a/src/backend/commands/copy.c
++++ b/src/backend/commands/copy.c
+@@ -803,31 +803,35 @@ ProcessCopyOptions(ParseState *pstate,
+ 		 second %s is a COPY with direction, e.g. COPY TO */
+ 				 errmsg("COPY %s cannot be used with %s", "FORCE_QUOTE",
+ 						"COPY FROM")));
+ 
+ 	/* Check force_notnull */
+-	if (!opts_out->csv_mode && opts_out->force_notnull != NIL)
++	if (!opts_out->csv_mode && (opts_out->force_notnull != NIL ||
++								opts_out->force_notnull_all))
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+ 		/*- translator: %s is the name of a COPY option, e.g. ON_ERROR */
+ 				 errmsg("COPY %s requires CSV mode", "FORCE_NOT_NULL")));
+-	if (opts_out->force_notnull != NIL && !is_from)
++	if ((opts_out->force_notnull != NIL || opts_out->force_notnull_all) &&
++		!is_from)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+ 		/*- translator: first %s is the name of a COPY option, e.g. ON_ERROR,
+ 		 second %s is a COPY with direction, e.g. COPY TO */
+ 				 errmsg("COPY %s cannot be used with %s", "FORCE_NOT_NULL",
+ 						"COPY TO")));
+ 
+ 	/* Check force_null */
+-	if (!opts_out->csv_mode && opts_out->force_null != NIL)
++	if (!opts_out->csv_mode && (opts_out->force_null != NIL ||
++								opts_out->force_null_all))
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+ 		/*- translator: %s is the name of a COPY option, e.g. ON_ERROR */
+ 				 errmsg("COPY %s requires CSV mode", "FORCE_NULL")));
+ 
+-	if (opts_out->force_null != NIL && !is_from)
++	if ((opts_out->force_null != NIL || opts_out->force_null_all) &&
++		!is_from)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+ 		/*- translator: first %s is the name of a COPY option, e.g. ON_ERROR,
+ 		 second %s is a COPY with direction, e.g. COPY TO */
+ 				 errmsg("COPY %s cannot be used with %s", "FORCE_NULL",
+diff --git a/src/test/regress/expected/copy2.out b/src/test/regress/expected/copy2.out
+index 2e428e5b578..64ea33aeae8 100644
+--- a/src/test/regress/expected/copy2.out
++++ b/src/test/regress/expected/copy2.out
+@@ -96,20 +96,32 @@ COPY x from stdin (on_error unsupported);
+ ERROR:  COPY ON_ERROR "unsupported" not recognized
+ LINE 1: COPY x from stdin (on_error unsupported);
+                            ^
+ COPY x from stdin (format TEXT, force_quote(a));
+ ERROR:  COPY FORCE_QUOTE requires CSV mode
++COPY x from stdin (format TEXT, force_quote *);
++ERROR:  COPY FORCE_QUOTE requires CSV mode
+ COPY x from stdin (format CSV, force_quote(a));
+ ERROR:  COPY FORCE_QUOTE cannot be used with COPY FROM
++COPY x from stdin (format CSV, force_quote *);
++ERROR:  COPY FORCE_QUOTE cannot be used with COPY FROM
+ COPY x from stdin (format TEXT, force_not_null(a));
+ ERROR:  COPY FORCE_NOT_NULL requires CSV mode
++COPY x from stdin (format TEXT, force_not_null *);
++ERROR:  COPY FORCE_NOT_NULL requires CSV mode
+ COPY x to stdout (format CSV, force_not_null(a));
+ ERROR:  COPY FORCE_NOT_NULL cannot be used with COPY TO
++COPY x to stdout (format CSV, force_not_null *);
++ERROR:  COPY FORCE_NOT_NULL cannot be used with COPY TO
+ COPY x from stdin (format TEXT, force_null(a));
+ ERROR:  COPY FORCE_NULL requires CSV mode
++COPY x from stdin (format TEXT, force_null *);
++ERROR:  COPY FORCE_NULL requires CSV mode
+ COPY x to stdout (format CSV, force_null(a));
+ ERROR:  COPY FORCE_NULL cannot be used with COPY TO
++COPY x to stdout (format CSV, force_null *);
++ERROR:  COPY FORCE_NULL cannot be used with COPY TO
+ COPY x to stdout (format BINARY, on_error unsupported);
+ ERROR:  COPY ON_ERROR cannot be used with COPY TO
+ LINE 1: COPY x to stdout (format BINARY, on_error unsupported);
+                                          ^
+ COPY x from stdin (log_verbosity unsupported);
+diff --git a/src/test/regress/sql/copy2.sql b/src/test/regress/sql/copy2.sql
+index 381c6154e90..45273557ce0 100644
+--- a/src/test/regress/sql/copy2.sql
++++ b/src/test/regress/sql/copy2.sql
+@@ -73,15 +73,21 @@ COPY x from stdin (log_verbosity default, log_verbosity verbose);
+ COPY x from stdin (format BINARY, delimiter ',');
+ COPY x from stdin (format BINARY, null 'x');
+ COPY x from stdin (format BINARY, on_error ignore);
+ COPY x from stdin (on_error unsupported);
+ COPY x from stdin (format TEXT, force_quote(a));
++COPY x from stdin (format TEXT, force_quote *);
+ COPY x from stdin (format CSV, force_quote(a));
++COPY x from stdin (format CSV, force_quote *);
+ COPY x from stdin (format TEXT, force_not_null(a));
++COPY x from stdin (format TEXT, force_not_null *);
+ COPY x to stdout (format CSV, force_not_null(a));
++COPY x to stdout (format CSV, force_not_null *);
+ COPY x from stdin (format TEXT, force_null(a));
++COPY x from stdin (format TEXT, force_null *);
+ COPY x to stdout (format CSV, force_null(a));
++COPY x to stdout (format CSV, force_null *);
+ COPY x to stdout (format BINARY, on_error unsupported);
+ COPY x from stdin (log_verbosity unsupported);
+ COPY x from stdin with (reject_limit 1);
+ COPY x from stdin with (on_error ignore, reject_limit 0);
+ 

@@ -1,0 +1,82 @@
+commit 837cc73af29cd9c63515a6f2a36f54dd703a3a3f
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Apr 9 12:28:34 2025 -0400
+
+    Fix performance issue in deadlock-parallel isolation test.
+    
+    With debug_discard_caches = 1, the runtime of this test script
+    increased by about a factor of 10 after commit 0dca5d68d.  That's
+    causing some of our buildfarm animals to fail with a timeout.
+    
+    The reason for the increased time is that now we are re-planning
+    some intentionally-non-inlineable SQL functions on every execution,
+    where the previous coding held onto the original plans throughout
+    the outer query.  The previous behavior was arguably quite buggy,
+    so I don't think 0dca5d68d deserves blame here.  But we would
+    like this test script to not take so long.
+    
+    To fix, instead of forcing a "parallel safe" label via a
+    non-inlineable SQL function, apply it directly to the advisory-lock
+    functions by making internal-language aliases for them.  A small
+    problem is that the advisory-lock functions return void but this
+    test would really like them to return integer 1.  I cheated here by
+    declaring the aliases as returning "int".  That's perhaps undue
+    familiarity with the implementation of PG_RETURN_VOID(), but that
+    hasn't changed in twenty years and is unlikely to do so in the next
+    twenty.  That gets us an integer 0 result, and then an inline-able
+    wrapper to convert that to an integer 1 allows the rest of the script
+    to remain unchanged.
+    
+    For me, this reduces the runtime with debug_discard_caches = 1
+    by about 100x, making the test comfortably faster than before
+    instead of slower.
+    
+    Discussion: https://postgr.es/m/136163.1744179562@sss.pgh.pa.us
+
+diff --git a/src/test/isolation/specs/deadlock-parallel.spec b/src/test/isolation/specs/deadlock-parallel.spec
+index 2016bcddae9..8b2c47afcae 100644
+--- a/src/test/isolation/specs/deadlock-parallel.spec
++++ b/src/test/isolation/specs/deadlock-parallel.spec
+@@ -1,11 +1,12 @@
+ # Test deadlock resolution with parallel process groups.
+ 
+ # It's fairly hard to get parallel worker processes to block on locks,
+ # since generally they don't want any locks their leader didn't already
+-# take.  We cheat like mad here by making a function that takes a lock,
+-# and is incorrectly marked parallel-safe so that it can execute in a worker.
++# take.  We cheat like mad here by creating aliases for advisory-lock
++# functions that are incorrectly marked parallel-safe so that they can
++# execute in a worker.
+ 
+ # Note that we explicitly override any global settings of isolation level
+ # or debug_parallel_query, to ensure we're testing what we intend to.
+ 
+ # Otherwise, this is morally equivalent to deadlock-soft.spec:
+@@ -34,15 +35,25 @@
+ # In this way, the deadlock detector can see that d1 must be completed
+ # first, regardless of timing.
+ 
+ setup
+ {
++-- The alias functions themselves.  Really these return "void", but
++-- the implementation is such that we can declare them to return "int",
++-- and we will get a zero result.
++  create function lock_share(bigint) returns int language internal as
++  'pg_advisory_xact_lock_shared_int8' strict parallel safe;
++
++  create function lock_excl(bigint) returns int language internal as
++  'pg_advisory_xact_lock_int8' strict parallel safe;
++
++-- Inline-able wrappers that will produce an integer "1" result:
+   create function lock_share(int,int) returns int language sql as
+-  'select pg_advisory_xact_lock_shared($1); select 1;' parallel safe;
++  'select 1 - lock_share($1)' parallel safe;
+ 
+   create function lock_excl(int,int) returns int language sql as
+-  'select pg_advisory_xact_lock($1); select 1;' parallel safe;
++  'select 1 - lock_excl($1)' parallel safe;
+ 
+   create table bigt as select x from generate_series(1, 10000) x;
+   analyze bigt;
+ }
+ 

@@ -1,0 +1,104 @@
+commit 91c0570a791180aa3ff01d70eb16ed6c0d8283a3
+Author: Andres Freund <andres@anarazel.de>
+Date:   Sun Mar 27 22:29:19 2022 -0700
+
+    Don't fail for > 1 walsenders in 019_replslot_limit, add debug messages.
+    
+    So far the first of the retries introduced in f28bf667f60 resolves the
+    issue. But I (Andres) am still suspicious that the start of the failures might
+    indicate a problem.
+    
+    To reduce noise, stop reporting a failure if a retry resolves the problem. To
+    allow figuring out what causes the slow slot drop, add a few more debug
+    messages to ReplicationSlotDropPtr.
+    
+    See also commit afdeff10526, fe0972ee5e6 and f28bf667f60.
+    
+    Discussion: https://postgr.es/m/20220327213219.smdvfkq2fl74flow@alap3.anarazel.de
+
+diff --git a/src/backend/replication/slot.c b/src/backend/replication/slot.c
+index caa6b297560..ed4c8b3ad55 100644
+--- a/src/backend/replication/slot.c
++++ b/src/backend/replication/slot.c
+@@ -700,28 +700,37 @@ ReplicationSlotDropPtr(ReplicationSlot *slot)
+ 	 */
+ 	LWLockAcquire(ReplicationSlotControlLock, LW_EXCLUSIVE);
+ 	slot->active_pid = 0;
+ 	slot->in_use = false;
+ 	LWLockRelease(ReplicationSlotControlLock);
++
++	elog(DEBUG3, "replication slot drop: %s: marked as not in use", NameStr(slot->data.name));
++
+ 	ConditionVariableBroadcast(&slot->active_cv);
+ 
++	elog(DEBUG3, "replication slot drop: %s: notified others", NameStr(slot->data.name));
++
+ 	/*
+ 	 * Slot is dead and doesn't prevent resource removal anymore, recompute
+ 	 * limits.
+ 	 */
+ 	ReplicationSlotsComputeRequiredXmin(false);
+ 	ReplicationSlotsComputeRequiredLSN();
+ 
++	elog(DEBUG3, "replication slot drop: %s: computed required", NameStr(slot->data.name));
++
+ 	/*
+ 	 * If removing the directory fails, the worst thing that will happen is
+ 	 * that the user won't be able to create a new slot with the same name
+ 	 * until the next server restart.  We warn about it, but that's all.
+ 	 */
+ 	if (!rmtree(tmppath, true))
+ 		ereport(WARNING,
+ 				(errmsg("could not remove directory \"%s\"", tmppath)));
+ 
++	elog(DEBUG3, "replication slot drop: %s: removed directory", NameStr(slot->data.name));
++
+ 	/*
+ 	 * Send a message to drop the replication slot to the stats collector.
+ 	 * Since there is no guarantee of the order of message transfer on a UDP
+ 	 * connection, it's possible that a message for creating a new slot
+ 	 * reaches before a message for removing the old slot. We send the drop
+diff --git a/src/test/recovery/t/019_replslot_limit.pl b/src/test/recovery/t/019_replslot_limit.pl
+index 77bb401bc5f..5654f3b5455 100644
+--- a/src/test/recovery/t/019_replslot_limit.pl
++++ b/src/test/recovery/t/019_replslot_limit.pl
+@@ -337,21 +337,23 @@ $node_primary3->wait_for_catchup($node_standby3);
+ my $senderpid;
+ 
+ # We've seen occasional cases where multiple walsender pids are active. It
+ # could be that we're just observing process shutdown being slow. To collect
+ # more information, retry a couple times, print a bit of debugging information
+-# each iteration. For now report a test failure even if later iterations
+-# succeed.
++# each iteration. Don't fail the test if retries find just one pid, the
++# buildfarm failures are too noisy.
+ my $i = 0;
+ while (1)
+ {
+ 	my ($stdout, $stderr);
+ 
+ 	$senderpid = $node_primary3->safe_psql('postgres',
+ 	    "SELECT pid FROM pg_stat_activity WHERE backend_type = 'walsender'");
+ 
+-	last if like($senderpid, qr/^[0-9]+$/, "have walsender pid $senderpid");
++	last if $senderpid =~ qr/^[0-9]+$/;
++
++	diag "multiple walsenders active in iteration $i";
+ 
+ 	# show information about all active connections
+ 	$node_primary3->psql('postgres',
+ 						 "\\a\\t\nSELECT * FROM pg_stat_activity",
+ 						 stdout => \$stdout, stderr => \$stderr);
+@@ -368,10 +370,12 @@ while (1)
+ 	}
+ 
+ 	usleep(100_000);
+ }
+ 
++like($senderpid, qr/^[0-9]+$/, "have walsender pid $senderpid");
++
+ my $receiverpid = $node_standby3->safe_psql('postgres',
+ 	"SELECT pid FROM pg_stat_activity WHERE backend_type = 'walreceiver'");
+ like($receiverpid, qr/^[0-9]+$/, "have walreceiver pid $receiverpid");
+ 
+ $logstart = get_log_size($node_primary3);

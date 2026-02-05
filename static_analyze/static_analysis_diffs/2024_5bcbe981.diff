@@ -1,0 +1,50 @@
+commit 5bcbe9813bf91bcf14ef3a580162f1600dd3d1d4
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Tue Apr 30 08:22:24 2024 +0300
+
+    Fix compilation on OpenSSL 1.0.2 and LibreSSL
+    
+    SSL_AD_NO_APPLICATION_PROTOCOL was introduced in OpenSSL 1.1.0.
+    
+    While we're at it, add a link to the related OpenSSL github issue to
+    the comment.
+    
+    Per buildfarm and Tom Lane.
+    
+    Discussion: https://www.postgresql.org/message-id/1452995.1714433552@sss.pgh.pa.us
+
+diff --git a/src/interfaces/libpq/fe-secure-openssl.c b/src/interfaces/libpq/fe-secure-openssl.c
+index ee1a47f2b18..4f8ec3221ea 100644
+--- a/src/interfaces/libpq/fe-secure-openssl.c
++++ b/src/interfaces/libpq/fe-secure-openssl.c
+@@ -1739,21 +1739,25 @@ SSLerrmessage(unsigned long ecode)
+ 	{
+ 		strlcpy(errbuf, errreason, SSL_ERR_LEN);
+ 		return errbuf;
+ 	}
+ 
++	/*
++	 * Server aborted the connection with TLS "no_application_protocol" alert.
++	 * The ERR_reason_error_string() function doesn't give any error string
++	 * for that for some reason, so do it ourselves.  See
++	 * https://github.com/openssl/openssl/issues/24300.  This is available in
++	 * OpenSSL 1.1.0 and later, but as of this writing not in LibreSSL.
++	 */
++#ifdef SSL_AD_NO_APPLICATION_PROTOCOL
+ 	if (ERR_GET_LIB(ecode) == ERR_LIB_SSL &&
+ 		ERR_GET_REASON(ecode) == SSL_AD_REASON_OFFSET + SSL_AD_NO_APPLICATION_PROTOCOL)
+ 	{
+-		/*
+-		 * Server aborted the connection with TLS "no_application_protocol"
+-		 * alert.  The ERR_reason_error_string() function doesn't give any
+-		 * error string for that for some reason, so do it ourselves.
+-		 */
+ 		snprintf(errbuf, SSL_ERR_LEN, libpq_gettext("no application protocol"));
+ 		return errbuf;
+ 	}
++#endif
+ 
+ 	/*
+ 	 * In OpenSSL 3.0.0 and later, ERR_reason_error_string randomly refuses to
+ 	 * map system errno values.  We can cover that shortcoming with this bit
+ 	 * of code.  Older OpenSSL versions don't have the ERR_SYSTEM_ERROR macro,

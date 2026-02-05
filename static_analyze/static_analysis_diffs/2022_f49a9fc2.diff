@@ -1,0 +1,83 @@
+commit f49a9fc2bb1228e98cf4fe217e661f3d1dd2ca8c
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sun Jul 17 17:43:28 2022 -0400
+
+    Fix omissions in support for the "regcollation" type.
+    
+    The patch that added regcollation doesn't seem to have been too
+    thorough about supporting it everywhere that other reg* types
+    are supported.  Fix that.  (The find_expr_references omission
+    is moderately serious, since it could result in missing expression
+    dependencies.  The others are less exciting.)
+    
+    Noted while fixing bug #17483.  Back-patch to v13 where
+    regcollation was added.
+    
+    Discussion: https://postgr.es/m/1423433.1652722406@sss.pgh.pa.us
+
+diff --git a/src/backend/catalog/dependency.c b/src/backend/catalog/dependency.c
+index 5cbd72ce109..cf9ceddff1e 100644
+--- a/src/backend/catalog/dependency.c
++++ b/src/backend/catalog/dependency.c
+@@ -1837,10 +1837,17 @@ find_expr_references_walker(Node *node,
+ 					if (SearchSysCacheExists1(TYPEOID,
+ 											  ObjectIdGetDatum(objoid)))
+ 						add_object_address(OCLASS_TYPE, objoid, 0,
+ 										   context->addrs);
+ 					break;
++				case REGCOLLATIONOID:
++					objoid = DatumGetObjectId(con->constvalue);
++					if (SearchSysCacheExists1(COLLOID,
++											  ObjectIdGetDatum(objoid)))
++						add_object_address(OCLASS_COLLATION, objoid, 0,
++										   context->addrs);
++					break;
+ 				case REGCONFIGOID:
+ 					objoid = DatumGetObjectId(con->constvalue);
+ 					if (SearchSysCacheExists1(TSCONFIGOID,
+ 											  ObjectIdGetDatum(objoid)))
+ 						add_object_address(OCLASS_TSCONFIG, objoid, 0,
+diff --git a/src/backend/utils/adt/selfuncs.c b/src/backend/utils/adt/selfuncs.c
+index 6f99b5b2437..d35e5605de8 100644
+--- a/src/backend/utils/adt/selfuncs.c
++++ b/src/backend/utils/adt/selfuncs.c
+@@ -4324,10 +4324,11 @@ convert_to_scalar(Datum value, Oid valuetypid, Oid collid, double *scaledvalue,
+ 		case REGPROCEDUREOID:
+ 		case REGOPEROID:
+ 		case REGOPERATOROID:
+ 		case REGCLASSOID:
+ 		case REGTYPEOID:
++		case REGCOLLATIONOID:
+ 		case REGCONFIGOID:
+ 		case REGDICTIONARYOID:
+ 		case REGROLEOID:
+ 		case REGNAMESPACEOID:
+ 			*scaledvalue = convert_numeric_to_scalar(value, valuetypid,
+@@ -4455,10 +4456,11 @@ convert_numeric_to_scalar(Datum value, Oid typid, bool *failure)
+ 		case REGPROCEDUREOID:
+ 		case REGOPEROID:
+ 		case REGOPERATOROID:
+ 		case REGCLASSOID:
+ 		case REGTYPEOID:
++		case REGCOLLATIONOID:
+ 		case REGCONFIGOID:
+ 		case REGDICTIONARYOID:
+ 		case REGROLEOID:
+ 		case REGNAMESPACEOID:
+ 			/* we can treat OIDs as integers... */
+diff --git a/src/backend/utils/cache/catcache.c b/src/backend/utils/cache/catcache.c
+index 6ae7c1f50b8..38e943fab2b 100644
+--- a/src/backend/utils/cache/catcache.c
++++ b/src/backend/utils/cache/catcache.c
+@@ -238,10 +238,11 @@ GetCCHashEqFuncs(Oid keytype, CCHashFN *hashfunc, RegProcedure *eqfunc, CCFastEq
+ 		case REGPROCEDUREOID:
+ 		case REGOPEROID:
+ 		case REGOPERATOROID:
+ 		case REGCLASSOID:
+ 		case REGTYPEOID:
++		case REGCOLLATIONOID:
+ 		case REGCONFIGOID:
+ 		case REGDICTIONARYOID:
+ 		case REGROLEOID:
+ 		case REGNAMESPACEOID:
+ 			*hashfunc = int4hashfast;

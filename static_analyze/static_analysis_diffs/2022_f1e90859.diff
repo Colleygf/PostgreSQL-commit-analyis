@@ -1,0 +1,100 @@
+commit f1e90859cef3f48f45578390acf63c6f7fd61697
+Author: Jeff Davis <jdavis@postgresql.org>
+Date:   Sat Jan 8 09:17:02 2022 -0800
+
+    Fix pgperlcritic complaint, per buildfarm.
+    
+    Author: Michael Paquier
+    Discussion: https://postgr.es/m/YdlYfS/l%2BPQA0ehs%40paquier.xyz
+
+diff --git a/src/test/subscription/t/027_nosuperuser.pl b/src/test/subscription/t/027_nosuperuser.pl
+index 742a745cf79..c9e4aeba06c 100644
+--- a/src/test/subscription/t/027_nosuperuser.pl
++++ b/src/test/subscription/t/027_nosuperuser.pl
+@@ -8,77 +8,77 @@ use PostgreSQL::Test::Cluster;
+ use Test::More tests => 100;
+ 
+ my ($node_publisher, $node_subscriber, $publisher_connstr, $result, $offset);
+ $offset = 0;
+ 
+-sub publish_insert($$)
++sub publish_insert
+ {
+   my ($tbl, $new_i) = @_;
+   $node_publisher->safe_psql('postgres', qq(
+   SET SESSION AUTHORIZATION regress_alice;
+   INSERT INTO $tbl (i) VALUES ($new_i);
+   ));
+ }
+ 
+-sub publish_update($$$)
++sub publish_update
+ {
+   my ($tbl, $old_i, $new_i) = @_;
+   $node_publisher->safe_psql('postgres', qq(
+   SET SESSION AUTHORIZATION regress_alice;
+   UPDATE $tbl SET i = $new_i WHERE i = $old_i;
+   ));
+ }
+ 
+-sub publish_delete($$)
++sub publish_delete
+ {
+   my ($tbl, $old_i) = @_;
+   $node_publisher->safe_psql('postgres', qq(
+   SET SESSION AUTHORIZATION regress_alice;
+   DELETE FROM $tbl WHERE i = $old_i;
+   ));
+ }
+ 
+-sub expect_replication($$$$$)
++sub expect_replication
+ {
+   my ($tbl, $cnt, $min, $max, $testname) = @_;
+   $node_publisher->wait_for_catchup('admin_sub');
+   $result = $node_subscriber->safe_psql('postgres', qq(
+   SELECT COUNT(i), MIN(i), MAX(i) FROM $tbl));
+   is ($result, "$cnt|$min|$max", $testname);
+ }
+ 
+-sub expect_failure($$$$$$)
++sub expect_failure
+ {
+   my ($tbl, $cnt, $min, $max, $re, $testname) = @_;
+   $offset = $node_subscriber->wait_for_log($re, $offset);
+   $result = $node_subscriber->safe_psql('postgres', qq(
+   SELECT COUNT(i), MIN(i), MAX(i) FROM $tbl));
+   is ($result, "$cnt|$min|$max", $testname);
+ }
+ 
+-sub revoke_superuser($)
++sub revoke_superuser
+ {
+   my ($role) = @_;
+   $node_subscriber->safe_psql('postgres', qq(
+   ALTER ROLE $role NOSUPERUSER));
+ }
+ 
+-sub grant_superuser($)
++sub grant_superuser
+ {
+   my ($role) = @_;
+   $node_subscriber->safe_psql('postgres', qq(
+   ALTER ROLE $role SUPERUSER));
+ }
+ 
+-sub revoke_bypassrls($)
++sub revoke_bypassrls
+ {
+   my ($role) = @_;
+   $node_subscriber->safe_psql('postgres', qq(
+   ALTER ROLE $role NOBYPASSRLS));
+ }
+ 
+-sub grant_bypassrls($)
++sub grant_bypassrls
+ {
+   my ($role) = @_;
+   $node_subscriber->safe_psql('postgres', qq(
+   ALTER ROLE $role BYPASSRLS));
+ }

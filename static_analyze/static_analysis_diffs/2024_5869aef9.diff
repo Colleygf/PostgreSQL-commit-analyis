@@ -1,0 +1,92 @@
+commit 5869aef9a15d5dc0b4de3d63d1ae360a6f34afb4
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Thu Feb 8 11:37:11 2024 +0100
+
+    Fix documentation build with older docbook-xsl
+    
+    Commit b0f0a9432d0 backpatched some code from upstream DocBook XSL to
+    our customization layer.  It turned out that this failed to work with
+    anything but the latest DocBook XSL upstream version (1.79.*), because
+    the backpatched code references an XSLT parameter (autolink.index.see)
+    that is not defined in earlier versions (because the feature it is
+    used for did not exist yet).
+    
+    There is no way in XSLT to test whether a parameter is declared before
+    the stylesheet processor tries and fails to access it.  So the
+    possibilities to fix this would be to either remove the code that uses
+    the parameter (and thus give up on the feature it is used for) or
+    declare the parameter in our customization layer.  The latter seems
+    easier, and with a few more lines of code we can backport the entire
+    autolink.index.see feature, so let's do that.  (If we didn't, then
+    with older stylesheets the parameter will appear as on, but it won't
+    actually do anything, because of the way the stylesheets are laid out,
+    so it's less confusing to just make it work.)
+    
+    With this, the documentation build should work again with docbook-xsl
+    versions 1.77.*, 1.78.*, and 1.79.* (which already worked before).
+    Version 1.76.1 already didn't work before all this, so was not
+    considered here.
+    
+    Reported-by: Peter Smith <smithpb2250@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/9077b779-a9f8-09c8-6e85-da1ebfba15af@eisentraut.org
+
+diff --git a/doc/src/sgml/stylesheet-common.xsl b/doc/src/sgml/stylesheet-common.xsl
+index 5db44a846f3..a2e3db67a32 100644
+--- a/doc/src/sgml/stylesheet-common.xsl
++++ b/doc/src/sgml/stylesheet-common.xsl
+@@ -41,10 +41,17 @@
+ <xsl:param name="punct.honorific" select="''"></xsl:param>
+ <xsl:param name="variablelist.term.break.after">1</xsl:param>
+ <xsl:param name="variablelist.term.separator"></xsl:param>
+ <xsl:param name="xref.with.number.and.title" select="0"></xsl:param>
+ 
++<!--
++  This is the default setting, but putting it here makes sure the variable
++  exists even with older (<1.79) stylesheet versions, because it is used in
++  our customization layer.
++-->
++<xsl:param name="autolink.index.see" select="1"/>
++
+ 
+ <!-- Change display of some elements -->
+ 
+ <xsl:template match="productname">
+   <xsl:call-template name="inline.charseq"/>
+diff --git a/doc/src/sgml/stylesheet-fo.xsl b/doc/src/sgml/stylesheet-fo.xsl
+index aff717ddbc7..3a4a88a7288 100644
+--- a/doc/src/sgml/stylesheet-fo.xsl
++++ b/doc/src/sgml/stylesheet-fo.xsl
+@@ -145,10 +145,14 @@
+ <!-- make generated ids reproducible
+      (https://github.com/docbook/xslt10-stylesheets/issues/54) -->
+ 
+ <!-- from fo/autoidx.xsl -->
+ 
++<xsl:key name="primaryonly"
++         match="indexterm"
++         use="normalize-space(primary)"/>
++
+ <xsl:template match="indexterm" mode="index-primary">
+   <xsl:param name="scope" select="."/>
+   <xsl:param name="role" select="''"/>
+   <xsl:param name="type" select="''"/>
+ 
+diff --git a/doc/src/sgml/stylesheet-html-common.xsl b/doc/src/sgml/stylesheet-html-common.xsl
+index 7f541c09885..9dcf96c02e5 100644
+--- a/doc/src/sgml/stylesheet-html-common.xsl
++++ b/doc/src/sgml/stylesheet-html-common.xsl
+@@ -439,10 +439,14 @@ set       toc,title
+ <!-- make generated ids reproducible
+      (https://github.com/docbook/xslt10-stylesheets/issues/54) -->
+ 
+ <!-- from html/autoidx.xsl -->
+ 
++<xsl:key name="primaryonly"
++         match="indexterm"
++         use="normalize-space(primary)"/>
++
+ <xsl:template match="indexterm" mode="index-primary">
+   <xsl:param name="scope" select="."/>
+   <xsl:param name="role" select="''"/>
+   <xsl:param name="type" select="''"/>
+ 

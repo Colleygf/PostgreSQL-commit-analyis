@@ -1,0 +1,45 @@
+commit ff0bcb248e6ef337902cb26266606c1ab4ea4048
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Tue Jul 15 18:51:17 2025 +0900
+
+    psql: Fix tab-completion after GRANT/REVOKE on LARGE OBJECT and FOREIGN SERVER.
+    
+    Previously, when pressing Tab after GRANT or REVOKE ... ON LARGE OBJECT
+    or ON FOREIGN SERVER, TO or FROM was incorrectly suggested by psql's
+    tab-completion. This was not appropriate, as those clauses are not valid
+    at that point.
+    
+    This commit fixes the issue by preventing TO and FROM from being offered
+    immediately after those specific GRANT/REVOKE statements.
+    
+    Author: Yugo Nagata <nagata@sraoss.co.jp>
+    Reviewed-by: Fujii Masao <masao.fujii@gmail.com>
+    Discussion: https://postgr.es/m/20250408122857.b2b06dde4e6a08290af02336@sraoss.co.jp
+
+diff --git a/src/bin/psql/tab-complete.in.c b/src/bin/psql/tab-complete.in.c
+index 6872653c6c8..37524364290 100644
+--- a/src/bin/psql/tab-complete.in.c
++++ b/src/bin/psql/tab-complete.in.c
+@@ -4617,14 +4617,18 @@ match_previous_words(int pattern_id,
+ 								 Keywords_for_list_of_grant_roles);
+ 	/* Offer WITH GRANT OPTION after that */
+ 	else if (Matches("ALTER", "DEFAULT", "PRIVILEGES", MatchAnyN, "TO", MatchAny))
+ 		COMPLETE_WITH("WITH GRANT OPTION");
+ 	/* Complete "GRANT/REVOKE ... ON * *" with TO/FROM */
+-	else if (Matches("GRANT", MatchAnyN, "ON", MatchAny, MatchAny))
+-		COMPLETE_WITH("TO");
+-	else if (Matches("REVOKE", MatchAnyN, "ON", MatchAny, MatchAny))
+-		COMPLETE_WITH("FROM");
++	else if (Matches("GRANT|REVOKE", MatchAnyN, "ON", MatchAny, MatchAny) &&
++			 !TailMatches("FOREIGN", "SERVER") && !TailMatches("LARGE", "OBJECT"))
++	{
++		if (Matches("GRANT", MatchAnyN, "ON", MatchAny, MatchAny))
++			COMPLETE_WITH("TO");
++		else
++			COMPLETE_WITH("FROM");
++	}
+ 
+ 	/* Complete "GRANT/REVOKE * ON ALL * IN SCHEMA *" with TO/FROM */
+ 	else if (TailMatches("GRANT|REVOKE", MatchAny, "ON", "ALL", MatchAny, "IN", "SCHEMA", MatchAny) ||
+ 			 TailMatches("REVOKE", "GRANT", "OPTION", "FOR", MatchAny, "ON", "ALL", MatchAny, "IN", "SCHEMA", MatchAny))
+ 	{

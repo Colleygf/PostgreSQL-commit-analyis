@@ -1,0 +1,65 @@
+commit 5c5bccef211cfc98e0d6c4bc1af40a33c8ac2488
+Author: Dean Rasheed <dean.a.rasheed@gmail.com>
+Date:   Tue Jun 4 09:29:42 2024 +0100
+
+    Fix another couple of outdated comments for MERGE RETURNING.
+    
+    Oversights in c649fa24a4 which added RETURNING support to MERGE.
+    
+    Discussion: https://postgr.es/m/CAApHDvpqp6vtUzG-_josUEiBGyqnrnVxJ-VdF+hJLXjHdHzsyQ@mail.gmail.com
+
+diff --git a/src/backend/utils/adt/ruleutils.c b/src/backend/utils/adt/ruleutils.c
+index 9618619762b..653685bffc5 100644
+--- a/src/backend/utils/adt/ruleutils.c
++++ b/src/backend/utils/adt/ruleutils.c
+@@ -6014,11 +6014,11 @@ get_basic_select_query(Query *query, deparse_context *context,
+ }
+ 
+ /* ----------
+  * get_target_list			- Parse back a SELECT target list
+  *
+- * This is also used for RETURNING lists in INSERT/UPDATE/DELETE.
++ * This is also used for RETURNING lists in INSERT/UPDATE/DELETE/MERGE.
+  *
+  * resultDesc and colNamesVisible are as for get_query_def()
+  * ----------
+  */
+ static void
+diff --git a/src/include/nodes/parsenodes.h b/src/include/nodes/parsenodes.h
+index ddfed02db22..85a62b538e5 100644
+--- a/src/include/nodes/parsenodes.h
++++ b/src/include/nodes/parsenodes.h
+@@ -152,11 +152,11 @@ typedef struct Query
+ 	bool		hasSubLinks pg_node_attr(query_jumble_ignore);
+ 	/* distinctClause is from DISTINCT ON */
+ 	bool		hasDistinctOn pg_node_attr(query_jumble_ignore);
+ 	/* WITH RECURSIVE was specified */
+ 	bool		hasRecursive pg_node_attr(query_jumble_ignore);
+-	/* has INSERT/UPDATE/DELETE in WITH */
++	/* has INSERT/UPDATE/DELETE/MERGE in WITH */
+ 	bool		hasModifyingCTE pg_node_attr(query_jumble_ignore);
+ 	/* FOR [KEY] UPDATE/SHARE was specified */
+ 	bool		hasForUpdate pg_node_attr(query_jumble_ignore);
+ 	/* rewriter has applied some RLS policy */
+ 	bool		hasRowSecurity pg_node_attr(query_jumble_ignore);
+diff --git a/src/include/utils/portal.h b/src/include/utils/portal.h
+index 535928613f1..11419faecaa 100644
+--- a/src/include/utils/portal.h
++++ b/src/include/utils/portal.h
+@@ -62,13 +62,13 @@
+  * PORTAL_ONE_SELECT: the portal contains one single SELECT query.  We run
+  * the Executor incrementally as results are demanded.  This strategy also
+  * supports holdable cursors (the Executor results can be dumped into a
+  * tuplestore for access after transaction completion).
+  *
+- * PORTAL_ONE_RETURNING: the portal contains a single INSERT/UPDATE/DELETE
+- * query with a RETURNING clause (plus possibly auxiliary queries added by
+- * rule rewriting).  On first execution, we run the portal to completion
++ * PORTAL_ONE_RETURNING: the portal contains a single INSERT/UPDATE/DELETE/
++ * MERGE query with a RETURNING clause (plus possibly auxiliary queries added
++ * by rule rewriting).  On first execution, we run the portal to completion
+  * and dump the primary query's results into the portal tuplestore; the
+  * results are then returned to the client as demanded.  (We can't support
+  * suspension of the query partway through, because the AFTER TRIGGER code
+  * can't cope, and also because we don't want to risk failing to execute
+  * all the auxiliary queries.)

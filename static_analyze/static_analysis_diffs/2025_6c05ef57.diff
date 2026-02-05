@@ -1,0 +1,111 @@
+commit 6c05ef5729c04d47400660cd994305bc44a3c757
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Tue Dec 2 21:10:51 2025 +0200
+
+    Fix amcheck's handling of incomplete root splits in B-tree
+    
+    When the root page is being split, it's normal that root page
+    according to the metapage is not marked BTP_ROOT. Fix bogus error in
+    amcheck about that case.
+    
+    Reviewed-by: Peter Geoghegan <pg@bowt.ie>
+    Discussion: https://www.postgresql.org/message-id/abd65090-5336-42cc-b768-2bdd66738404@iki.fi
+    Backpatch-through: 14
+
+diff --git a/contrib/amcheck/verify_nbtree.c b/contrib/amcheck/verify_nbtree.c
+index 0949c88983a..f26c20b59aa 100644
+--- a/contrib/amcheck/verify_nbtree.c
++++ b/contrib/amcheck/verify_nbtree.c
+@@ -719,11 +719,11 @@ bt_check_level_from_leftmost(BtreeCheckState *state, BtreeLevel level)
+ 					ereport(ERROR,
+ 							(errcode(ERRCODE_INDEX_CORRUPTED),
+ 							 errmsg("block %u is not leftmost in index \"%s\"",
+ 									current, RelationGetRelationName(state->rel))));
+ 
+-				if (level.istruerootlevel && !P_ISROOT(opaque))
++				if (level.istruerootlevel && (!P_ISROOT(opaque) && !P_INCOMPLETE_SPLIT(opaque)))
+ 					ereport(ERROR,
+ 							(errcode(ERRCODE_INDEX_CORRUPTED),
+ 							 errmsg("block %u is not true root in index \"%s\"",
+ 									current, RelationGetRelationName(state->rel))));
+ 			}
+diff --git a/src/test/modules/nbtree/Makefile b/src/test/modules/nbtree/Makefile
+index 34946a84445..970e2e629fe 100644
+--- a/src/test/modules/nbtree/Makefile
++++ b/src/test/modules/nbtree/Makefile
+@@ -1,8 +1,8 @@
+ # src/test/modules/nbtree/Makefile
+ 
+-EXTRA_INSTALL = src/test/modules/injection_points
++EXTRA_INSTALL = src/test/modules/injection_points contrib/amcheck
+ 
+ REGRESS = nbtree_incomplete_splits
+ 
+ ifdef USE_PGXS
+ PG_CONFIG = pg_config
+diff --git a/src/test/modules/nbtree/expected/nbtree_incomplete_splits.out b/src/test/modules/nbtree/expected/nbtree_incomplete_splits.out
+index 88e87e875c8..161eb3cbfa8 100644
+--- a/src/test/modules/nbtree/expected/nbtree_incomplete_splits.out
++++ b/src/test/modules/nbtree/expected/nbtree_incomplete_splits.out
+@@ -12,10 +12,11 @@
+ --
+ -- This uses injection points to cause errors that leave some page
+ -- splits in "incomplete" state
+ set client_min_messages TO 'warning';
+ create extension if not exists injection_points;
++create extension if not exists amcheck;
+ reset client_min_messages;
+ -- Make all injection points local to this process, for concurrency.
+ SELECT injection_points_set_local();
+  injection_points_set_local 
+ ----------------------------
+@@ -85,10 +86,16 @@ begin
+   -- the next 100, which shouldn't exist.
+   select count(*) into c from nbtree_incomplete_splits where i between next_i - 200 and next_i + 100;
+   if c <> 200 then
+     raise 'unexpected count % ', c;
+   end if;
++
++  -- Also check the index with amcheck. Both to test that the index is
++  -- valid, but also to test that amcheck doesn't wrongly complain
++  -- about incomplete splits.
++  perform bt_index_parent_check('nbtree_incomplete_splits_i_idx'::regclass, true, true);
++
+   return true;
+ end;
+ $$;
+ -- Insert one array to get started.
+ select insert_n(1, 1000) as next_i
+diff --git a/src/test/modules/nbtree/sql/nbtree_incomplete_splits.sql b/src/test/modules/nbtree/sql/nbtree_incomplete_splits.sql
+index 0609ed7464e..f6b22786d37 100644
+--- a/src/test/modules/nbtree/sql/nbtree_incomplete_splits.sql
++++ b/src/test/modules/nbtree/sql/nbtree_incomplete_splits.sql
+@@ -13,10 +13,11 @@
+ 
+ -- This uses injection points to cause errors that leave some page
+ -- splits in "incomplete" state
+ set client_min_messages TO 'warning';
+ create extension if not exists injection_points;
++create extension if not exists amcheck;
+ reset client_min_messages;
+ 
+ -- Make all injection points local to this process, for concurrency.
+ SELECT injection_points_set_local();
+ 
+@@ -84,10 +85,16 @@ begin
+   -- the next 100, which shouldn't exist.
+   select count(*) into c from nbtree_incomplete_splits where i between next_i - 200 and next_i + 100;
+   if c <> 200 then
+     raise 'unexpected count % ', c;
+   end if;
++
++  -- Also check the index with amcheck. Both to test that the index is
++  -- valid, but also to test that amcheck doesn't wrongly complain
++  -- about incomplete splits.
++  perform bt_index_parent_check('nbtree_incomplete_splits_i_idx'::regclass, true, true);
++
+   return true;
+ end;
+ $$;
+ 
+ -- Insert one array to get started.

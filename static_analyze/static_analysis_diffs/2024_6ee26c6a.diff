@@ -1,0 +1,45 @@
+commit 6ee26c6a4bafabbd22a85f575d2446fd5ec6ad0d
+Author: Andrew Dunstan <andrew@dunslane.net>
+Date:   Tue Jan 30 17:09:44 2024 -0500
+
+    Fix 003_extrafiles.pl test for the Windows
+    
+    File::Find converts backslashes to slashes in the newer Perl versions.
+    See: https://github.com/Perl/perl5/commit/414f14df98cb1c9a20f92c5c54948b67c09f072d
+    
+    So, do the same conversion for Windows before comparing paths. To
+    support all Perl versions, always convert them on Windows regardless of
+    the Perl's version.
+    
+    Author: Nazir Bilal Yavuz <byavuz81@gmail.com>
+    
+    Backpatch to all live branches
+
+diff --git a/src/bin/pg_rewind/t/003_extrafiles.pl b/src/bin/pg_rewind/t/003_extrafiles.pl
+index d54dcddcbb6..7e4c2771ce7 100644
+--- a/src/bin/pg_rewind/t/003_extrafiles.pl
++++ b/src/bin/pg_rewind/t/003_extrafiles.pl
+@@ -76,10 +76,23 @@ sub run_test
+ 			push @paths, $File::Find::name
+ 			  if $File::Find::name =~ m/.*tst_.*/;
+ 		},
+ 		$test_primary_datadir);
+ 	@paths = sort @paths;
++
++	# File::Find converts backslashes to slashes in the newer Perl
++	# versions. To support all Perl versions, do the same conversion
++	# for Windows before comparing the paths.
++	if ($PostgreSQL::Test::Utils::windows_os)
++	{
++		for my $filename (@paths)
++		{
++			$filename =~ s{\\}{/}g;
++		}
++		$test_primary_datadir =~ s{\\}{/}g;
++	}
++
+ 	is_deeply(
+ 		\@paths,
+ 		[
+ 			"$test_primary_datadir/tst_both_dir",
+ 			"$test_primary_datadir/tst_both_dir/both_file1",

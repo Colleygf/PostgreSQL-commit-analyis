@@ -1,0 +1,153 @@
+commit c32e32f763b4c70cb0a85af9f12ee6badd9c860b
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Fri Nov 7 14:54:36 2025 +0900
+
+    doc: Fix descriptions of some PGC_POSTMASTER parameters.
+    
+    The following parameters can only be set at server start because
+    their context is PGC_POSTMASTER, but this information was missing
+    or incorrectly documented. This commit adds or corrects
+    that information for the following parameters:
+    
+    * debug_io_direct
+    * dynamic_shared_memory_type
+    * event_source
+    * huge_pages
+    * io_max_combine_limit
+    * max_notify_queue_pages
+    * shared_memory_type
+    * track_commit_timestamp
+    * wal_decode_buffer_size
+    
+    Backpatched to all supported branches.
+    
+    Author: Karina Litskevich <litskevichkarina@gmail.com>
+    Reviewed-by: Chao Li <lic@highgo.com>
+    Reviewed-by: Fujii Masao <masao.fujii@gmail.com>
+    Discussion: https://postgr.es/m/CAHGQGwGfPzcin-_6XwPgVbWTOUFVZgHF5g9ROrwLUdCTfjy=0A@mail.gmail.com
+    Backpatch-through: 13
+
+diff --git a/doc/src/sgml/config.sgml b/doc/src/sgml/config.sgml
+index 5fbe6c6794c..683f7c36f46 100644
+--- a/doc/src/sgml/config.sgml
++++ b/doc/src/sgml/config.sgml
+@@ -1758,11 +1758,12 @@ include_dir 'conf.d'
+       </term>
+       <listitem>
+        <para>
+         Controls whether huge pages are requested for the main shared memory
+         area. Valid values are <literal>try</literal> (the default),
+-        <literal>on</literal>, and <literal>off</literal>.  With
++        <literal>on</literal>, and <literal>off</literal>.
++        This parameter can only be set at server start. With
+         <varname>huge_pages</varname> set to <literal>try</literal>, the
+         server will try to request huge pages, but fall back to the default if
+         that fails. With <literal>on</literal>, failure to request huge pages
+         will prevent the server from starting up. With <literal>off</literal>,
+         huge pages will not be requested. The actual state of huge pages is
+@@ -2271,10 +2272,11 @@ include_dir 'conf.d'
+         first supported option is the default for that platform.  The use of
+         the <literal>sysv</literal> option, which is not the default on any
+         platform, is generally discouraged because it typically requires
+         non-default kernel settings to allow for large allocations (see <xref
+         linkend="sysvipc"/>).
++        This parameter can only be set at server start.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry id="guc-dynamic-shared-memory-type" xreflabel="dynamic_shared_memory_type">
+@@ -2298,10 +2300,11 @@ include_dir 'conf.d'
+         is generally discouraged because the operating system may write
+         modified pages back to disk repeatedly, increasing system I/O load;
+         however, it may be useful for debugging, when the
+         <literal>pg_dynshmem</literal> directory is stored on a RAM disk, or when
+         other shared memory facilities are not available.
++        This parameter can only be set at server start.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry id="guc-min-dynamic-shared-memory" xreflabel="min_dynamic_shared_memory">
+@@ -2411,10 +2414,11 @@ include_dir 'conf.d'
+        <para>
+         Specifies the maximum amount of allocated pages for
+         <xref linkend="sql-notify"/> / <xref linkend="sql-listen"/> queue.
+         The default value is 1048576. For 8 KB pages it allows to consume
+         up to 8 GB of disk space.
++        This parameter can only be set at server start.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
+      </variablelist>
+@@ -2692,13 +2696,11 @@ include_dir 'conf.d'
+        </term>
+        <listitem>
+         <para>
+          Controls the largest I/O size in operations that combine I/O, and silently
+          limits the user-settable parameter <varname>io_combine_limit</varname>.
+-         This parameter can only be set in
+-         the <filename>postgresql.conf</filename> file or on the server
+-         command line.
++         This parameter can only be set at server start.
+          If this value is specified without units, it is taken as blocks,
+          that is <symbol>BLCKSZ</symbol> bytes, typically 8kB.
+          The maximum possible size depends on the operating system and block
+          size, but is typically 1MB on Unix and 128kB on Windows.
+          The default is 128kB.
+@@ -3965,10 +3967,11 @@ include_dir 'conf.d'
+        <para>
+         A limit on how far ahead the server can look in the WAL, to find
+         blocks to prefetch.  If this value is specified without units, it is
+         taken as bytes.
+         The default is 512kB.
++        This parameter can only be set at server start.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
+     </variablelist>
+@@ -4690,13 +4693,13 @@ restore_command = 'copy "C:\\server\\archivedir\\%f" "%p"'  # Windows
+        <primary><varname>track_commit_timestamp</varname> configuration parameter</primary>
+       </indexterm>
+       </term>
+       <listitem>
+        <para>
+-        Record commit time of transactions. This parameter
+-        can only be set in <filename>postgresql.conf</filename> file or on the server
+-        command line. The default value is <literal>off</literal>.
++        Record commit time of transactions.
++        This parameter can only be set at server start.
++        The default value is <literal>off</literal>.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry id="guc-synchronized-standby-slots" xreflabel="synchronized_standby_slots">
+@@ -7041,12 +7044,11 @@ local0.*    /var/log/postgresql
+        <para>
+         When logging to <application>event log</application> is enabled, this parameter
+         determines the program name used to identify
+         <productname>PostgreSQL</productname> messages in
+         the log. The default is <literal>PostgreSQL</literal>.
+-        This parameter can only be set in the <filename>postgresql.conf</filename>
+-        file or on the server command line.
++        This parameter can only be set at server start.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
+       </variablelist>
+@@ -12271,10 +12273,11 @@ dynamic_library_path = '/usr/local/lib/postgresql:$libdir'
+         I/O, or a comma-separated list of operations that should use direct I/O.
+         The valid options are <literal>data</literal> for
+         main data files, <literal>wal</literal> for WAL files, and
+         <literal>wal_init</literal> for WAL files when being initially
+         allocated.
++        This parameter can only be set at server start.
+        </para>
+        <para>
+         Some operating systems and file systems do not support direct I/O, so
+         non-default settings may be rejected at startup or cause errors.
+        </para>

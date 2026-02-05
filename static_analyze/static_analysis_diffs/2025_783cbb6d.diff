@@ -1,0 +1,106 @@
+commit 783cbb6d5e8bdf87d321286f210983c177ead967
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Aug 13 13:11:19 2025 +0900
+
+    postgres_fdw: Fix tests with ANALYZE and remote sampling
+    
+    The tests fixed in this commit were changing the sampling setting of a
+    foreign server, but then were analyzing a local table instead of a
+    foreign table, meaning that the test was not running for its original
+    purpose.
+    
+    This commit changes the ANALYZE commands to analyze the foreign table,
+    and changes the foreign table definition to point to a valid remote
+    table.  Attempting to analyze the foreign table "analyze_ftable" would
+    have failed before this commit, because "analyze_rtable1" is not defined
+    on the remote side.
+    
+    Issue introduced by 8ad51b5f446b.
+    
+    Author: Corey Huinker <corey.huinker@gmail.com>
+    Discussion: https://postgr.es/m/CADkLM=cpUiJ3QF7aUthTvaVMmgQcm7QqZBRMDLhBRTR+gJX-Og@mail.gmail.com
+    Backpatch-through: 16
+
+diff --git a/contrib/postgres_fdw/expected/postgres_fdw.out b/contrib/postgres_fdw/expected/postgres_fdw.out
+index a434eb1395e..d3323b04676 100644
+--- a/contrib/postgres_fdw/expected/postgres_fdw.out
++++ b/contrib/postgres_fdw/expected/postgres_fdw.out
+@@ -12647,27 +12647,27 @@ ALTER SERVER loopback2 OPTIONS (DROP parallel_abort);
+ -- ===================================================================
+ -- test for ANALYZE sampling
+ -- ===================================================================
+ CREATE TABLE analyze_table (id int, a text, b bigint);
+ CREATE FOREIGN TABLE analyze_ftable (id int, a text, b bigint)
+-       SERVER loopback OPTIONS (table_name 'analyze_rtable1');
++       SERVER loopback OPTIONS (table_name 'analyze_table');
+ INSERT INTO analyze_table (SELECT x FROM generate_series(1,1000) x);
+ ANALYZE analyze_table;
+ SET default_statistics_target = 10;
+ ANALYZE analyze_table;
+ ALTER SERVER loopback OPTIONS (analyze_sampling 'invalid');
+ ERROR:  invalid value for string option "analyze_sampling": invalid
+ ALTER SERVER loopback OPTIONS (analyze_sampling 'auto');
+-ANALYZE analyze_table;
++ANALYZE analyze_ftable;
+ ALTER SERVER loopback OPTIONS (SET analyze_sampling 'system');
+-ANALYZE analyze_table;
++ANALYZE analyze_ftable;
+ ALTER SERVER loopback OPTIONS (SET analyze_sampling 'bernoulli');
+-ANALYZE analyze_table;
++ANALYZE analyze_ftable;
+ ALTER SERVER loopback OPTIONS (SET analyze_sampling 'random');
+-ANALYZE analyze_table;
++ANALYZE analyze_ftable;
+ ALTER SERVER loopback OPTIONS (SET analyze_sampling 'off');
+-ANALYZE analyze_table;
++ANALYZE analyze_ftable;
+ -- cleanup
+ DROP FOREIGN TABLE analyze_ftable;
+ DROP TABLE analyze_table;
+ -- ===================================================================
+ -- test for postgres_fdw_get_connections function with check_conn = true
+diff --git a/contrib/postgres_fdw/sql/postgres_fdw.sql b/contrib/postgres_fdw/sql/postgres_fdw.sql
+index d9bed565c81..2c609e060b7 100644
+--- a/contrib/postgres_fdw/sql/postgres_fdw.sql
++++ b/contrib/postgres_fdw/sql/postgres_fdw.sql
+@@ -4363,34 +4363,34 @@ ALTER SERVER loopback2 OPTIONS (DROP parallel_abort);
+ -- ===================================================================
+ 
+ CREATE TABLE analyze_table (id int, a text, b bigint);
+ 
+ CREATE FOREIGN TABLE analyze_ftable (id int, a text, b bigint)
+-       SERVER loopback OPTIONS (table_name 'analyze_rtable1');
++       SERVER loopback OPTIONS (table_name 'analyze_table');
+ 
+ INSERT INTO analyze_table (SELECT x FROM generate_series(1,1000) x);
+ ANALYZE analyze_table;
+ 
+ SET default_statistics_target = 10;
+ ANALYZE analyze_table;
+ 
+ ALTER SERVER loopback OPTIONS (analyze_sampling 'invalid');
+ 
+ ALTER SERVER loopback OPTIONS (analyze_sampling 'auto');
+-ANALYZE analyze_table;
++ANALYZE analyze_ftable;
+ 
+ ALTER SERVER loopback OPTIONS (SET analyze_sampling 'system');
+-ANALYZE analyze_table;
++ANALYZE analyze_ftable;
+ 
+ ALTER SERVER loopback OPTIONS (SET analyze_sampling 'bernoulli');
+-ANALYZE analyze_table;
++ANALYZE analyze_ftable;
+ 
+ ALTER SERVER loopback OPTIONS (SET analyze_sampling 'random');
+-ANALYZE analyze_table;
++ANALYZE analyze_ftable;
+ 
+ ALTER SERVER loopback OPTIONS (SET analyze_sampling 'off');
+-ANALYZE analyze_table;
++ANALYZE analyze_ftable;
+ 
+ -- cleanup
+ DROP FOREIGN TABLE analyze_ftable;
+ DROP TABLE analyze_table;
+ 

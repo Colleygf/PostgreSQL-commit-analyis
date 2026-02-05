@@ -1,0 +1,57 @@
+commit b5607b0746f40b3f5b38004c64ccc9697ee1e222
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Apr 13 16:26:34 2022 -0400
+
+    Fix case sensitivity in psql's tab completion for GUC names.
+    
+    Input for these should be case-insensitive, but was not completely
+    so.  Comparing to the similar queries for timezone names, I realized
+    that we'd missed forcing the comparison pattern to lower-case.
+    With that, it behaves as I expect.
+    
+    While here, flatten the sub-selects in these queries; I don't
+    find that those add any readability.
+    
+    Discussion: https://postgr.es/m/3369130.1649348542@sss.pgh.pa.us
+
+diff --git a/src/bin/psql/tab-complete.c b/src/bin/psql/tab-complete.c
+index 10e8dbc9b1f..588c0841fee 100644
+--- a/src/bin/psql/tab-complete.c
++++ b/src/bin/psql/tab-complete.c
+@@ -1004,28 +1004,22 @@ static const SchemaQuery Query_for_trigger_of_table = {
+ "SELECT nspname FROM pg_catalog.pg_namespace "\
+ " WHERE nspname LIKE '%s'"
+ 
+ /* Use COMPLETE_WITH_QUERY_VERBATIM with these queries for GUC names: */
+ #define Query_for_list_of_alter_system_set_vars \
+-"SELECT name FROM "\
+-" (SELECT pg_catalog.lower(name) AS name FROM pg_catalog.pg_settings "\
+-"  WHERE context != 'internal' "\
+-" ) ss "\
+-" WHERE name LIKE '%s'"
++"SELECT pg_catalog.lower(name) FROM pg_catalog.pg_settings "\
++" WHERE context != 'internal' "\
++"   AND pg_catalog.lower(name) LIKE pg_catalog.lower('%s')"
+ 
+ #define Query_for_list_of_set_vars \
+-"SELECT name FROM "\
+-" (SELECT pg_catalog.lower(name) AS name FROM pg_catalog.pg_settings "\
+-"  WHERE context IN ('user', 'superuser') "\
+-" ) ss "\
+-" WHERE name LIKE '%s'"
++"SELECT pg_catalog.lower(name) FROM pg_catalog.pg_settings "\
++" WHERE context IN ('user', 'superuser') "\
++"   AND pg_catalog.lower(name) LIKE pg_catalog.lower('%s')"
+ 
+ #define Query_for_list_of_show_vars \
+-"SELECT name FROM "\
+-" (SELECT pg_catalog.lower(name) AS name FROM pg_catalog.pg_settings "\
+-" ) ss "\
+-" WHERE name LIKE '%s'"
++"SELECT pg_catalog.lower(name) FROM pg_catalog.pg_settings "\
++" WHERE pg_catalog.lower(name) LIKE pg_catalog.lower('%s')"
+ 
+ #define Query_for_list_of_roles \
+ " SELECT rolname "\
+ "   FROM pg_catalog.pg_roles "\
+ "  WHERE rolname LIKE '%s'"

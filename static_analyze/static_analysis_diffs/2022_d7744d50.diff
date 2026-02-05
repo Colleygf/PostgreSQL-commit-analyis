@@ -1,0 +1,86 @@
+commit d7744d50a5394db8d973d1cfa034ed6640aec13c
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Tue Nov 8 10:50:09 2022 +0900
+
+    Fix initialization of pg_stat_get_lastscan()
+    
+    A NULL result should be reported when a stats timestamp is set to 0, but
+    c037471 missed that, leading to a confusing timestamp value after for
+    example a DML on a freshly-created relation with no scans done on it
+    yet.
+    
+    This impacted the following attributes for two system views:
+    - pg_stat_all_tables.last_idx_scan
+    - pg_stat_all_tables.last_seq_scan
+    - pg_stat_all_indexes.last_idx_scan
+    
+    Reported-by: Robert Treat
+    Analyzed-by: Peter Eisentraut
+    Author: Dave Page
+    Discussion: https://postgr.es/m/CABV9wwPzMfSaz3EfKXXDxKmMprbxwF5r6WPuxqA=5mzRUqfTGg@mail.gmail.com
+
+diff --git a/src/backend/utils/adt/pgstatfuncs.c b/src/backend/utils/adt/pgstatfuncs.c
+index 96bffc0f2ac..ae3365d9171 100644
+--- a/src/backend/utils/adt/pgstatfuncs.c
++++ b/src/backend/utils/adt/pgstatfuncs.c
+@@ -54,16 +54,22 @@ pg_stat_get_numscans(PG_FUNCTION_ARGS)
+ 
+ Datum
+ pg_stat_get_lastscan(PG_FUNCTION_ARGS)
+ {
+ 	Oid			relid = PG_GETARG_OID(0);
++	TimestampTz result;
+ 	PgStat_StatTabEntry *tabentry;
+ 
+ 	if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)
++		result = 0;
++	else
++		result = tabentry->lastscan;
++
++	if (result == 0)
+ 		PG_RETURN_NULL();
+ 	else
+-		PG_RETURN_TIMESTAMPTZ(tabentry->lastscan);
++		PG_RETURN_TIMESTAMPTZ(result);
+ }
+ 
+ 
+ Datum
+ pg_stat_get_tuples_returned(PG_FUNCTION_ARGS)
+diff --git a/src/test/regress/expected/stats.out b/src/test/regress/expected/stats.out
+index 257a6a9da9a..1d84407a039 100644
+--- a/src/test/regress/expected/stats.out
++++ b/src/test/regress/expected/stats.out
+@@ -571,10 +571,16 @@ SELECT pg_stat_force_next_flush();
+  pg_stat_force_next_flush 
+ --------------------------
+  
+ (1 row)
+ 
++SELECT last_seq_scan, last_idx_scan FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass;
++ last_seq_scan | last_idx_scan 
++---------------+---------------
++               | 
++(1 row)
++
+ COMMIT;
+ SELECT pg_stat_reset_single_table_counters('test_last_scan'::regclass);
+  pg_stat_reset_single_table_counters 
+ -------------------------------------
+  
+diff --git a/src/test/regress/sql/stats.sql b/src/test/regress/sql/stats.sql
+index f6270f7badb..b4d6753c710 100644
+--- a/src/test/regress/sql/stats.sql
++++ b/src/test/regress/sql/stats.sql
+@@ -301,10 +301,11 @@ DROP TABLE prevstats;
+ 
+ BEGIN;
+ CREATE TEMPORARY TABLE test_last_scan(idx_col int primary key, noidx_col int);
+ INSERT INTO test_last_scan(idx_col, noidx_col) VALUES(1, 1);
+ SELECT pg_stat_force_next_flush();
++SELECT last_seq_scan, last_idx_scan FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass;
+ COMMIT;
+ 
+ SELECT pg_stat_reset_single_table_counters('test_last_scan'::regclass);
+ SELECT seq_scan, idx_scan FROM pg_stat_all_tables WHERE relid = 'test_last_scan'::regclass;
+ 

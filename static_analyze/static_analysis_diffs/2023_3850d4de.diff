@@ -1,0 +1,91 @@
+commit 3850d4dec1d91c4fdce274f42986840444d5593e
+Author: Dean Rasheed <dean.a.rasheed@gmail.com>
+Date:   Thu Nov 9 12:10:14 2023 +0000
+
+    Avoid integer overflow hazard in interval_time().
+    
+    When casting an interval to a time, the original code suffered from
+    64-bit integer overflow for inputs with a sufficiently large negative
+    "time" field, leading to bogus results.
+    
+    Fix by rewriting the algorithm in a simpler form, that more obviously
+    cannot overflow. While at it, improve the test coverage to include
+    negative interval inputs.
+    
+    Discussion: https://postgr.es/m/CAEZATCXoUKHkcuq4q63hkiPsKZJd0kZWzgKtU%2BNT0aU4wbf_Pw%40mail.gmail.com
+
+diff --git a/src/backend/utils/adt/date.c b/src/backend/utils/adt/date.c
+index 56c7746c11f..544e1d32bfc 100644
+--- a/src/backend/utils/adt/date.c
++++ b/src/backend/utils/adt/date.c
+@@ -2010,23 +2010,14 @@ time_interval(PG_FUNCTION_ARGS)
+ Datum
+ interval_time(PG_FUNCTION_ARGS)
+ {
+ 	Interval   *span = PG_GETARG_INTERVAL_P(0);
+ 	TimeADT		result;
+-	int64		days;
+ 
+-	result = span->time;
+-	if (result >= USECS_PER_DAY)
+-	{
+-		days = result / USECS_PER_DAY;
+-		result -= days * USECS_PER_DAY;
+-	}
+-	else if (result < 0)
+-	{
+-		days = (-result + USECS_PER_DAY - 1) / USECS_PER_DAY;
+-		result += days * USECS_PER_DAY;
+-	}
++	result = span->time % USECS_PER_DAY;
++	if (result < 0)
++		result += USECS_PER_DAY;
+ 
+ 	PG_RETURN_TIMEADT(result);
+ }
+ 
+ /* time_mi_time()
+diff --git a/src/test/regress/expected/horology.out b/src/test/regress/expected/horology.out
+index e63e5b30fee..8f52661096f 100644
+--- a/src/test/regress/expected/horology.out
++++ b/src/test/regress/expected/horology.out
+@@ -979,10 +979,22 @@ SELECT CAST(interval '02:03' AS time) AS "02:03:00";
+  02:03:00 
+ ----------
+  02:03:00
+ (1 row)
+ 
++SELECT CAST(interval '-02:03' AS time) AS "21:57:00";
++ 21:57:00 
++----------
++ 21:57:00
++(1 row)
++
++SELECT CAST(interval '-9223372022400000000 us' AS time) AS "00:00:00";
++ 00:00:00 
++----------
++ 00:00:00
++(1 row)
++
+ SELECT time '01:30' + interval '02:01' AS "03:31:00";
+  03:31:00 
+ ----------
+  03:31:00
+ (1 row)
+diff --git a/src/test/regress/sql/horology.sql b/src/test/regress/sql/horology.sql
+index f7f8c8d2dd9..39a35a6b7ce 100644
+--- a/src/test/regress/sql/horology.sql
++++ b/src/test/regress/sql/horology.sql
+@@ -180,10 +180,12 @@ SELECT d1 - interval '1 year' AS one_year FROM TIMESTAMPTZ_TBL;
+ -- time, interval arithmetic
+ --
+ 
+ SELECT CAST(time '01:02' AS interval) AS "+01:02";
+ SELECT CAST(interval '02:03' AS time) AS "02:03:00";
++SELECT CAST(interval '-02:03' AS time) AS "21:57:00";
++SELECT CAST(interval '-9223372022400000000 us' AS time) AS "00:00:00";
+ SELECT time '01:30' + interval '02:01' AS "03:31:00";
+ SELECT time '01:30' - interval '02:01' AS "23:29:00";
+ SELECT time '02:30' + interval '36:01' AS "14:31:00";
+ SELECT time '03:30' + interval '1 month 04:01' AS "07:31:00";
+ SELECT CAST(time with time zone '01:02-08' AS interval) AS "+00:01";

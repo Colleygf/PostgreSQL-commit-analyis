@@ -1,0 +1,115 @@
+commit ed0736172170bdae800b28e3555241b82854f09f
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu Aug 14 11:39:19 2025 -0400
+
+    Don't leak memory during failure exit from SelectConfigFiles().
+    
+    Make sure the memory allocated by make_absolute_path() is freed
+    when SelectConfigFiles() fails.  Since all the callers will exit
+    immediately in that case, there's no practical gain here, but
+    silencing Valgrind leak complaints seems useful.  In any case,
+    it was inconsistent that only one of the failure exits did this.
+    
+    Author: Aleksander Alekseev <aleksander@tigerdata.com>
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/CAJ7c6TMByXE8dc7zDvDWTQjk6o-XXAdRg_RAg5CBaUOgFPV3LQ%40mail.gmail.com
+
+diff --git a/src/backend/utils/misc/guc.c b/src/backend/utils/misc/guc.c
+index e404c345e6e..46fdefebe35 100644
+--- a/src/backend/utils/misc/guc.c
++++ b/src/backend/utils/misc/guc.c
+@@ -1801,11 +1801,11 @@ SelectConfigFiles(const char *userDoption, const char *progname)
+ 		write_stderr("%s: could not access directory \"%s\": %m\n",
+ 					 progname,
+ 					 configdir);
+ 		if (errno == ENOENT)
+ 			write_stderr("Run initdb or pg_basebackup to initialize a PostgreSQL data directory.\n");
+-		return false;
++		goto fail;
+ 	}
+ 
+ 	/*
+ 	 * Find the configuration file: if config_file was specified on the
+ 	 * command line, use it, else use configdir/postgresql.conf.  In any case
+@@ -1828,11 +1828,11 @@ SelectConfigFiles(const char *userDoption, const char *progname)
+ 	{
+ 		write_stderr("%s does not know where to find the server configuration file.\n"
+ 					 "You must specify the --config-file or -D invocation "
+ 					 "option or set the PGDATA environment variable.\n",
+ 					 progname);
+-		return false;
++		goto fail;
+ 	}
+ 
+ 	/*
+ 	 * Set the ConfigFileName GUC variable to its final value, ensuring that
+ 	 * it can't be overridden later.
+@@ -1849,12 +1849,11 @@ SelectConfigFiles(const char *userDoption, const char *progname)
+ 	 */
+ 	if (stat(ConfigFileName, &stat_buf) != 0)
+ 	{
+ 		write_stderr("%s: could not access the server configuration file \"%s\": %m\n",
+ 					 progname, ConfigFileName);
+-		free(configdir);
+-		return false;
++		goto fail;
+ 	}
+ 
+ 	/*
+ 	 * Read the configuration file for the first time.  This time only the
+ 	 * data_directory parameter is picked up to determine the data directory,
+@@ -1880,11 +1879,11 @@ SelectConfigFiles(const char *userDoption, const char *progname)
+ 		write_stderr("%s does not know where to find the database system data.\n"
+ 					 "This can be specified as \"data_directory\" in \"%s\", "
+ 					 "or by the -D invocation option, or by the "
+ 					 "PGDATA environment variable.\n",
+ 					 progname, ConfigFileName);
+-		return false;
++		goto fail;
+ 	}
+ 
+ 	/*
+ 	 * Reflect the final DataDir value back into the data_directory GUC var.
+ 	 * (If you are wondering why we don't just make them a single variable,
+@@ -1932,11 +1931,11 @@ SelectConfigFiles(const char *userDoption, const char *progname)
+ 		write_stderr("%s does not know where to find the \"hba\" configuration file.\n"
+ 					 "This can be specified as \"hba_file\" in \"%s\", "
+ 					 "or by the -D invocation option, or by the "
+ 					 "PGDATA environment variable.\n",
+ 					 progname, ConfigFileName);
+-		return false;
++		goto fail;
+ 	}
+ 	SetConfigOption("hba_file", fname, PGC_POSTMASTER, PGC_S_OVERRIDE);
+ 
+ 	if (fname_is_malloced)
+ 		free(fname);
+@@ -1963,11 +1962,11 @@ SelectConfigFiles(const char *userDoption, const char *progname)
+ 		write_stderr("%s does not know where to find the \"ident\" configuration file.\n"
+ 					 "This can be specified as \"ident_file\" in \"%s\", "
+ 					 "or by the -D invocation option, or by the "
+ 					 "PGDATA environment variable.\n",
+ 					 progname, ConfigFileName);
+-		return false;
++		goto fail;
+ 	}
+ 	SetConfigOption("ident_file", fname, PGC_POSTMASTER, PGC_S_OVERRIDE);
+ 
+ 	if (fname_is_malloced)
+ 		free(fname);
+@@ -1975,10 +1974,15 @@ SelectConfigFiles(const char *userDoption, const char *progname)
+ 		guc_free(fname);
+ 
+ 	free(configdir);
+ 
+ 	return true;
++
++fail:
++	free(configdir);
++
++	return false;
+ }
+ 
+ /*
+  * pg_timezone_abbrev_initialize --- set default value if not done already
+  *

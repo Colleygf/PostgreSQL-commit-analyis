@@ -1,0 +1,41 @@
+commit e9d12a5e22e02bace45dc2ba0e0dcca5b5d4fc52
+Author: Jeff Davis <jdavis@postgresql.org>
+Date:   Wed Oct 25 13:20:15 2023 -0700
+
+    Doc fix: Interfacing Extensions to Indexes
+    
+    Refer to CREATE ACCESS METHOD rather than suggesting direct changes to
+    pg_am. Also corrects index-specific language that predated table
+    access methods.
+    
+    Discussion: https://postgr.es/m/20231025172551.685b7799455f9a6addcf5afa@sraoss.co.jp
+    Reported-by: Yugo NAGATA <nagata@sraoss.co.jp>
+
+diff --git a/doc/src/sgml/xindex.sgml b/doc/src/sgml/xindex.sgml
+index c753d8005ac..22d8ad1aac4 100644
+--- a/doc/src/sgml/xindex.sgml
++++ b/doc/src/sgml/xindex.sgml
+@@ -27,18 +27,15 @@
+ 
+  <sect2 id="xindex-opclass">
+   <title>Index Methods and Operator Classes</title>
+ 
+   <para>
+-   The <classname>pg_am</classname> table contains one row for every
+-   index method (internally known as access method).  Support for
+-   regular access to tables is built into
+-   <productname>PostgreSQL</productname>, but all index methods are
+-   described in <classname>pg_am</classname>.  It is possible to add a
+-   new index access method by writing the necessary code and
+-   then creating an entry in <classname>pg_am</classname> &mdash; but that is
+-   beyond the scope of this chapter (see <xref linkend="indexam"/>).
++   Operator classes are associated with an index access method, such
++   as <link linkend="btree">B-Tree</link>
++   or <link linkend="gin">GIN</link>. Custom index access method may be
++   defined with <xref linkend="sql-create-access-method"/>. See
++   <xref linkend="indexam"/> for details.
+   </para>
+ 
+   <para>
+    The routines for an index method do not directly know anything
+    about the data types that the index method will operate on.

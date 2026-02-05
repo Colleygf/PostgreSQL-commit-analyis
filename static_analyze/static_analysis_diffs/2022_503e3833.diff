@@ -1,0 +1,234 @@
+commit 503e3833ef240c94e114be8703046d52f24da021
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Wed Jul 13 11:40:00 2022 +0200
+
+    Remove useless assertions
+    
+    We don't need Assert(IsA(foo, String)) right before running
+    strVal(foo), since strVal() already does the assertion internally (via
+    castNode()).
+
+diff --git a/src/backend/commands/tablecmds.c b/src/backend/commands/tablecmds.c
+index ef5b34a3126..701bd73f5ee 100644
+--- a/src/backend/commands/tablecmds.c
++++ b/src/backend/commands/tablecmds.c
+@@ -8269,11 +8269,10 @@ ATExecSetStorage(Relation rel, const char *colName, Node *newValue, LOCKMODE loc
+ 	HeapTuple	tuple;
+ 	Form_pg_attribute attrtuple;
+ 	AttrNumber	attnum;
+ 	ObjectAddress address;
+ 
+-	Assert(IsA(newValue, String));
+ 	storagemode = strVal(newValue);
+ 
+ 	if (pg_strcasecmp(storagemode, "plain") == 0)
+ 		newstorage = TYPSTORAGE_PLAIN;
+ 	else if (pg_strcasecmp(storagemode, "external") == 0)
+@@ -16169,11 +16168,10 @@ ATExecSetCompression(AlteredTableInfo *tab,
+ 	AttrNumber	attnum;
+ 	char	   *compression;
+ 	char		cmethod;
+ 	ObjectAddress address;
+ 
+-	Assert(IsA(newValue, String));
+ 	compression = strVal(newValue);
+ 
+ 	attrel = table_open(AttributeRelationId, RowExclusiveLock);
+ 
+ 	/* copy the cache entry so we can scribble on it below */
+diff --git a/src/backend/commands/typecmds.c b/src/backend/commands/typecmds.c
+index 4f5e7c7ccb2..a8757a90bf8 100644
+--- a/src/backend/commands/typecmds.c
++++ b/src/backend/commands/typecmds.c
+@@ -3575,11 +3575,10 @@ replace_domain_constraint_value(ParseState *pstate, ColumnRef *cref)
+ 	if (list_length(cref->fields) == 1)
+ 	{
+ 		Node	   *field1 = (Node *) linitial(cref->fields);
+ 		char	   *colname;
+ 
+-		Assert(IsA(field1, String));
+ 		colname = strVal(field1);
+ 		if (strcmp(colname, "value") == 0)
+ 		{
+ 			CoerceToDomainValue *domVal = copyObject(pstate->p_ref_hook_state);
+ 
+diff --git a/src/backend/executor/functions.c b/src/backend/executor/functions.c
+index f9460ae506c..076226868f3 100644
+--- a/src/backend/executor/functions.c
++++ b/src/backend/executor/functions.c
+@@ -316,16 +316,14 @@ sql_fn_post_column_ref(ParseState *pstate, ColumnRef *cref, Node *var)
+ 
+ 	if (IsA(llast(cref->fields), A_Star))
+ 		nnames--;
+ 
+ 	field1 = (Node *) linitial(cref->fields);
+-	Assert(IsA(field1, String));
+ 	name1 = strVal(field1);
+ 	if (nnames > 1)
+ 	{
+ 		subfield = (Node *) lsecond(cref->fields);
+-		Assert(IsA(subfield, String));
+ 		name2 = strVal(subfield);
+ 	}
+ 
+ 	if (nnames == 3)
+ 	{
+diff --git a/src/backend/parser/parse_expr.c b/src/backend/parser/parse_expr.c
+index 1dbdba93daa..b1cc6a382f1 100644
+--- a/src/backend/parser/parse_expr.c
++++ b/src/backend/parser/parse_expr.c
+@@ -629,11 +629,10 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
+ 	{
+ 		case 1:
+ 			{
+ 				Node	   *field1 = (Node *) linitial(cref->fields);
+ 
+-				Assert(IsA(field1, String));
+ 				colname = strVal(field1);
+ 
+ 				/* Try to identify as an unqualified column */
+ 				node = colNameToVar(pstate, colname, false, cref->location);
+ 
+@@ -662,11 +661,10 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
+ 		case 2:
+ 			{
+ 				Node	   *field1 = (Node *) linitial(cref->fields);
+ 				Node	   *field2 = (Node *) lsecond(cref->fields);
+ 
+-				Assert(IsA(field1, String));
+ 				relname = strVal(field1);
+ 
+ 				/* Locate the referenced nsitem */
+ 				nsitem = refnameNamespaceItem(pstate, nspname, relname,
+ 											  cref->location,
+@@ -683,11 +681,10 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
+ 					node = transformWholeRowRef(pstate, nsitem, levels_up,
+ 												cref->location);
+ 					break;
+ 				}
+ 
+-				Assert(IsA(field2, String));
+ 				colname = strVal(field2);
+ 
+ 				/* Try to identify as a column of the nsitem */
+ 				node = scanNSItemForColumn(pstate, nsitem, levels_up, colname,
+ 										   cref->location);
+@@ -710,13 +707,11 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
+ 			{
+ 				Node	   *field1 = (Node *) linitial(cref->fields);
+ 				Node	   *field2 = (Node *) lsecond(cref->fields);
+ 				Node	   *field3 = (Node *) lthird(cref->fields);
+ 
+-				Assert(IsA(field1, String));
+ 				nspname = strVal(field1);
+-				Assert(IsA(field2, String));
+ 				relname = strVal(field2);
+ 
+ 				/* Locate the referenced nsitem */
+ 				nsitem = refnameNamespaceItem(pstate, nspname, relname,
+ 											  cref->location,
+@@ -733,11 +728,10 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
+ 					node = transformWholeRowRef(pstate, nsitem, levels_up,
+ 												cref->location);
+ 					break;
+ 				}
+ 
+-				Assert(IsA(field3, String));
+ 				colname = strVal(field3);
+ 
+ 				/* Try to identify as a column of the nsitem */
+ 				node = scanNSItemForColumn(pstate, nsitem, levels_up, colname,
+ 										   cref->location);
+@@ -762,15 +756,12 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
+ 				Node	   *field2 = (Node *) lsecond(cref->fields);
+ 				Node	   *field3 = (Node *) lthird(cref->fields);
+ 				Node	   *field4 = (Node *) lfourth(cref->fields);
+ 				char	   *catname;
+ 
+-				Assert(IsA(field1, String));
+ 				catname = strVal(field1);
+-				Assert(IsA(field2, String));
+ 				nspname = strVal(field2);
+-				Assert(IsA(field3, String));
+ 				relname = strVal(field3);
+ 
+ 				/*
+ 				 * We check the catalog name and then ignore it.
+ 				 */
+@@ -796,11 +787,10 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
+ 					node = transformWholeRowRef(pstate, nsitem, levels_up,
+ 												cref->location);
+ 					break;
+ 				}
+ 
+-				Assert(IsA(field4, String));
+ 				colname = strVal(field4);
+ 
+ 				/* Try to identify as a column of the nsitem */
+ 				node = scanNSItemForColumn(pstate, nsitem, levels_up, colname,
+ 										   cref->location);
+diff --git a/src/pl/plpgsql/src/pl_comp.c b/src/pl/plpgsql/src/pl_comp.c
+index b791c23f066..61fbdf0686e 100644
+--- a/src/pl/plpgsql/src/pl_comp.c
++++ b/src/pl/plpgsql/src/pl_comp.c
+@@ -1211,22 +1211,20 @@ resolve_column_ref(ParseState *pstate, PLpgSQL_expr *expr,
+ 	{
+ 		case 1:
+ 			{
+ 				Node	   *field1 = (Node *) linitial(cref->fields);
+ 
+-				Assert(IsA(field1, String));
+ 				name1 = strVal(field1);
+ 				nnames_scalar = 1;
+ 				nnames_wholerow = 1;
+ 				break;
+ 			}
+ 		case 2:
+ 			{
+ 				Node	   *field1 = (Node *) linitial(cref->fields);
+ 				Node	   *field2 = (Node *) lsecond(cref->fields);
+ 
+-				Assert(IsA(field1, String));
+ 				name1 = strVal(field1);
+ 
+ 				/* Whole-row reference? */
+ 				if (IsA(field2, A_Star))
+ 				{
+@@ -1234,11 +1232,10 @@ resolve_column_ref(ParseState *pstate, PLpgSQL_expr *expr,
+ 					name2 = "*";
+ 					nnames_wholerow = 1;
+ 					break;
+ 				}
+ 
+-				Assert(IsA(field2, String));
+ 				name2 = strVal(field2);
+ 				colname = name2;
+ 				nnames_scalar = 2;
+ 				nnames_wholerow = 2;
+ 				nnames_field = 1;
+@@ -1248,13 +1245,11 @@ resolve_column_ref(ParseState *pstate, PLpgSQL_expr *expr,
+ 			{
+ 				Node	   *field1 = (Node *) linitial(cref->fields);
+ 				Node	   *field2 = (Node *) lsecond(cref->fields);
+ 				Node	   *field3 = (Node *) lthird(cref->fields);
+ 
+-				Assert(IsA(field1, String));
+ 				name1 = strVal(field1);
+-				Assert(IsA(field2, String));
+ 				name2 = strVal(field2);
+ 
+ 				/* Whole-row reference? */
+ 				if (IsA(field3, A_Star))
+ 				{
+@@ -1262,11 +1257,10 @@ resolve_column_ref(ParseState *pstate, PLpgSQL_expr *expr,
+ 					name3 = "*";
+ 					nnames_wholerow = 2;
+ 					break;
+ 				}
+ 
+-				Assert(IsA(field3, String));
+ 				name3 = strVal(field3);
+ 				colname = name3;
+ 				nnames_field = 2;
+ 				break;
+ 			}

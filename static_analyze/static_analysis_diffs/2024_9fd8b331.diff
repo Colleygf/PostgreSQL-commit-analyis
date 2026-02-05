@@ -1,0 +1,62 @@
+commit 9fd8b331dfe151b7c833e2c8fa17ce753830b891
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Fri Jul 12 09:29:21 2024 +0530
+
+    Fix unstable test in 040_pg_createsubscriber.
+    
+    The slot synchronization failed because the local slot's (created during
+    slot synchronization) catalog_xmin on standby is ahead of remote slot.
+    This happens because the INSERT before slot synchronization results in the
+    generation of a new xid that could be replicated to the standby. Now
+    before the xmin of the physical slot on the primary catches up via
+    hot_standby_feedback, the test has created a logical slot that got some
+    prior value of catalog_xmin.
+    
+    To fix this we could try to ensure that the physical slot's catalog_xmin
+    is caught up to latest value before creating a logical slot but we took a
+    simpler path to move the INSERT after synchronizing the logical slot.
+    
+    Reported-by: Alexander Lakhin as per buildfarm
+    Diagnosed-by: Amit Kapila, Hou Zhijie, Alexander Lakhin
+    Author: Hou Zhijie
+    Backpatch-through: 17
+    Discussion: https://postgr.es/m/bde6ac67-69cc-c104-5ab6-dd4f5deadf24@gmail.com
+
+diff --git a/src/bin/pg_basebackup/t/040_pg_createsubscriber.pl b/src/bin/pg_basebackup/t/040_pg_createsubscriber.pl
+index 74b90d9a913..bb121271570 100644
+--- a/src/bin/pg_basebackup/t/040_pg_createsubscriber.pl
++++ b/src/bin/pg_basebackup/t/040_pg_createsubscriber.pl
+@@ -225,14 +225,10 @@ command_fails(
+ 		$db1, '--database',
+ 		$db2
+ 	],
+ 	'primary server is in recovery');
+ 
+-# Insert another row on node P and wait node S to catch up
+-$node_p->safe_psql($db1, "INSERT INTO tbl1 VALUES('second row')");
+-$node_p->wait_for_replay_catchup($node_s);
+-
+ # Check some unmet conditions on node P
+ $node_p->append_conf(
+ 	'postgresql.conf', q{
+ wal_level = replica
+ max_replication_slots = 1
+@@ -304,10 +300,18 @@ $node_s->safe_psql('postgres', "SELECT pg_sync_replication_slots()");
+ my $result = $node_s->safe_psql('postgres',
+ 	"SELECT slot_name FROM pg_replication_slots WHERE slot_name = '$fslotname' AND synced AND NOT temporary"
+ );
+ is($result, 'failover_slot', 'failover slot is synced');
+ 
++# Insert another row on node P and wait node S to catch up. We
++# intentionally performed this insert after syncing logical slot
++# as otherwise the local slot's (created during synchronization of
++# slot) xmin on standby could be ahead of the remote slot leading
++# to failure in synchronization.
++$node_p->safe_psql($db1, "INSERT INTO tbl1 VALUES('second row')");
++$node_p->wait_for_replay_catchup($node_s);
++
+ # Create subscription to test its removal
+ my $dummy_sub = 'regress_sub_dummy';
+ $node_p->safe_psql($db1,
+ 	"CREATE SUBSCRIPTION $dummy_sub CONNECTION 'dbname=dummy' PUBLICATION pub_dummy WITH (connect=false)"
+ );

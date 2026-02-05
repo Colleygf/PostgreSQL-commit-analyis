@@ -1,0 +1,81 @@
+commit fdda78e361f136ec2b8de579b366c1e66bba1199
+Author: David Rowley <drowley@postgresql.org>
+Date:   Wed Nov 5 11:48:09 2025 +1300
+
+    Fix possible usage of incorrect UPPERREL_SETOP RelOptInfo
+    
+    03d40e4b5 allowed dummy UNION [ALL] children to be removed from the plan
+    by checking for is_dummy_rel().  That commit neglected to still account
+    for the relids from the dummy rel so that the correct UPPERREL_SETOP
+    RelOptInfo could be found and used for adding the Paths to.
+    
+    Not doing this could result in processing of subsequent UNIONs using the
+    same RelOptInfo as a previously processed UNION, which could result in
+    add_path() freeing old Paths that are needed by the previous UNION.
+    
+    The same fix was independently submitted (2 mins later) by Richard Guo.
+    
+    Reported-by: Alexander Lakhin <exclusion@gmail.com>
+    Author: David Rowley <dgrowleyml@gmail.com>
+    Discussion: https://postgr.es/m/bee34aec-659c-46f1-9ab7-7bbae0b7616c@gmail.com
+
+diff --git a/src/backend/optimizer/prep/prepunion.c b/src/backend/optimizer/prep/prepunion.c
+index 55665824179..72539545656 100644
+--- a/src/backend/optimizer/prep/prepunion.c
++++ b/src/backend/optimizer/prep/prepunion.c
+@@ -771,10 +771,16 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
+ 	foreach(lc, rellist)
+ 	{
+ 		RelOptInfo *rel = lfirst(lc);
+ 		Path	   *ordered_path;
+ 
++		/*
++		 * Record the relids so that we can identify the correct
++		 * UPPERREL_SETOP RelOptInfo below.
++		 */
++		relids = bms_add_members(relids, rel->relids);
++
+ 		/* Skip any UNION children that are proven not to yield any rows */
+ 		if (is_dummy_rel(rel))
+ 			continue;
+ 
+ 		cheapest_pathlist = lappend(cheapest_pathlist,
+@@ -813,12 +819,10 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
+ 				partial_paths_valid = false;
+ 			else
+ 				partial_pathlist = lappend(partial_pathlist,
+ 										   linitial(rel->partial_pathlist));
+ 		}
+-
+-		relids = bms_add_members(relids, rel->relids);
+ 	}
+ 
+ 	/* Build result relation. */
+ 	result_rel = fetch_upper_rel(root, UPPERREL_SETOP, relids);
+ 	result_rel->reltarget = create_setop_pathtarget(root, tlist,
+diff --git a/src/test/regress/expected/union.out b/src/test/regress/expected/union.out
+index fb77d108337..4533967e84a 100644
+--- a/src/test/regress/expected/union.out
++++ b/src/test/regress/expected/union.out
+@@ -1258,18 +1258,18 @@ SELECT two FROM tenk1 WHERE 1=2
+ UNION
+ SELECT four FROM tenk1 WHERE 1=2
+ UNION
+ SELECT ten FROM tenk1 WHERE 1=2
+ ORDER BY 1;
+-              QUERY PLAN              
+---------------------------------------
++                                       QUERY PLAN                                        
++-----------------------------------------------------------------------------------------
+  Sort
+    Output: unnamed_subquery.two
+    Sort Key: unnamed_subquery.two
+    ->  Result
+          Output: unnamed_subquery.two
+-         Replaces: Aggregate
++         Replaces: Aggregate on unnamed_subquery, unnamed_subquery_1, unnamed_subquery_2
+          One-Time Filter: false
+ (7 rows)
+ 
+ -- Ensure the planner provides a const-false Result node
+ EXPLAIN (COSTS OFF, VERBOSE)

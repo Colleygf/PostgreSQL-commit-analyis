@@ -1,0 +1,86 @@
+commit becfbdd6c1c94fe03391368080029a6dd8523658
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Tue Sep 26 09:07:26 2023 +1300
+
+    Fix edge-case for xl_tot_len broken by bae868ca.
+    
+    bae868ca removed a check that was still needed.  If you had an
+    xl_tot_len at the end of a page that was too small for a record header,
+    but not big enough to span onto the next page, we'd immediately perform
+    the CRC check using a bogus large length.  Because of arbitrary coding
+    differences between the CRC implementations on different platforms,
+    nothing very bad happened on common modern systems.  On systems using
+    the _sb8.c fallback we could segfault.
+    
+    Restore that check, add a new assertion and supply a test for that case.
+    Back-patch to 12, like bae868ca.
+    
+    Tested-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Tested-by: Alexander Lakhin <exclusion@gmail.com>
+    Discussion: https://postgr.es/m/CA%2BhUKGLCkTT7zYjzOxuLGahBdQ%3DMcF%3Dz5ZvrjSOnW4EDhVjT-g%40mail.gmail.com
+
+diff --git a/src/backend/access/transam/xlogreader.c b/src/backend/access/transam/xlogreader.c
+index 58654b746ca..a17263df208 100644
+--- a/src/backend/access/transam/xlogreader.c
++++ b/src/backend/access/transam/xlogreader.c
+@@ -651,10 +651,19 @@ restart:
+ 			goto err;
+ 		gotheader = true;
+ 	}
+ 	else
+ 	{
++		/* There may be no next page if it's too small. */
++		if (total_len < SizeOfXLogRecord)
++		{
++			report_invalid_record(state,
++								  "invalid record length at %X/%X: expected at least %u, got %u",
++								  LSN_FORMAT_ARGS(RecPtr),
++								  (uint32) SizeOfXLogRecord, total_len);
++			goto err;
++		}
+ 		/* We'll validate the header once we have the next page. */
+ 		gotheader = false;
+ 	}
+ 
+ 	/*
+@@ -1188,10 +1197,12 @@ ValidXLogRecordHeader(XLogReaderState *state, XLogRecPtr RecPtr,
+ static bool
+ ValidXLogRecord(XLogReaderState *state, XLogRecord *record, XLogRecPtr recptr)
+ {
+ 	pg_crc32c	crc;
+ 
++	Assert(record->xl_tot_len >= SizeOfXLogRecord);
++
+ 	/* Calculate the CRC */
+ 	INIT_CRC32C(crc);
+ 	COMP_CRC32C(crc, ((char *) record) + SizeOfXLogRecord, record->xl_tot_len - SizeOfXLogRecord);
+ 	/* include the record header last */
+ 	COMP_CRC32C(crc, (char *) record, offsetof(XLogRecord, xl_crc));
+diff --git a/src/test/recovery/t/039_end_of_wal.pl b/src/test/recovery/t/039_end_of_wal.pl
+index 61728bc38bb..d2bf062bb23 100644
+--- a/src/test/recovery/t/039_end_of_wal.pl
++++ b/src/test/recovery/t/039_end_of_wal.pl
+@@ -279,10 +279,23 @@ $node->start;
+ ok( $node->log_contains(
+ 		"invalid record length at .*: expected at least 24, got 23",
+ 		$log_size),
+ 	"xl_tot_len short");
+ 
++# xl_tot_len in final position, not big enough to span into a new page but
++# also not eligible for regular record header validation
++emit_message($node, 0);
++$end_lsn = advance_to_record_splitting_zone($node);
++$node->stop('immediate');
++write_wal($node, $TLI, $end_lsn, build_record_header(1));
++$log_size = -s $node->logfile;
++$node->start;
++ok( $node->log_contains(
++		"invalid record length at .*: expected at least 24, got 1", $log_size
++	),
++	"xl_tot_len short at end-of-page");
++
+ # Need more pages, but xl_prev check fails first.
+ emit_message($node, 0);
+ $end_lsn = advance_out_of_record_splitting_zone($node);
+ $node->stop('immediate');
+ write_wal($node, $TLI, $end_lsn,

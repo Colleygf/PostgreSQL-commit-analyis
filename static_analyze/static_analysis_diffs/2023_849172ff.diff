@@ -1,0 +1,132 @@
+commit 849172ff4883d44168f96f39d3fde96d0aa34c99
+Author: Dean Rasheed <dean.a.rasheed@gmail.com>
+Date:   Sun Oct 29 11:14:37 2023 +0000
+
+    btree_gin: Fix calculation of leftmost interval value.
+    
+    Formerly, the value computed by leftmostvalue_interval() was a long
+    way short of the minimum possible interval value.  As a result, an
+    index scan on a GIN index on an interval column with < or <= operators
+    would miss large negative interval values.
+    
+    Fix by setting all fields of the leftmost interval to their minimum
+    values, ensuring that the result is less than any other possible
+    interval.  Since this only affects index searches, no index rebuild is
+    necessary.
+    
+    Back-patch to all supported branches.
+    
+    Dean Rasheed, reviewed by Heikki Linnakangas.
+    
+    Discussion: https://postgr.es/m/CAEZATCV80%2BgOfF8ehNUUfaKBZgZMDfCfL-g1HhWGb6kC3rpDfw%40mail.gmail.com
+
+diff --git a/contrib/btree_gin/btree_gin.c b/contrib/btree_gin/btree_gin.c
+index c50d68ce186..b09bb8df964 100644
+--- a/contrib/btree_gin/btree_gin.c
++++ b/contrib/btree_gin/btree_gin.c
+@@ -304,13 +304,13 @@ GIN_SUPPORT(date, false, leftmostvalue_date, date_cmp)
+ static Datum
+ leftmostvalue_interval(void)
+ {
+ 	Interval   *v = palloc(sizeof(Interval));
+ 
+-	v->time = DT_NOBEGIN;
+-	v->day = 0;
+-	v->month = 0;
++	v->time = PG_INT64_MIN;
++	v->day = PG_INT32_MIN;
++	v->month = PG_INT32_MIN;
+ 	return IntervalPGetDatum(v);
+ }
+ 
+ GIN_SUPPORT(interval, false, leftmostvalue_interval, interval_cmp)
+ 
+diff --git a/contrib/btree_gin/expected/interval.out b/contrib/btree_gin/expected/interval.out
+index 1f6ef54070e..8bb9806650d 100644
+--- a/contrib/btree_gin/expected/interval.out
++++ b/contrib/btree_gin/expected/interval.out
+@@ -1,34 +1,38 @@
+ set enable_seqscan=off;
+ CREATE TABLE test_interval (
+ 	i interval
+ );
+ INSERT INTO test_interval VALUES
++	( '-178000000 years' ),
+ 	( '03:55:08' ),
+ 	( '04:55:08' ),
+ 	( '05:55:08' ),
+ 	( '08:55:08' ),
+ 	( '09:55:08' ),
+-	( '10:55:08' )
++	( '10:55:08' ),
++	( '178000000 years' )
+ ;
+ CREATE INDEX idx_interval ON test_interval USING gin (i);
+ SELECT * FROM test_interval WHERE i<'08:55:08'::interval ORDER BY i;
+             i             
+ --------------------------
++ @ 178000000 years ago
+  @ 3 hours 55 mins 8 secs
+  @ 4 hours 55 mins 8 secs
+  @ 5 hours 55 mins 8 secs
+-(3 rows)
++(4 rows)
+ 
+ SELECT * FROM test_interval WHERE i<='08:55:08'::interval ORDER BY i;
+             i             
+ --------------------------
++ @ 178000000 years ago
+  @ 3 hours 55 mins 8 secs
+  @ 4 hours 55 mins 8 secs
+  @ 5 hours 55 mins 8 secs
+  @ 8 hours 55 mins 8 secs
+-(4 rows)
++(5 rows)
+ 
+ SELECT * FROM test_interval WHERE i='08:55:08'::interval ORDER BY i;
+             i             
+ --------------------------
+  @ 8 hours 55 mins 8 secs
+@@ -38,14 +42,16 @@ SELECT * FROM test_interval WHERE i>='08:55:08'::interval ORDER BY i;
+              i             
+ ---------------------------
+  @ 8 hours 55 mins 8 secs
+  @ 9 hours 55 mins 8 secs
+  @ 10 hours 55 mins 8 secs
+-(3 rows)
++ @ 178000000 years
++(4 rows)
+ 
+ SELECT * FROM test_interval WHERE i>'08:55:08'::interval ORDER BY i;
+              i             
+ ---------------------------
+  @ 9 hours 55 mins 8 secs
+  @ 10 hours 55 mins 8 secs
+-(2 rows)
++ @ 178000000 years
++(3 rows)
+ 
+diff --git a/contrib/btree_gin/sql/interval.sql b/contrib/btree_gin/sql/interval.sql
+index e3851587833..7a2f3ac0d85 100644
+--- a/contrib/btree_gin/sql/interval.sql
++++ b/contrib/btree_gin/sql/interval.sql
+@@ -3,16 +3,18 @@ set enable_seqscan=off;
+ CREATE TABLE test_interval (
+ 	i interval
+ );
+ 
+ INSERT INTO test_interval VALUES
++	( '-178000000 years' ),
+ 	( '03:55:08' ),
+ 	( '04:55:08' ),
+ 	( '05:55:08' ),
+ 	( '08:55:08' ),
+ 	( '09:55:08' ),
+-	( '10:55:08' )
++	( '10:55:08' ),
++	( '178000000 years' )
+ ;
+ 
+ CREATE INDEX idx_interval ON test_interval USING gin (i);
+ 
+ SELECT * FROM test_interval WHERE i<'08:55:08'::interval ORDER BY i;

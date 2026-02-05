@@ -1,0 +1,80 @@
+commit 5d6c64d290978dab76c00460ba809156874be035
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu Jun 27 14:43:59 2024 -0400
+
+    Avoid crashing when a JIT-inlined backend function throws an error.
+    
+    errfinish() assumes that the __FUNC__ and __FILE__ arguments it's
+    passed are compile-time constant strings that can just be pointed
+    to rather than physically copied.  However, it's possible for LLVM
+    to generate code in which those pointers point into a dynamically
+    loaded code segment.  If that segment gets unloaded before we're
+    done with the ErrorData struct, we have dangling pointers that
+    will lead to SIGSEGV.  In simple cases that won't happen, because we
+    won't unload LLVM code before end of transaction.  But it's possible
+    to happen if the error is thrown within end-of-transaction code run by
+    _SPI_commit or _SPI_rollback, because since commit 2e517818f those
+    functions clean up by ending the transaction and starting a new one.
+    
+    Rather than fixing this by adding pstrdup() overhead to every
+    elog/ereport sequence, let's fix it by copying the risky pointers
+    in CopyErrorData().  That solves it for _SPI_commit/_SPI_rollback
+    because they use that function to preserve the error data across
+    the transaction end/restart sequence; and it seems likely that
+    any other code doing something similar would need to do that too.
+    
+    I'm suspicious that this behavior amounts to an LLVM bug (or a
+    bug in our use of it?), because it implies that string constant
+    references that should be pointer-equal according to a naive
+    understanding of C semantics will sometimes not be equal.
+    However, even if it is a bug and someday gets fixed, we'll have
+    to cope with the current behavior for a long time to come.
+    
+    Report and patch by me.  Back-patch to all supported branches.
+    
+    Discussion: https://postgr.es/m/1565654.1719425368@sss.pgh.pa.us
+
+diff --git a/src/backend/utils/error/elog.c b/src/backend/utils/error/elog.c
+index d91a85cb2d7..d1d1632bdd4 100644
+--- a/src/backend/utils/error/elog.c
++++ b/src/backend/utils/error/elog.c
+@@ -1741,11 +1741,25 @@ CopyErrorData(void)
+ 
+ 	/* Copy the struct itself */
+ 	newedata = (ErrorData *) palloc(sizeof(ErrorData));
+ 	memcpy(newedata, edata, sizeof(ErrorData));
+ 
+-	/* Make copies of separately-allocated fields */
++	/*
++	 * Make copies of separately-allocated strings.  Note that we copy even
++	 * theoretically-constant strings such as filename.  This is because those
++	 * could point into JIT-created code segments that might get unloaded at
++	 * transaction cleanup.  In some cases we need the copied ErrorData to
++	 * survive transaction boundaries, so we'd better copy those strings too.
++	 */
++	if (newedata->filename)
++		newedata->filename = pstrdup(newedata->filename);
++	if (newedata->funcname)
++		newedata->funcname = pstrdup(newedata->funcname);
++	if (newedata->domain)
++		newedata->domain = pstrdup(newedata->domain);
++	if (newedata->context_domain)
++		newedata->context_domain = pstrdup(newedata->context_domain);
+ 	if (newedata->message)
+ 		newedata->message = pstrdup(newedata->message);
+ 	if (newedata->detail)
+ 		newedata->detail = pstrdup(newedata->detail);
+ 	if (newedata->detail_log)
+@@ -1754,10 +1768,12 @@ CopyErrorData(void)
+ 		newedata->hint = pstrdup(newedata->hint);
+ 	if (newedata->context)
+ 		newedata->context = pstrdup(newedata->context);
+ 	if (newedata->backtrace)
+ 		newedata->backtrace = pstrdup(newedata->backtrace);
++	if (newedata->message_id)
++		newedata->message_id = pstrdup(newedata->message_id);
+ 	if (newedata->schema_name)
+ 		newedata->schema_name = pstrdup(newedata->schema_name);
+ 	if (newedata->table_name)
+ 		newedata->table_name = pstrdup(newedata->table_name);
+ 	if (newedata->column_name)

@@ -1,0 +1,104 @@
+commit 3390ef1b7be28eac24dd95af23a4a287e6e7b1a4
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Wed Mar 16 15:35:16 2022 +1300
+
+    Fix waiting in RegisterSyncRequest().
+    
+    If we run out of space in the checkpointer sync request queue (which is
+    hopefully rare on real systems, but common with very small buffer pool),
+    we wait for it to drain.  While waiting, we should report that as a wait
+    event so that users know what is going on, and also handle postmaster
+    death, since otherwise the loop might never terminate if the
+    checkpointer has exited.
+    
+    Back-patch to 12.  Although the problem exists in earlier releases too,
+    the code is structured differently before 12 so I haven't gone any
+    further for now, in the absence of field complaints.
+    
+    Reported-by: Andres Freund <andres@anarazel.de>
+    Reviewed-by: Andres Freund <andres@anarazel.de>
+    Discussion: https://postgr.es/m/20220226213942.nb7uvb2pamyu26dj%40alap3.anarazel.de
+
+diff --git a/doc/src/sgml/monitoring.sgml b/doc/src/sgml/monitoring.sgml
+index 8620aaddc79..71559442f0b 100644
+--- a/doc/src/sgml/monitoring.sgml
++++ b/doc/src/sgml/monitoring.sgml
+@@ -2252,10 +2252,15 @@ postgres   27093  0.0  0.0  30096  2752 ?        Ss   11:34   0:00 postgres: ser
+      <row>
+       <entry><literal>RecoveryRetrieveRetryInterval</literal></entry>
+       <entry>Waiting during recovery when WAL data is not available from any
+        source (<filename>pg_wal</filename>, archive or stream).</entry>
+      </row>
++     <row>
++      <entry><literal>RegisterSyncRequest</literal></entry>
++      <entry>Waiting while sending synchronization requests to the
++       checkpointer, because the request queue is full.</entry>
++     </row>
+      <row>
+       <entry><literal>VacuumDelay</literal></entry>
+       <entry>Waiting in a cost-based vacuum delay point.</entry>
+      </row>
+      <row>
+diff --git a/src/backend/storage/sync/sync.c b/src/backend/storage/sync/sync.c
+index e161d57761e..0c4d9ce687f 100644
+--- a/src/backend/storage/sync/sync.c
++++ b/src/backend/storage/sync/sync.c
+@@ -29,10 +29,11 @@
+ #include "portability/instr_time.h"
+ #include "postmaster/bgwriter.h"
+ #include "storage/bufmgr.h"
+ #include "storage/fd.h"
+ #include "storage/ipc.h"
++#include "storage/latch.h"
+ #include "storage/md.h"
+ #include "utils/hsearch.h"
+ #include "utils/inval.h"
+ #include "utils/memutils.h"
+ 
+@@ -604,10 +605,11 @@ RegisterSyncRequest(const FileTag *ftag, SyncRequestType type,
+ 		 * instructed not to retry on error, break.
+ 		 */
+ 		if (ret || (!ret && !retryOnError))
+ 			break;
+ 
+-		pg_usleep(10000L);
++		WaitLatch(NULL, WL_EXIT_ON_PM_DEATH | WL_TIMEOUT, 10,
++				  WAIT_EVENT_REGISTER_SYNC_REQUEST);
+ 	}
+ 
+ 	return ret;
+ }
+diff --git a/src/backend/utils/activity/wait_event.c b/src/backend/utils/activity/wait_event.c
+index 0706e922b53..ff46a0e3c71 100644
+--- a/src/backend/utils/activity/wait_event.c
++++ b/src/backend/utils/activity/wait_event.c
+@@ -495,10 +495,13 @@ pgstat_get_wait_timeout(WaitEventTimeout w)
+ 			event_name = "RecoveryApplyDelay";
+ 			break;
+ 		case WAIT_EVENT_RECOVERY_RETRIEVE_RETRY_INTERVAL:
+ 			event_name = "RecoveryRetrieveRetryInterval";
+ 			break;
++		case WAIT_EVENT_REGISTER_SYNC_REQUEST:
++			event_name = "RegisterSyncRequest";
++			break;
+ 		case WAIT_EVENT_VACUUM_DELAY:
+ 			event_name = "VacuumDelay";
+ 			break;
+ 		case WAIT_EVENT_VACUUM_TRUNCATE:
+ 			event_name = "VacuumTruncate";
+diff --git a/src/include/utils/wait_event.h b/src/include/utils/wait_event.h
+index d0345c6b49e..1c39ce031a7 100644
+--- a/src/include/utils/wait_event.h
++++ b/src/include/utils/wait_event.h
+@@ -143,10 +143,11 @@ typedef enum
+ 	WAIT_EVENT_BASE_BACKUP_THROTTLE = PG_WAIT_TIMEOUT,
+ 	WAIT_EVENT_CHECKPOINT_WRITE_DELAY,
+ 	WAIT_EVENT_PG_SLEEP,
+ 	WAIT_EVENT_RECOVERY_APPLY_DELAY,
+ 	WAIT_EVENT_RECOVERY_RETRIEVE_RETRY_INTERVAL,
++	WAIT_EVENT_REGISTER_SYNC_REQUEST,
+ 	WAIT_EVENT_VACUUM_DELAY,
+ 	WAIT_EVENT_VACUUM_TRUNCATE
+ } WaitEventTimeout;
+ 
+ /* ----------

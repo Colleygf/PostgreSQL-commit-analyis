@@ -1,0 +1,99 @@
+commit 9f34cae1426fe5ab915c95b7e26b1efffbb2ca0f
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Oct 14 12:27:51 2024 +0900
+
+    psql: Fix \watch when using interval values less than 1ms
+    
+    Attempting to use an interval of time less than 1ms would cause \watch
+    to hang.  This was confusing, so let's change the logic so as an
+    interval lower than 1ms behaves the same as 0.
+    
+    Comments are added to mention that the internals of do_watch() had
+    better rely on "sleep_ms", the interval value in milliseconds.  While on
+    it, this commit adds a test to check the behavior of interval values
+    less than 1ms.
+    
+    \watch hanging for interval values less than 1ms existed before
+    6f9ee74d45aa, that has changed the code to support an interval value of
+    0.
+    
+    Reported-by: Heikki Linnakangas
+    Author: Andrey M. Borodin, Michael Paquier
+    Discussion: https://postgr.es/m/88445e0e-3156-4b9d-afae-9a1a7b1631f6@iki.fi
+    Backpatch-through: 16
+
+diff --git a/src/bin/psql/command.c b/src/bin/psql/command.c
+index 2bb87897505..328d78c73f9 100644
+--- a/src/bin/psql/command.c
++++ b/src/bin/psql/command.c
+@@ -5357,10 +5357,14 @@ do_shell(const char *command)
+ /*
+  * do_watch -- handler for \watch
+  *
+  * We break this out of exec_command to avoid having to plaster "volatile"
+  * onto a bunch of exec_command's variables to silence stupider compilers.
++ *
++ * "sleep" is the amount of time to sleep during each loop, measured in
++ * seconds.  The internals of this function should use "sleep_ms" for
++ * precise sleep time calculations.
+  */
+ static bool
+ do_watch(PQExpBuffer query_buf, double sleep, int iter, int min_rows)
+ {
+ 	long		sleep_ms = (long) (sleep * 1000);
+@@ -5482,14 +5486,14 @@ do_watch(PQExpBuffer query_buf, double sleep, int iter, int min_rows)
+ 		timer = time(NULL);
+ 		strftime(timebuf, sizeof(timebuf), strftime_fmt, localtime(&timer));
+ 
+ 		if (user_title)
+ 			snprintf(title, title_len, _("%s\t%s (every %gs)\n"),
+-					 user_title, timebuf, sleep);
++					 user_title, timebuf, sleep_ms / 1000.0);
+ 		else
+ 			snprintf(title, title_len, _("%s (every %gs)\n"),
+-					 timebuf, sleep);
++					 timebuf, sleep_ms / 1000.0);
+ 		myopt.title = title;
+ 
+ 		/* Run the query and print out the result */
+ 		res = PSQLexecWatch(query_buf->data, &myopt, pagerpipe, min_rows);
+ 
+@@ -5506,11 +5510,12 @@ do_watch(PQExpBuffer query_buf, double sleep, int iter, int min_rows)
+ 
+ 		/* Quit if error on pager pipe (probably pager has quit) */
+ 		if (pagerpipe && ferror(pagerpipe))
+ 			break;
+ 
+-		if (sleep == 0)
++		/* Tight loop, no wait needed */
++		if (sleep_ms == 0)
+ 			continue;
+ 
+ #ifdef WIN32
+ 
+ 		/*
+diff --git a/src/bin/psql/t/001_basic.pl b/src/bin/psql/t/001_basic.pl
+index 5f2f4541af0..bd4fdd2030a 100644
+--- a/src/bin/psql/t/001_basic.pl
++++ b/src/bin/psql/t/001_basic.pl
+@@ -350,12 +350,18 @@ psql_like(
+ 3|test|2022-07-05 00:00:00/,
+ 	'\copy from with DEFAULT');
+ 
+ # Check \watch
+ # Note: the interval value is parsed with locale-aware strtod()
+-psql_like($node, sprintf('SELECT 1 \watch c=3 i=%g', 0.01),
+-	qr/1\n1\n1/, '\watch with 3 iterations');
++psql_like(
++	$node, sprintf('SELECT 1 \watch c=3 i=%g', 0.01),
++	qr/1\n1\n1/, '\watch with 3 iterations, interval of 0.01');
++
++# Sub-millisecond wait works, equivalent to 0.
++psql_like(
++	$node, sprintf('SELECT 1 \watch c=3 i=%g', 0.0001),
++	qr/1\n1\n1/, '\watch with 3 iterations, interval of 0.0001');
+ 
+ # Check \watch minimum row count
+ psql_fails_like(
+ 	$node,
+ 	'SELECT 3 \watch m=x',

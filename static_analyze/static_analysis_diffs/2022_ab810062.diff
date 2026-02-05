@@ -1,0 +1,66 @@
+commit ab810062991295f63612a997e872232a6f1a3ef6
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Fri Dec 2 11:31:54 2022 +0100
+
+    doc: fix type alignment for CREATE TABLE in triggers
+    
+    Datatypes in CREATE TABLE statements in the examples were vertically
+    aligned in most cases, a few examples were unaligned with a single
+    space. This makes sure all examples on the same page are consistently
+    aligned.
+    
+    Patch by Laurenz Albe with some additional fixups by me.
+    
+    Author: Laurenz Albe <laurenz.albe@cybertec.at>
+    Reported-by: lemes.marcelo26@gmail.com
+    Discussion: https://postgr.es/m/166870885664.635.16667004450401573487@wrigleys.postgresql.org
+
+diff --git a/doc/src/sgml/plpgsql.sgml b/doc/src/sgml/plpgsql.sgml
+index dda667e68e8..2b2a1a82159 100644
+--- a/doc/src/sgml/plpgsql.sgml
++++ b/doc/src/sgml/plpgsql.sgml
+@@ -4228,14 +4228,14 @@ ASSERT <replaceable class="parameter">condition</replaceable> <optional> , <repl
+      salary is a positive value.
+     </para>
+ 
+ <programlisting>
+ CREATE TABLE emp (
+-    empname text,
+-    salary integer,
+-    last_date timestamp,
+-    last_user text
++    empname           text,
++    salary            integer,
++    last_date         timestamp,
++    last_user         text
+ );
+ 
+ CREATE FUNCTION emp_stamp() RETURNS trigger AS $emp_stamp$
+     BEGIN
+         -- Check that empname and salary are given
+@@ -4290,11 +4290,11 @@ CREATE TABLE emp (
+ CREATE TABLE emp_audit(
+     operation         char(1)   NOT NULL,
+     stamp             timestamp NOT NULL,
+     userid            text      NOT NULL,
+     empname           text      NOT NULL,
+-    salary integer
++    salary            integer
+ );
+ 
+ CREATE OR REPLACE FUNCTION process_emp_audit() RETURNS TRIGGER AS $emp_audit$
+     BEGIN
+         --
+@@ -4587,11 +4587,11 @@ CREATE TABLE emp (
+ CREATE TABLE emp_audit(
+     operation         char(1)   NOT NULL,
+     stamp             timestamp NOT NULL,
+     userid            text      NOT NULL,
+     empname           text      NOT NULL,
+-    salary integer
++    salary            integer
+ );
+ 
+ CREATE OR REPLACE FUNCTION process_emp_audit() RETURNS TRIGGER AS $emp_audit$
+     BEGIN
+         --

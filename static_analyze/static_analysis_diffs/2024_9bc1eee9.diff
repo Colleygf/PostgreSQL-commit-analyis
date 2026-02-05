@@ -1,0 +1,47 @@
+commit 9bc1eee988c31e66a27e007d41020664df490214
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Thu Feb 15 10:37:28 2024 +0530
+
+    Another try to fix BF failure introduced in commit ddd5f4f54a.
+    
+    Before attempting to sync the slot on standby by
+    pg_sync_replication_slots(), ensure that on the primary restart_lsn for
+    the slot has moved to a recent WAL position, by re-creating the
+    subscription and the logical slot.
+    
+    Author: Hou Zhijie
+    Discussion: https://postgr.es/m/CAA4eK1+d5Lne8vCAn0un4SP9x-ZBr2-xfxg01uSfeBTSCKFZoQ@mail.gmail.com
+
+diff --git a/src/test/recovery/t/040_standby_failover_slots_sync.pl b/src/test/recovery/t/040_standby_failover_slots_sync.pl
+index 9634a50b3ec..7ad5f2eb11a 100644
+--- a/src/test/recovery/t/040_standby_failover_slots_sync.pl
++++ b/src/test/recovery/t/040_standby_failover_slots_sync.pl
+@@ -221,21 +221,18 @@ is( $standby1->safe_psql(
+ 
+ # Reset max_slot_wal_keep_size to avoid further wal removal
+ $standby1->append_conf('postgresql.conf', 'max_slot_wal_keep_size = -1');
+ $standby1->reload;
+ 
+-# Enable the subscription to let it catch up to the latest wal position
+-$subscriber1->safe_psql('postgres',
+-	"ALTER SUBSCRIPTION regress_mysub1 ENABLE");
++# To ensure that restart_lsn has moved to a recent WAL position, we re-create
++# the subscription and the logical slot.
++$subscriber1->safe_psql(
++	'postgres', qq[
++	DROP SUBSCRIPTION regress_mysub1;
++	CREATE SUBSCRIPTION regress_mysub1 CONNECTION '$publisher_connstr' PUBLICATION regress_mypub WITH (slot_name = lsub1_slot, copy_data = false, failover = true);
++]);
+ 
+-# This wait ensures that confirmed_flush_lsn has been moved to latest
+-# position.
+-$primary->wait_for_catchup('regress_mysub1');
+-
+-# To ensure that restart_lsn has moved to a recent WAL position, we need
+-# to log XLOG_RUNNING_XACTS and make sure the same is processed as well
+-$primary->psql('postgres', "CHECKPOINT");
+ $primary->wait_for_catchup('regress_mysub1');
+ 
+ # Do not allow any further advancement of the restart_lsn for the lsub1_slot.
+ $subscriber1->safe_psql('postgres',
+ 	"ALTER SUBSCRIPTION regress_mysub1 DISABLE");

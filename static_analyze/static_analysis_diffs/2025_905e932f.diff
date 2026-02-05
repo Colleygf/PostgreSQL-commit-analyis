@@ -1,0 +1,113 @@
+commit 905e932f0922a837bb3e4e482089c7c2e98bea67
+Author: Amit Langote <amitlan@postgresql.org>
+Date:   Thu Oct 16 14:01:44 2025 +0900
+
+    Fix EPQ crash from missing partition directory in EState
+    
+    EvalPlanQualStart() failed to propagate es_partition_directory into
+    the child EState used for EPQ rechecks. When execution time partition
+    pruning ran during the EPQ scan, executor code dereferenced a NULL
+    partition directory and crashed.
+    
+    Previously, propagating es_partition_directory into the EPQ EState was
+    unnecessary because CreatePartitionPruneState(), which sets it on
+    demand, also initialized the exec-pruning context.  After commit
+    d47cbf474, CreatePartitionPruneState() now initializes only the init-
+    time pruning context, leaving exec-pruning context initialization to
+    ExecInitNode(). Since EvalPlanQualStart() runs only ExecInitNode() and
+    not CreatePartitionPruneState(), it can encounter a NULL
+    es_partition_directory.  Other executor fields initialized during
+    CreatePartitionPruneState() are already copied into the child EState
+    thanks to commit 8741e48e5d, but es_partition_directory was missed.
+    
+    Fix by borrowing the parent estate's  es_partition_directory in
+    EvalPlanQualStart(), and by clearing that field in EvalPlanQualEnd()
+    so the parent remains responsible for freeing the directory.
+    
+    Add an isolation test permutation that triggers EPQ with execution-
+    time partition pruning, the case that reproduces this crash.
+    
+    Bug: #19078
+    Reported-by: Yuri Zamyatin <yuri@yrz.am>
+    Diagnosed-by: David Rowley <dgrowleyml@gmail.com>
+    Author: David Rowley <dgrowleyml@gmail.com>
+    Co-authored-by: Amit Langote <amitlangote09@gmail.com>
+    Discussion: https://postgr.es/m/19078-dfd62f840a2c0766@postgresql.org
+    Backpatch-through: 18
+
+diff --git a/src/backend/executor/execMain.c b/src/backend/executor/execMain.c
+index 831c55ce787..713e926329c 100644
+--- a/src/backend/executor/execMain.c
++++ b/src/backend/executor/execMain.c
+@@ -3091,10 +3091,13 @@ EvalPlanQualStart(EPQState *epqstate, Plan *planTree)
+ 	 */
+ 	rcestate->es_part_prune_infos = parentestate->es_part_prune_infos;
+ 	rcestate->es_part_prune_states = parentestate->es_part_prune_states;
+ 	rcestate->es_part_prune_results = parentestate->es_part_prune_results;
+ 
++	/* We'll also borrow the es_partition_directory from the parent state */
++	rcestate->es_partition_directory = parentestate->es_partition_directory;
++
+ 	/*
+ 	 * Initialize private state information for each SubPlan.  We must do this
+ 	 * before running ExecInitNode on the main query tree, since
+ 	 * ExecInitSubPlan expects to be able to find these entries. Some of the
+ 	 * SubPlans might not be used in the part of the plan tree we intend to
+@@ -3208,10 +3211,17 @@ EvalPlanQualEnd(EPQState *epqstate)
+ 	/* Close any result and trigger target relations attached to this EState */
+ 	ExecCloseResultRelations(estate);
+ 
+ 	MemoryContextSwitchTo(oldcontext);
+ 
++	/*
++	 * NULLify the partition directory before freeing the executor state.
++	 * Since EvalPlanQualStart() just borrowed the parent EState's directory,
++	 * we'd better leave it up to the parent to delete it.
++	 */
++	estate->es_partition_directory = NULL;
++
+ 	FreeExecutorState(estate);
+ 
+ 	/* Mark EPQState idle */
+ 	epqstate->origslot = NULL;
+ 	epqstate->recheckestate = NULL;
+diff --git a/src/test/isolation/expected/eval-plan-qual.out b/src/test/isolation/expected/eval-plan-qual.out
+index 60eca44b4e3..05fffe0d570 100644
+--- a/src/test/isolation/expected/eval-plan-qual.out
++++ b/src/test/isolation/expected/eval-plan-qual.out
+@@ -1464,5 +1464,12 @@ step s2pp1: SET plan_cache_mode TO force_generic_plan;
+ step s2pp2: PREPARE epd AS DELETE FROM another_parttbl WHERE a = $1;
+ step s2pp3: EXECUTE epd(1); <waiting ...>
+ step c1: COMMIT;
+ step s2pp3: <... completed>
+ step c2: COMMIT;
++
++starting permutation: s1pp1 s2pp4 c1 c2
++step s1pp1: UPDATE another_parttbl SET b = b + 1 WHERE a = 1;
++step s2pp4: DELETE FROM another_parttbl WHERE a = (SELECT 1); <waiting ...>
++step c1: COMMIT;
++step s2pp4: <... completed>
++step c2: COMMIT;
+diff --git a/src/test/isolation/specs/eval-plan-qual.spec b/src/test/isolation/specs/eval-plan-qual.spec
+index 64afffb1d83..80e1e6bb307 100644
+--- a/src/test/isolation/specs/eval-plan-qual.spec
++++ b/src/test/isolation/specs/eval-plan-qual.spec
+@@ -314,10 +314,11 @@ step c2	{ COMMIT; }
+ step r2	{ ROLLBACK; }
+ 
+ step s2pp1 { SET plan_cache_mode TO force_generic_plan; }
+ step s2pp2 { PREPARE epd AS DELETE FROM another_parttbl WHERE a = $1; }
+ step s2pp3 { EXECUTE epd(1); }
++step s2pp4 { DELETE FROM another_parttbl WHERE a = (SELECT 1); }
+ 
+ session s3
+ setup		{ BEGIN ISOLATION LEVEL READ COMMITTED; }
+ step read	{ SELECT * FROM accounts ORDER BY accountid; }
+ step read_ext	{ SELECT * FROM accounts_ext ORDER BY accountid; }
+@@ -421,5 +422,6 @@ permutation simplepartupdate_noroute complexpartupdate_doesnt_route c1 c2 read_p
+ permutation sys1 sysupd2 c1 c2
+ permutation sys1 sysmerge2 c1 c2
+ 
+ # Exercise run-time partition pruning code in an EPQ recheck
+ permutation s1pp1 s2pp1 s2pp2 s2pp3 c1 c2
++permutation s1pp1 s2pp4 c1 c2

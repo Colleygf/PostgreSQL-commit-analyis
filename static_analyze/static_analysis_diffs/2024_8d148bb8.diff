@@ -1,0 +1,126 @@
+commit 8d148bb8b8529ed8edeee4332e8eb41bac0fc193
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Aug 7 12:54:39 2024 -0400
+
+    Fix edge case in plpgsql's make_callstmt_target().
+    
+    If the plancache entry for the CALL statement is already stale,
+    it's possible for us to fetch an old procedure OID out of it,
+    and then fail with "cache lookup failed for function NNN".
+    In ordinary usage this never happens because make_callstmt_target
+    is called just once immediately after building the plancache
+    entry.  It can be forced however by setting up an erroneous CALL
+    (that causes make_callstmt_target itself to report an error),
+    then dropping/recreating the target procedure, then repeating
+    the erroneous CALL.
+    
+    To fix, use SPI_plan_get_cached_plan() to fetch the plancache's
+    plan, rather than assuming we can use SPI_plan_get_plan_sources().
+    This shouldn't add any noticeable overhead in the normal case,
+    and in the stale-plan case we'd have had to replan anyway a little
+    further down.
+    
+    The other callers of SPI_plan_get_plan_sources() seem OK, because
+    either they don't need up-to-date plans or they know that the
+    query was just (re) planned.  But add some commentary in hopes
+    of not falling into this trap again.
+    
+    Per bug #18574 from Song Hongyu.  Back-patch to v14 where this coding
+    was introduced.  (Older branches have comparable code, but it's run
+    after any required replanning, so there's no issue.)
+    
+    Discussion: https://postgr.es/m/18574-2ce7ba3249221389@postgresql.org
+
+diff --git a/src/backend/executor/spi.c b/src/backend/executor/spi.c
+index e516c0a67c6..d6516b1bca3 100644
+--- a/src/backend/executor/spi.c
++++ b/src/backend/executor/spi.c
+@@ -2042,10 +2042,12 @@ SPI_result_code_string(int code)
+ 
+ /*
+  * SPI_plan_get_plan_sources --- get a SPI plan's underlying list of
+  * CachedPlanSources.
+  *
++ * CAUTION: there is no check on whether the CachedPlanSources are up-to-date.
++ *
+  * This is exported so that PL/pgSQL can use it (this beats letting PL/pgSQL
+  * look directly into the SPIPlan for itself).  It's not documented in
+  * spi.sgml because we'd just as soon not have too many places using this.
+  */
+ List *
+diff --git a/src/pl/plpgsql/src/pl_exec.c b/src/pl/plpgsql/src/pl_exec.c
+index 239b3250a95..ea9740e3f89 100644
+--- a/src/pl/plpgsql/src/pl_exec.c
++++ b/src/pl/plpgsql/src/pl_exec.c
+@@ -2274,12 +2274,12 @@ exec_stmt_call(PLpgSQL_execstate *estate, PLpgSQL_stmt_call *stmt)
+  * exec_move_row() to do the assignments.
+  */
+ static PLpgSQL_variable *
+ make_callstmt_target(PLpgSQL_execstate *estate, PLpgSQL_expr *expr)
+ {
+-	List	   *plansources;
+-	CachedPlanSource *plansource;
++	CachedPlan *cplan;
++	PlannedStmt *pstmt;
+ 	CallStmt   *stmt;
+ 	FuncExpr   *funcexpr;
+ 	HeapTuple	func_tuple;
+ 	Oid		   *argtypes;
+ 	char	  **argnames;
+@@ -2292,20 +2292,19 @@ make_callstmt_target(PLpgSQL_execstate *estate, PLpgSQL_expr *expr)
+ 
+ 	/* Use eval_mcontext for any cruft accumulated here */
+ 	oldcontext = MemoryContextSwitchTo(get_eval_mcontext(estate));
+ 
+ 	/*
+-	 * Get the parsed CallStmt, and look up the called procedure
++	 * Get the parsed CallStmt, and look up the called procedure.  We use
++	 * SPI_plan_get_cached_plan to cover the edge case where expr->plan is
++	 * already stale and needs to be updated.
+ 	 */
+-	plansources = SPI_plan_get_plan_sources(expr->plan);
+-	if (list_length(plansources) != 1)
+-		elog(ERROR, "query for CALL statement is not a CallStmt");
+-	plansource = (CachedPlanSource *) linitial(plansources);
+-	if (list_length(plansource->query_list) != 1)
++	cplan = SPI_plan_get_cached_plan(expr->plan);
++	if (cplan == NULL || list_length(cplan->stmt_list) != 1)
+ 		elog(ERROR, "query for CALL statement is not a CallStmt");
+-	stmt = (CallStmt *) linitial_node(Query,
+-									  plansource->query_list)->utilityStmt;
++	pstmt = linitial_node(PlannedStmt, cplan->stmt_list);
++	stmt = (CallStmt *) pstmt->utilityStmt;
+ 	if (stmt == NULL || !IsA(stmt, CallStmt))
+ 		elog(ERROR, "query for CALL statement is not a CallStmt");
+ 
+ 	funcexpr = stmt->funcexpr;
+ 
+@@ -2381,10 +2380,12 @@ make_callstmt_target(PLpgSQL_execstate *estate, PLpgSQL_expr *expr)
+ 
+ 	Assert(nfields == list_length(stmt->outargs));
+ 
+ 	row->nfields = nfields;
+ 
++	ReleaseCachedPlan(cplan, CurrentResourceOwner);
++
+ 	MemoryContextSwitchTo(oldcontext);
+ 
+ 	return (PLpgSQL_variable *) row;
+ }
+ 
+@@ -4243,12 +4244,13 @@ exec_stmt_execsql(PLpgSQL_execstate *estate,
+ 			CachedPlanSource *plansource = (CachedPlanSource *) lfirst(l);
+ 
+ 			/*
+ 			 * We could look at the raw_parse_tree, but it seems simpler to
+ 			 * check the command tag.  Note we should *not* look at the Query
+-			 * tree(s), since those are the result of rewriting and could have
+-			 * been transmogrified into something else entirely.
++			 * tree(s), since those are the result of rewriting and could be
++			 * stale, or could have been transmogrified into something else
++			 * entirely.
+ 			 */
+ 			if (plansource->commandTag == CMDTAG_INSERT ||
+ 				plansource->commandTag == CMDTAG_UPDATE ||
+ 				plansource->commandTag == CMDTAG_DELETE ||
+ 				plansource->commandTag == CMDTAG_MERGE)

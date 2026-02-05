@@ -1,0 +1,65 @@
+commit d4baa327a1c9c6a6e0b8f8d0ea410d19bf5dde33
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Nov 5 11:09:30 2025 -0500
+
+    Avoid possible crash within libsanitizer.
+    
+    We've successfully used libsanitizer for awhile with the undefined
+    and alignment sanitizers, but with some other sanitizers (at least
+    thread and hwaddress) it crashes due to internal recursion before
+    it's fully initialized itself.  It turns out that that's due to the
+    "__ubsan_default_options" hack installed by commit f686ae82f, and we
+    can fix it by ensuring that __ubsan_default_options is built without
+    any sanitizer instrumentation hooks.
+    
+    Reported-by: Emmanuel Sibi <emmanuelsibi.mec@gmail.com>
+    Reported-by: Alexander Lakhin <exclusion@gmail.com>
+    Diagnosed-by: Emmanuel Sibi <emmanuelsibi.mec@gmail.com>
+    Fix-suggested-by: Jacob Champion <jacob.champion@enterprisedb.com>
+    Author: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/F7543B04-E56C-4D68-A040-B14CCBAD38F1@gmail.com
+    Discussion: https://postgr.es/m/dbf77bf7-6e54-ed8a-c4ae-d196eeb664ce@gmail.com
+    Backpatch-through: 16
+
+diff --git a/src/backend/main/main.c b/src/backend/main/main.c
+index bdcb5e4f261..72aaee36a68 100644
+--- a/src/backend/main/main.c
++++ b/src/backend/main/main.c
+@@ -484,24 +484,33 @@ check_root(const char *progname)
+ }
+ 
+ /*
+  * At least on linux, set_ps_display() breaks /proc/$pid/environ. The
+  * sanitizer library uses /proc/$pid/environ to implement getenv() as it wants
+- * to work independent of libc. When just using undefined and alignment
+- * sanitizers, the sanitizer library is only initialized when the first error
+- * occurs, by which time we've often already called set_ps_display(),
+- * preventing the sanitizer libraries from seeing the options.
++ * to work independent of libc. Depending on which sanitizers are enabled,
++ * the sanitizer library may not get initialized until after we've called
++ * set_ps_display(), preventing the sanitizer from seeing environment-supplied
++ * options.
+  *
+  * We can work around that by defining __ubsan_default_options, a weak symbol
+  * libsanitizer uses to get defaults from the application, and return
+  * getenv("UBSAN_OPTIONS"). But only if main already was reached, so that we
+  * don't end up relying on a not-yet-working getenv().
+  *
++ * On the other hand, with different sanitizers enabled, libsanitizer can
++ * call this so early that it's not fully initialized itself, resulting in
++ * recursion and a core dump within libsanitizer.  To prevent that, ensure
++ * that this function is built without any sanitizer callbacks in it.
++ *
+  * As this function won't get called when not running a sanitizer, it doesn't
+  * seem necessary to only compile it conditionally.
+  */
+ const char *__ubsan_default_options(void);
++
++#if __has_attribute(disable_sanitizer_instrumentation)
++__attribute__((disable_sanitizer_instrumentation))
++#endif
+ const char *
+ __ubsan_default_options(void)
+ {
+ 	/* don't call libc before it's guaranteed to be initialized */
+ 	if (!reached_main)

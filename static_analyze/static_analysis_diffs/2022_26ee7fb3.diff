@@ -1,0 +1,97 @@
+commit 26ee7fb3684e5809d663f74847fb405f5a84d1af
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Nov 2 11:30:04 2022 -0400
+
+    pg_dump: fix failure to dump comments on constraints in some cases.
+    
+    Thinko in commit 5209c0ba0: I checked the wrong object's
+    DUMP_COMPONENT_COMMENT bit in two places.
+    
+    Per bug #17675 from Franz-Josef Färber.
+    
+    Discussion: https://postgr.es/m/17675-c69c001e06390867@postgresql.org
+
+diff --git a/src/bin/pg_dump/pg_dump.c b/src/bin/pg_dump/pg_dump.c
+index bd9b066e4eb..da427f4d4a1 100644
+--- a/src/bin/pg_dump/pg_dump.c
++++ b/src/bin/pg_dump/pg_dump.c
+@@ -10994,11 +10994,11 @@ dumpDomain(Archive *fout, const TypeInfo *tyinfo)
+ 		PQExpBuffer conprefix = createPQExpBuffer();
+ 
+ 		appendPQExpBuffer(conprefix, "CONSTRAINT %s ON DOMAIN",
+ 						  fmtId(domcheck->dobj.name));
+ 
+-		if (tyinfo->dobj.dump & DUMP_COMPONENT_COMMENT)
++		if (domcheck->dobj.dump & DUMP_COMPONENT_COMMENT)
+ 			dumpComment(fout, conprefix->data, qtypname,
+ 						tyinfo->dobj.namespace->dobj.name,
+ 						tyinfo->rolname,
+ 						domcheck->dobj.catId, 0, tyinfo->dobj.dumpId);
+ 
+@@ -15866,11 +15866,11 @@ dumpTableSchema(Archive *fout, const TableInfo *tbinfo)
+ 		ConstraintInfo *constr = &(tbinfo->checkexprs[j]);
+ 
+ 		if (constr->separate || !constr->conislocal)
+ 			continue;
+ 
+-		if (tbinfo->dobj.dump & DUMP_COMPONENT_COMMENT)
++		if (constr->dobj.dump & DUMP_COMPONENT_COMMENT)
+ 			dumpTableConstraintComment(fout, constr);
+ 	}
+ 
+ 	destroyPQExpBuffer(q);
+ 	destroyPQExpBuffer(delq);
+diff --git a/src/bin/pg_dump/t/002_pg_dump.pl b/src/bin/pg_dump/t/002_pg_dump.pl
+index 5df5a0ad59e..8dc1f0eccb5 100644
+--- a/src/bin/pg_dump/t/002_pg_dump.pl
++++ b/src/bin/pg_dump/t/002_pg_dump.pl
+@@ -1688,17 +1688,20 @@ my %tests = (
+ 		create_order => 29,
+ 		create_sql   => 'CREATE DOMAIN dump_test.us_postal_code AS TEXT
+ 		               COLLATE "C"
+ 					   DEFAULT \'10014\'
+ 					   CHECK(VALUE ~ \'^\d{5}$\' OR
+-							 VALUE ~ \'^\d{5}-\d{4}$\');',
++							 VALUE ~ \'^\d{5}-\d{4}$\');
++					   COMMENT ON CONSTRAINT us_postal_code_check
++						 ON DOMAIN dump_test.us_postal_code IS \'check it\';',
+ 		regexp => qr/^
+ 			\QCREATE DOMAIN dump_test.us_postal_code AS text COLLATE pg_catalog."C" DEFAULT '10014'::text\E\n\s+
+ 			\QCONSTRAINT us_postal_code_check CHECK \E
+ 			\Q(((VALUE ~ '^\d{5}\E
+ 			\$\Q'::text) OR (VALUE ~ '^\d{5}-\d{4}\E\$
+-			\Q'::text)));\E
++			\Q'::text)));\E(.|\n)*
++			\QCOMMENT ON CONSTRAINT us_postal_code_check ON DOMAIN dump_test.us_postal_code IS 'check it';\E
+ 			/xm,
+ 		like =>
+ 		  { %full_runs, %dump_test_schema_runs, section_pre_data => 1, },
+ 		unlike => { exclude_dump_test_schema => 1, },
+ 	},
+@@ -2637,20 +2640,24 @@ my %tests = (
+ 						   col1 serial primary key,
+ 						   col2 text COMPRESSION pglz,
+ 						   col3 text,
+ 						   col4 text,
+ 						   CHECK (col1 <= 1000)
+-					   ) WITH (autovacuum_enabled = false, fillfactor=80);',
++					   ) WITH (autovacuum_enabled = false, fillfactor=80);
++					   COMMENT ON CONSTRAINT test_table_col1_check
++						 ON dump_test.test_table IS \'bounds check\';',
+ 		regexp => qr/^
+ 			\QCREATE TABLE dump_test.test_table (\E\n
+ 			\s+\Qcol1 integer NOT NULL,\E\n
+ 			\s+\Qcol2 text,\E\n
+ 			\s+\Qcol3 text,\E\n
+ 			\s+\Qcol4 text,\E\n
+ 			\s+\QCONSTRAINT test_table_col1_check CHECK ((col1 <= 1000))\E\n
+ 			\Q)\E\n
+-			\QWITH (autovacuum_enabled='false', fillfactor='80');\E\n/xm,
++			\QWITH (autovacuum_enabled='false', fillfactor='80');\E\n(.|\n)*
++			\QCOMMENT ON CONSTRAINT test_table_col1_check ON dump_test.test_table IS 'bounds check';\E
++			/xm,
+ 		like => {
+ 			%full_runs,
+ 			%dump_test_schema_runs,
+ 			only_dump_test_table => 1,
+ 			section_pre_data     => 1,

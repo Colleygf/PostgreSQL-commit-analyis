@@ -1,0 +1,65 @@
+commit 6a6b7f5de3ff0dad46aab9e8e17a3747370199a3
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Wed Feb 28 22:57:00 2024 +0100
+
+    Fix documentation comments for test CA config files
+    
+    The config files which are used to generate the server and client
+    CAs claimed that these were self-signed, when they in reality are
+    signed by the root_ca (which however is self-signed).  Reword the
+    comments to match.
+    
+    Author: David Zhang <david.zhang@highgo.ca>
+    Discussion: https://postgr.es/m/12f4c425-45fe-480f-a692-b3ed82ebcb33@highgo.ca
+
+diff --git a/src/test/ssl/conf/client_ca.config b/src/test/ssl/conf/client_ca.config
+index 5990f060002..08365aac955 100644
+--- a/src/test/ssl/conf/client_ca.config
++++ b/src/test/ssl/conf/client_ca.config
+@@ -1,9 +1,11 @@
+-# An OpenSSL format CSR config file for creating the client root certificate.
+-# This configuration file is also used when operating the CA.
++# An OpenSSL format CSR config file for creating the client Intermediate
++# Certificate Authority. This configuration file is also used when operating
++# the CA.
+ #
+-# This certificate is used to sign client certificates. It is self-signed.
++# This certificate is used to sign client certificates. It is an Intermediate
++# CA.
+ 
+ [ req ]
+ distinguished_name     = req_distinguished_name
+ prompt                 = no
+ req_extensions         = v3_ca
+diff --git a/src/test/ssl/conf/root_ca.config b/src/test/ssl/conf/root_ca.config
+index e193186f8bf..6caa8a1ae63 100644
+--- a/src/test/ssl/conf/root_ca.config
++++ b/src/test/ssl/conf/root_ca.config
+@@ -1,7 +1,7 @@
+ # A root certificate authority. The server and client CA's certificates
+-# are signed by this root CA.
++# are signed by this root CA. This certificate is self-signed.
+ 
+ [ req ]
+ distinguished_name     = req_distinguished_name
+ prompt                 = no
+ x509_extensions        = v3_ca
+diff --git a/src/test/ssl/conf/server_ca.config b/src/test/ssl/conf/server_ca.config
+index 496aaba29fb..15f8d1590fe 100644
+--- a/src/test/ssl/conf/server_ca.config
++++ b/src/test/ssl/conf/server_ca.config
+@@ -1,9 +1,11 @@
+-# An OpenSSL format CSR config file for creating the server root certificate.
+-# This configuration file is also used when operating the CA.
++# An OpenSSL format CSR config file for creating the server Intermediate
++# Certificate Authority. This configuration file is also used when operating
++# the CA.
+ #
+-# This certificate is used to sign server certificates. It is self-signed.
++# This certificate is used to sign server certificates. It is an Intermediate
++# CA.
+ 
+ [ req ]
+ distinguished_name     = req_distinguished_name
+ prompt                 = no
+ req_extensions         = v3_ca

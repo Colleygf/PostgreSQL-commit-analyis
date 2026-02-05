@@ -1,0 +1,54 @@
+commit e1c3654839e464957675344a1e949489d98b103b
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Thu Jul 24 09:05:32 2025 +0000
+
+    Fix duplicate transaction replay during pg_createsubscriber.
+    
+    Previously, the tool could replay the same transaction twice, once during
+    recovery, then again during replication after the subscriber was set up.
+    
+    This occurred because the same recovery_target_lsn was used both to
+    finalize recovery and to start replication. If
+    recovery_target_inclusive = true, the transaction at that LSN would be
+    applied during recovery and then sent again by the publisher leading to
+    duplication.
+    
+    To prevent this, we now set recovery_target_inclusive = false. This
+    ensures the transaction at recovery_target_lsn is not reapplied during
+    recovery, avoiding duplication when replication begins.
+    
+    Bug #18897
+    Reported-by: Zane Duffield <duffieldzane@gmail.com>
+    Author: Shlok Kyal <shlok.kyal.oss@gmail.com>
+    Reviewed-by: vignesh C <vignesh21@gmail.com>
+    Reviewed-by: Amit Kapila <amit.kapila16@gmail.com>
+    Backpatch-through: 17, where it was introduced
+    Discussion: https://postgr.es/m/18897-d3db67535860dddb@postgresql.org
+
+diff --git a/src/bin/pg_basebackup/pg_createsubscriber.c b/src/bin/pg_basebackup/pg_createsubscriber.c
+index 025b893a41e..3986882f042 100644
+--- a/src/bin/pg_basebackup/pg_createsubscriber.c
++++ b/src/bin/pg_basebackup/pg_createsubscriber.c
+@@ -1248,12 +1248,21 @@ setup_recovery(const struct LogicalRepInfo *dbinfo, const char *datadir, const c
+ 	 */
+ 	recoveryconfcontents = GenerateRecoveryConfig(conn, NULL, NULL);
+ 	appendPQExpBufferStr(recoveryconfcontents, "recovery_target = ''\n");
+ 	appendPQExpBufferStr(recoveryconfcontents,
+ 						 "recovery_target_timeline = 'latest'\n");
++
++	/*
++	 * Set recovery_target_inclusive = false to avoid reapplying the
++	 * transaction committed at 'lsn' after subscription is enabled. This is
++	 * because the provided 'lsn' is also used as the replication start point
++	 * for the subscription. So, the server can send the transaction committed
++	 * at that 'lsn' after replication is started which can lead to applying
++	 * the same transaction twice if we keep recovery_target_inclusive = true.
++	 */
+ 	appendPQExpBufferStr(recoveryconfcontents,
+-						 "recovery_target_inclusive = true\n");
++						 "recovery_target_inclusive = false\n");
+ 	appendPQExpBufferStr(recoveryconfcontents,
+ 						 "recovery_target_action = promote\n");
+ 	appendPQExpBufferStr(recoveryconfcontents, "recovery_target_name = ''\n");
+ 	appendPQExpBufferStr(recoveryconfcontents, "recovery_target_time = ''\n");
+ 	appendPQExpBufferStr(recoveryconfcontents, "recovery_target_xid = ''\n");

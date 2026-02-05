@@ -1,0 +1,76 @@
+commit 9ec0b29976b6d73cc08880842caa0db286e46bd4
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Mon Sep 15 11:38:58 2025 +0200
+
+    CREATE STATISTICS: improve misleading error message
+    
+    The previous change (commit f225473cbae) was still not on target,
+    because it talked about relation kinds, which are not what is being
+    checked here.  Provide a more accurate message.
+    
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/CACJufxEZ48toGH0Em_6vdsT57Y3L8pLF=DZCQ_gCii6=C3MeXw@mail.gmail.com
+
+diff --git a/src/backend/tcop/utility.c b/src/backend/tcop/utility.c
+index 5f442bc3bd4..918db53dd5e 100644
+--- a/src/backend/tcop/utility.c
++++ b/src/backend/tcop/utility.c
+@@ -1872,12 +1872,11 @@ ProcessUtilitySlow(ParseState *pstate,
+ 					RangeVar   *rel = (RangeVar *) linitial(stmt->relations);
+ 
+ 					if (!IsA(rel, RangeVar))
+ 						ereport(ERROR,
+ 								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+-								 errmsg("cannot create statistics on the specified relation"),
+-								 errdetail("CREATE STATISTICS only supports tables, foreign tables and materialized views.")));
++								 errmsg("CREATE STATISTICS only supports relation names in the FROM clause")));
+ 
+ 					/*
+ 					 * CREATE STATISTICS will influence future execution plans
+ 					 * but does not interfere with currently executing plans.
+ 					 * So it should be enough to take ShareUpdateExclusiveLock
+diff --git a/src/test/regress/expected/stats_ext.out b/src/test/regress/expected/stats_ext.out
+index a1f83b58b23..fdc0aa130bd 100644
+--- a/src/test/regress/expected/stats_ext.out
++++ b/src/test/regress/expected/stats_ext.out
+@@ -54,33 +54,26 @@ CREATE STATISTICS tst ON (x || 'x'), (x || 'x'), y FROM ext_stats_test;
+ ERROR:  duplicate expression in statistics definition
+ CREATE STATISTICS tst (unrecognized) ON x, y FROM ext_stats_test;
+ ERROR:  unrecognized statistics kind "unrecognized"
+ -- unsupported targets
+ CREATE STATISTICS tst ON a FROM (VALUES (x)) AS foo;
+-ERROR:  cannot create statistics on the specified relation
+-DETAIL:  CREATE STATISTICS only supports tables, foreign tables and materialized views.
++ERROR:  CREATE STATISTICS only supports relation names in the FROM clause
+ CREATE STATISTICS tst ON a FROM foo NATURAL JOIN bar;
+-ERROR:  cannot create statistics on the specified relation
+-DETAIL:  CREATE STATISTICS only supports tables, foreign tables and materialized views.
++ERROR:  CREATE STATISTICS only supports relation names in the FROM clause
+ CREATE STATISTICS tst ON a FROM (SELECT * FROM ext_stats_test) AS foo;
+-ERROR:  cannot create statistics on the specified relation
+-DETAIL:  CREATE STATISTICS only supports tables, foreign tables and materialized views.
++ERROR:  CREATE STATISTICS only supports relation names in the FROM clause
+ CREATE STATISTICS tst ON a FROM ext_stats_test s TABLESAMPLE system (x);
+-ERROR:  cannot create statistics on the specified relation
+-DETAIL:  CREATE STATISTICS only supports tables, foreign tables and materialized views.
++ERROR:  CREATE STATISTICS only supports relation names in the FROM clause
+ CREATE STATISTICS tst ON a FROM XMLTABLE('foo' PASSING 'bar' COLUMNS a text);
+-ERROR:  cannot create statistics on the specified relation
+-DETAIL:  CREATE STATISTICS only supports tables, foreign tables and materialized views.
++ERROR:  CREATE STATISTICS only supports relation names in the FROM clause
+ CREATE STATISTICS tst ON a FROM JSON_TABLE(jsonb '123', '$' COLUMNS (item int));
+-ERROR:  cannot create statistics on the specified relation
+-DETAIL:  CREATE STATISTICS only supports tables, foreign tables and materialized views.
++ERROR:  CREATE STATISTICS only supports relation names in the FROM clause
+ CREATE FUNCTION tftest(int) returns table(a int, b int) as $$
+ SELECT $1, $1+i FROM generate_series(1,5) g(i);
+ $$ LANGUAGE sql IMMUTABLE STRICT;
+ CREATE STATISTICS alt_stat2 ON a FROM tftest(1);
+-ERROR:  cannot create statistics on the specified relation
+-DETAIL:  CREATE STATISTICS only supports tables, foreign tables and materialized views.
++ERROR:  CREATE STATISTICS only supports relation names in the FROM clause
+ DROP FUNCTION tftest;
+ -- incorrect expressions
+ CREATE STATISTICS tst ON (y) FROM ext_stats_test; -- single column reference
+ ERROR:  extended statistics require at least 2 columns
+ CREATE STATISTICS tst ON y + z FROM ext_stats_test; -- missing parentheses

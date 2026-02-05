@@ -1,0 +1,76 @@
+commit f3f467b8f69b673fb73d15bf5ccd3a2027403d7b
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Mon Jan 17 12:52:44 2022 -0500
+
+    Avoid calling strerror[_r] in PQcancel().
+    
+    PQcancel() is supposed to be safe to call from a signal handler,
+    and indeed psql uses it that way.  All of the library functions
+    it uses are specified to be async-signal-safe by POSIX ...
+    except for strerror.  Neither plain strerror nor strerror_r
+    are considered safe.  When this code was written, back in the
+    dark ages, we probably figured "oh, strerror will just index
+    into a constant array of strings" ... but in any locale except C,
+    that's unlikely to be true.  Probably the reason we've not heard
+    complaints is that (a) this error-handling code is unlikely to be
+    reached in normal use, and (b) in many scenarios, localized error
+    strings would already have been loaded, after which maybe it's
+    safe to call strerror here.  Still, this is clearly unacceptable.
+    
+    The best we can do without relying on strerror is to print the
+    decimal value of errno, so make it do that instead.  (This is
+    probably not much loss of user-friendliness, given that it is
+    hard to get a failure here.)
+    
+    Back-patch to all supported branches.
+    
+    Discussion: https://postgr.es/m/2937814.1641960929@sss.pgh.pa.us
+
+diff --git a/src/interfaces/libpq/fe-connect.c b/src/interfaces/libpq/fe-connect.c
+index 5fc16be849f..fe3af855d85 100644
+--- a/src/interfaces/libpq/fe-connect.c
++++ b/src/interfaces/libpq/fe-connect.c
+@@ -4417,11 +4417,10 @@ static int
+ internal_cancel(SockAddr *raddr, int be_pid, int be_key,
+ 				char *errbuf, int errbufsize)
+ {
+ 	int			save_errno = SOCK_ERRNO;
+ 	pgsocket	tmpsock = PGINVALID_SOCKET;
+-	char		sebuf[PG_STRERROR_R_BUFLEN];
+ 	int			maxlen;
+ 	struct
+ 	{
+ 		uint32		packetlen;
+ 		CancelRequestPacket cp;
+@@ -4496,12 +4495,29 @@ cancel_errReturn:
+ 	 * the end, and for the terminating zero.
+ 	 */
+ 	maxlen = errbufsize - strlen(errbuf) - 2;
+ 	if (maxlen >= 0)
+ 	{
+-		strncat(errbuf, SOCK_STRERROR(SOCK_ERRNO, sebuf, sizeof(sebuf)),
+-				maxlen);
++		/*
++		 * We can't invoke strerror here, since it's not signal-safe.  Settle
++		 * for printing the decimal value of errno.  Even that has to be done
++		 * the hard way.
++		 */
++		int			val = SOCK_ERRNO;
++		char		buf[32];
++		char	   *bufp;
++
++		bufp = buf + sizeof(buf) - 1;
++		*bufp = '\0';
++		do
++		{
++			*(--bufp) = (val % 10) + '0';
++			val /= 10;
++		} while (val > 0);
++		bufp -= 6;
++		memcpy(bufp, "error ", 6);
++		strncat(errbuf, bufp, maxlen);
+ 		strcat(errbuf, "\n");
+ 	}
+ 	if (tmpsock != PGINVALID_SOCKET)
+ 		closesocket(tmpsock);
+ 	SOCK_ERRNO_SET(save_errno);

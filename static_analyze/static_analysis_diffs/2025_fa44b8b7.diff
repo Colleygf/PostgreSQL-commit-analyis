@@ -1,0 +1,99 @@
+commit fa44b8b7fbb7eb0f13546aa13976f9919a4ca201
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Wed Dec 10 11:43:16 2025 +0200
+
+    Fix some near-bugs related to ResourceOwner function arguments
+    
+    These functions took a ResourceOwner argument, but only checked if it
+    was NULL, and then used CurrentResourceOwner for the actual work.
+    Surely the intention was to use the passed-in resource owner. All
+    current callers passed CurrentResourceOwner or NULL, so this has no
+    consequences at the moment, but it's an accident waiting to happen for
+    future caller and extensions.
+    
+    Author: Matthias van de Meent <boekewurm+postgres@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/CAEze2Whnfv8VuRZaohE-Af+GxBA1SNfD_rXfm84Jv-958UCcJA@mail.gmail.com
+    Backpatch-through: 17
+
+diff --git a/src/backend/storage/aio/aio.c b/src/backend/storage/aio/aio.c
+index a12b785ade6..c4c2d8cc4b1 100644
+--- a/src/backend/storage/aio/aio.c
++++ b/src/backend/storage/aio/aio.c
+@@ -51,11 +51,11 @@
+ #include "utils/wait_event_types.h"
+ 
+ 
+ static inline void pgaio_io_update_state(PgAioHandle *ioh, PgAioHandleState new_state);
+ static void pgaio_io_reclaim(PgAioHandle *ioh);
+-static void pgaio_io_resowner_register(PgAioHandle *ioh);
++static void pgaio_io_resowner_register(PgAioHandle *ioh, struct ResourceOwnerData *resowner);
+ static void pgaio_io_wait_for_free(void);
+ static PgAioHandle *pgaio_io_from_wref(PgAioWaitRef *iow, uint64 *ref_generation);
+ static const char *pgaio_io_state_get_name(PgAioHandleState s);
+ static void pgaio_io_wait(PgAioHandle *ioh, uint64 ref_generation);
+ 
+@@ -215,11 +215,11 @@ pgaio_io_acquire_nb(struct ResourceOwnerData *resowner, PgAioReturn *ret)
+ 
+ 		pgaio_io_update_state(ioh, PGAIO_HS_HANDED_OUT);
+ 		pgaio_my_backend->handed_out_io = ioh;
+ 
+ 		if (resowner)
+-			pgaio_io_resowner_register(ioh);
++			pgaio_io_resowner_register(ioh, resowner);
+ 
+ 		if (ret)
+ 		{
+ 			ioh->report_return = ret;
+ 			ret->result.status = PGAIO_RS_UNKNOWN;
+@@ -404,17 +404,17 @@ pgaio_io_update_state(PgAioHandle *ioh, PgAioHandleState new_state)
+ 
+ 	ioh->state = new_state;
+ }
+ 
+ static void
+-pgaio_io_resowner_register(PgAioHandle *ioh)
++pgaio_io_resowner_register(PgAioHandle *ioh, struct ResourceOwnerData *resowner)
+ {
+ 	Assert(!ioh->resowner);
+-	Assert(CurrentResourceOwner);
++	Assert(resowner);
+ 
+-	ResourceOwnerRememberAioHandle(CurrentResourceOwner, &ioh->resowner_node);
+-	ioh->resowner = CurrentResourceOwner;
++	ResourceOwnerRememberAioHandle(resowner, &ioh->resowner_node);
++	ioh->resowner = resowner;
+ }
+ 
+ /*
+  * Stage IO for execution and, if appropriate, submit it immediately.
+  *
+diff --git a/src/backend/utils/cache/catcache.c b/src/backend/utils/cache/catcache.c
+index 84f1f80607e..1d09c66ac95 100644
+--- a/src/backend/utils/cache/catcache.c
++++ b/src/backend/utils/cache/catcache.c
+@@ -1666,11 +1666,11 @@ ReleaseCatCacheWithOwner(HeapTuple tuple, ResourceOwner resowner)
+ 	Assert(ct->ct_magic == CT_MAGIC);
+ 	Assert(ct->refcount > 0);
+ 
+ 	ct->refcount--;
+ 	if (resowner)
+-		ResourceOwnerForgetCatCacheRef(CurrentResourceOwner, &ct->tuple);
++		ResourceOwnerForgetCatCacheRef(resowner, &ct->tuple);
+ 
+ 	if (
+ #ifndef CATCACHE_FORCE_RELEASE
+ 		ct->dead &&
+ #endif
+@@ -2108,11 +2108,11 @@ ReleaseCatCacheListWithOwner(CatCList *list, ResourceOwner resowner)
+ 	/* Safety checks to ensure we were handed a cache entry */
+ 	Assert(list->cl_magic == CL_MAGIC);
+ 	Assert(list->refcount > 0);
+ 	list->refcount--;
+ 	if (resowner)
+-		ResourceOwnerForgetCatCacheListRef(CurrentResourceOwner, list);
++		ResourceOwnerForgetCatCacheListRef(resowner, list);
+ 
+ 	if (
+ #ifndef CATCACHE_FORCE_RELEASE
+ 		list->dead &&
+ #endif

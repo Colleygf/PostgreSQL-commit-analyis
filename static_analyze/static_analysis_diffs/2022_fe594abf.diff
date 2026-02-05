@@ -1,0 +1,87 @@
+commit fe594abf7c22d721de322c7fd55b5b6a844bcda5
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Sat Jan 8 16:44:45 2022 +0900
+
+    Fix issues with describe queries of extended statistics in psql
+    
+    This addresses some problems in the describe queries used for extended
+    statistics:
+    - Two schema qualifications for the text type were missing for \dX.
+    - The list of extended statistics listed for a table through \d was
+    ordered based on the object OIDs, but it is more consistent with the
+    other commands to order by namespace and then by object name.
+    - A couple of aliases were not used in \d.  These are removed.
+    
+    This is similar to commits 1f092a3 and 07f8a9e.
+    
+    Author: Justin Pryzby
+    Discussion: https://postgr.es/m/20220107022235.GA14051@telsasoft.com
+    Backpatch-through: 14
+
+diff --git a/src/bin/psql/describe.c b/src/bin/psql/describe.c
+index 6e0f35803ee..8587b19160d 100644
+--- a/src/bin/psql/describe.c
++++ b/src/bin/psql/describe.c
+@@ -2606,20 +2606,20 @@ describeOneTableDetails(const char *schemaname,
+ 		if (pset.sversion >= 140000)
+ 		{
+ 			printfPQExpBuffer(&buf,
+ 							  "SELECT oid, "
+ 							  "stxrelid::pg_catalog.regclass, "
+-							  "stxnamespace::pg_catalog.regnamespace AS nsp, "
++							  "stxnamespace::pg_catalog.regnamespace::pg_catalog.text AS nsp, "
+ 							  "stxname,\n"
+ 							  "pg_catalog.pg_get_statisticsobjdef_columns(oid) AS columns,\n"
+ 							  "  'd' = any(stxkind) AS ndist_enabled,\n"
+ 							  "  'f' = any(stxkind) AS deps_enabled,\n"
+ 							  "  'm' = any(stxkind) AS mcv_enabled,\n"
+ 							  "stxstattarget\n"
+-							  "FROM pg_catalog.pg_statistic_ext stat\n"
++							  "FROM pg_catalog.pg_statistic_ext\n"
+ 							  "WHERE stxrelid = '%s'\n"
+-							  "ORDER BY 1;",
++							  "ORDER BY nsp, stxname;",
+ 							  oid);
+ 
+ 			result = PSQLexec(buf.data);
+ 			if (!result)
+ 				goto error_return;
+@@ -2717,11 +2717,11 @@ describeOneTableDetails(const char *schemaname,
+ 
+ 			if (pset.sversion >= 130000)
+ 				appendPQExpBufferStr(&buf, "  stxstattarget\n");
+ 			else
+ 				appendPQExpBufferStr(&buf, "  -1 AS stxstattarget\n");
+-			appendPQExpBuffer(&buf, "FROM pg_catalog.pg_statistic_ext stat\n"
++			appendPQExpBuffer(&buf, "FROM pg_catalog.pg_statistic_ext\n"
+ 							  "WHERE stxrelid = '%s'\n"
+ 							  "ORDER BY 1;",
+ 							  oid);
+ 
+ 			result = PSQLexec(buf.data);
+@@ -4390,11 +4390,11 @@ listExtendedStats(const char *pattern)
+ 	}
+ 
+ 	initPQExpBuffer(&buf);
+ 	printfPQExpBuffer(&buf,
+ 					  "SELECT \n"
+-					  "es.stxnamespace::pg_catalog.regnamespace::text AS \"%s\", \n"
++					  "es.stxnamespace::pg_catalog.regnamespace::pg_catalog.text AS \"%s\", \n"
+ 					  "es.stxname AS \"%s\", \n",
+ 					  gettext_noop("Schema"),
+ 					  gettext_noop("Name"));
+ 
+ 	if (pset.sversion >= 140000)
+@@ -4437,11 +4437,11 @@ listExtendedStats(const char *pattern)
+ 	appendPQExpBufferStr(&buf,
+ 						 " \nFROM pg_catalog.pg_statistic_ext es \n");
+ 
+ 	processSQLNamePattern(pset.db, &buf, pattern,
+ 						  false, false,
+-						  "es.stxnamespace::pg_catalog.regnamespace::text", "es.stxname",
++						  "es.stxnamespace::pg_catalog.regnamespace::pg_catalog.text", "es.stxname",
+ 						  NULL, "pg_catalog.pg_statistics_obj_is_visible(es.oid)");
+ 
+ 	appendPQExpBufferStr(&buf, "ORDER BY 1, 2;");
+ 
+ 	res = PSQLexec(buf.data);

@@ -1,0 +1,56 @@
+commit d5b9b2d40262f57f58322ad49f8928fd4a492adb
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Mon Jul 28 11:15:47 2025 -0400
+
+    Remove misleading hint for "unexpected data beyond EOF" error.
+    
+    Commit ffae5cc5a6024b4e25ec920ed5c4dfac649605f8 added this hint in 2006,
+    but it's now obsolete and doesn't reflect what users should really check
+    in this situation. We were not able to agree on a new hint, so just delete
+    the existing one and update the comments to mention one possibility that
+    is known to cause problems of this kind: something other than PostgreSQL
+    is modifying files in the PostgreSQL data directory.
+    
+    Author: Jakub Wartak <jakub.wartak@enterprisedb.com>
+    Reviewed-by: Robert Haas <rhaas@postgresql.org>
+    Reviewed-by: Andres Freund <andres@anarazel.de>
+    Reviewed-by: Christoph Berg <myon@debian.org>
+    Discussion: https://postgr.es/m/CAKZiRmxNbcaL76x=09Sxf7aUmrRQJBf8drzDdUHo+j9_eM+VMg@mail.gmail.com
+
+diff --git a/src/backend/storage/buffer/bufmgr.c b/src/backend/storage/buffer/bufmgr.c
+index 6afdd28dba6..9c6fe587ec9 100644
+--- a/src/backend/storage/buffer/bufmgr.c
++++ b/src/backend/storage/buffer/bufmgr.c
+@@ -2741,15 +2741,13 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
+ 		 * the relation but we found a pre-existing buffer. This can happen
+ 		 * because a prior attempt at extending the relation failed, and
+ 		 * because mdread doesn't complain about reads beyond EOF (when
+ 		 * zero_damaged_pages is ON) and so a previous attempt to read a block
+ 		 * beyond EOF could have left a "valid" zero-filled buffer.
+-		 * Unfortunately, we have also seen this case occurring because of
+-		 * buggy Linux kernels that sometimes return an lseek(SEEK_END) result
+-		 * that doesn't account for a recent write. In that situation, the
+-		 * pre-existing buffer would contain valid data that we don't want to
+-		 * overwrite.  Since the legitimate cases should always have left a
++		 *
++		 * This has also been observed when relation was overwritten by external
++		 * process. Since the legitimate cases should always have left a
+ 		 * zero-filled buffer, complain if not PageIsNew.
+ 		 */
+ 		if (existing_id >= 0)
+ 		{
+ 			BufferDesc *existing_hdr = GetBufferDescriptor(existing_id);
+@@ -2776,12 +2774,11 @@ ExtendBufferedRelShared(BufferManagerRelation bmr,
+ 
+ 			if (valid && !PageIsNew((Page) buf_block))
+ 				ereport(ERROR,
+ 						(errmsg("unexpected data beyond EOF in block %u of relation %s",
+ 								existing_hdr->tag.blockNum,
+-								relpath(bmr.smgr->smgr_rlocator, fork).str),
+-						 errhint("This has been seen to occur with buggy kernels; consider updating your system.")));
++								relpath(bmr.smgr->smgr_rlocator, fork).str)));
+ 
+ 			/*
+ 			 * We *must* do smgr[zero]extend before succeeding, else the page
+ 			 * will not be reserved by the kernel, and the next P_NEW call
+ 			 * will decide to return the same page.  Clear the BM_VALID bit,

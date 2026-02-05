@@ -1,0 +1,85 @@
+commit 991f8cf8abe244547093ddffcc4b9209076f3525
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Tue Jul 23 21:59:02 2024 -0500
+
+    Detect integer overflow in array_set_slice().
+    
+    When provided an empty initial array, array_set_slice() fails to
+    check for overflow when computing the new array's dimensions.
+    While such overflows are ordinarily caught by ArrayGetNItems(),
+    commands with the following form are accepted:
+    
+            INSERT INTO t (i[-2147483648:2147483647]) VALUES ('{}');
+    
+    To fix, perform the hazardous computations using overflow-detecting
+    arithmetic routines.  As with commit 18b585155a, the added test
+    cases generate errors that include a platform-dependent value, so
+    we again use psql's VERBOSITY parameter to suppress printing the
+    message text.
+    
+    Reported-by: Alexander Lakhin
+    Author: Joseph Koshakow
+    Reviewed-by: Jian He
+    Discussion: https://postgr.es/m/31ad2cd1-db94-bdb3-f91a-65ffdb4bef95%40gmail.com
+    Backpatch-through: 12
+
+diff --git a/src/backend/utils/adt/arrayfuncs.c b/src/backend/utils/adt/arrayfuncs.c
+index d6641b570d5..e5c7e57a5de 100644
+--- a/src/backend/utils/adt/arrayfuncs.c
++++ b/src/backend/utils/adt/arrayfuncs.c
+@@ -2885,11 +2885,18 @@ array_set_slice(Datum arraydatum,
+ 						(errcode(ERRCODE_ARRAY_SUBSCRIPT_ERROR),
+ 						 errmsg("array slice subscript must provide both boundaries"),
+ 						 errdetail("When assigning to a slice of an empty array value,"
+ 								   " slice boundaries must be fully specified.")));
+ 
+-			dim[i] = 1 + upperIndx[i] - lowerIndx[i];
++			/* compute "upperIndx[i] - lowerIndx[i] + 1", detecting overflow */
++			if (pg_sub_s32_overflow(upperIndx[i], lowerIndx[i], &dim[i]) ||
++				pg_add_s32_overflow(dim[i], 1, &dim[i]))
++				ereport(ERROR,
++						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
++						 errmsg("array size exceeds the maximum allowed (%d)",
++								(int) MaxArraySize)));
++
+ 			lb[i] = lowerIndx[i];
+ 		}
+ 
+ 		/* complain if too few source items; we ignore extras, however */
+ 		if (nelems < ArrayGetNItems(nSubscripts, dim))
+diff --git a/src/test/regress/expected/arrays.out b/src/test/regress/expected/arrays.out
+index 23404982f71..a6d81fd5f92 100644
+--- a/src/test/regress/expected/arrays.out
++++ b/src/test/regress/expected/arrays.out
+@@ -1425,10 +1425,14 @@ reset enable_bitmapscan;
+ insert into arr_pk_tbl values(10, '[-2147483648:-2147483647]={1,2}');
+ update arr_pk_tbl set f1[2147483647] = 42 where pk = 10;
+ ERROR:  54000
+ update arr_pk_tbl set f1[2147483646:2147483647] = array[4,2] where pk = 10;
+ ERROR:  54000
++insert into arr_pk_tbl(pk, f1[0:2147483647]) values (2, '{}');
++ERROR:  54000
++insert into arr_pk_tbl(pk, f1[-2147483648:2147483647]) values (2, '{}');
++ERROR:  54000
+ -- also exercise the expanded-array case
+ do $$ declare a int[];
+ begin
+   a := '[-2147483648:-2147483647]={1,2}'::int[];
+   a[2147483647] := 42;
+diff --git a/src/test/regress/sql/arrays.sql b/src/test/regress/sql/arrays.sql
+index 50aa539fdc1..47058dfde50 100644
+--- a/src/test/regress/sql/arrays.sql
++++ b/src/test/regress/sql/arrays.sql
+@@ -445,10 +445,12 @@ reset enable_bitmapscan;
+ \set VERBOSITY sqlstate
+ 
+ insert into arr_pk_tbl values(10, '[-2147483648:-2147483647]={1,2}');
+ update arr_pk_tbl set f1[2147483647] = 42 where pk = 10;
+ update arr_pk_tbl set f1[2147483646:2147483647] = array[4,2] where pk = 10;
++insert into arr_pk_tbl(pk, f1[0:2147483647]) values (2, '{}');
++insert into arr_pk_tbl(pk, f1[-2147483648:2147483647]) values (2, '{}');
+ 
+ -- also exercise the expanded-array case
+ do $$ declare a int[];
+ begin
+   a := '[-2147483648:-2147483647]={1,2}'::int[];

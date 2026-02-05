@@ -1,0 +1,75 @@
+commit 8427ce4c379ee3774b8a9aca13ca7f4bfb76ba85
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Tue Feb 21 20:01:43 2023 +0900
+
+    Fix handling of escape sequences in postgres_fdw.application_name
+    
+    postgres_fdw.application_name relies on MyProcPort to define the data
+    that should be added to escape sequences %u (user name) or %d (database
+    name).  However this code could be run in processes that lack a
+    MyProcPort, like an autovacuum process, causing crashes.
+    
+    The code generating the application name is made more flexible with this
+    commit, so as it now generates no data for %u and %d if MyProcPort is
+    missing, and a simple "unknown" if MyProcPort exists, but the expected
+    fields are not set.
+    
+    Reported-by: Alexander Lakhin
+    Author: Kyotaro Horiguchi, Michael Paquier
+    Reviewed-by: Hayato Kuroda, Masahiko Sawada
+    Discussion: https://postgr.es/m/17789-8b31c5a4672b74d9@postgresql.org
+    Backpatch-through: 15
+
+diff --git a/contrib/postgres_fdw/option.c b/contrib/postgres_fdw/option.c
+index 984e4d168a0..d530f7d0860 100644
+--- a/contrib/postgres_fdw/option.c
++++ b/contrib/postgres_fdw/option.c
+@@ -483,12 +483,10 @@ char *
+ process_pgfdw_appname(const char *appname)
+ {
+ 	const char *p;
+ 	StringInfoData buf;
+ 
+-	Assert(MyProcPort != NULL);
+-
+ 	initStringInfo(&buf);
+ 
+ 	for (p = appname; *p != '\0'; p++)
+ 	{
+ 		if (*p != '%')
+@@ -520,17 +518,33 @@ process_pgfdw_appname(const char *appname)
+ 				break;
+ 			case 'C':
+ 				appendStringInfoString(&buf, cluster_name);
+ 				break;
+ 			case 'd':
+-				appendStringInfoString(&buf, MyProcPort->database_name);
++				if (MyProcPort)
++				{
++					const char *dbname = MyProcPort->database_name;
++
++					if (dbname)
++						appendStringInfoString(&buf, dbname);
++					else
++						appendStringInfoString(&buf, "[unknown]");
++				}
+ 				break;
+ 			case 'p':
+ 				appendStringInfo(&buf, "%d", MyProcPid);
+ 				break;
+ 			case 'u':
+-				appendStringInfoString(&buf, MyProcPort->user_name);
++				if (MyProcPort)
++				{
++					const char *username = MyProcPort->user_name;
++
++					if (username)
++						appendStringInfoString(&buf, username);
++					else
++						appendStringInfoString(&buf, "[unknown]");
++				}
+ 				break;
+ 			default:
+ 				/* format error - ignore it */
+ 				break;
+ 		}

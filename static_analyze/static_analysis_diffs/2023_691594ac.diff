@@ -1,0 +1,82 @@
+commit 691594acd67e68d903ea1b7575a7a9097772bbcb
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sat Jun 24 17:18:08 2023 -0400
+
+    Check for interrupts and stack overflow in TParserGet().
+    
+    TParserGet() recurses for some token types, meaning it's possible
+    to drive it to stack overflow.  Since this is a minority behavior,
+    I chose to add the check_stack_depth() call to the two places that
+    recurse rather than doing it during every single call.
+    
+    While at it, add CHECK_FOR_INTERRUPTS(), because this can run
+    unpleasantly long for long inputs.
+    
+    Per bug #17995 from Zuming Jiang.  This is old, so back-patch
+    to all supported branches.
+    
+    Discussion: https://postgr.es/m/17995-9f20ff3e6389db4c@postgresql.org
+
+diff --git a/src/backend/tsearch/wparser_def.c b/src/backend/tsearch/wparser_def.c
+index 23e4e9d98a9..fb80fdd63f2 100644
+--- a/src/backend/tsearch/wparser_def.c
++++ b/src/backend/tsearch/wparser_def.c
+@@ -16,10 +16,11 @@
+ 
+ #include <limits.h>
+ 
+ #include "catalog/pg_collation.h"
+ #include "commands/defrem.h"
++#include "miscadmin.h"
+ #include "tsearch/ts_locale.h"
+ #include "tsearch/ts_public.h"
+ #include "tsearch/ts_type.h"
+ #include "tsearch/ts_utils.h"
+ #include "utils/builtins.h"
+@@ -629,10 +630,16 @@ p_ishost(TParser *prs)
+ 	TParser    *tmpprs = TParserCopyInit(prs);
+ 	int			res = 0;
+ 
+ 	tmpprs->wanthost = true;
+ 
++	/*
++	 * Check stack depth before recursing.  (Since TParserGet() doesn't
++	 * normally recurse, we put the cost of checking here not there.)
++	 */
++	check_stack_depth();
++
+ 	if (TParserGet(tmpprs) && tmpprs->type == HOST)
+ 	{
+ 		prs->state->posbyte += tmpprs->lenbytetoken;
+ 		prs->state->poschar += tmpprs->lenchartoken;
+ 		prs->state->lenbytetoken += tmpprs->lenbytetoken;
+@@ -652,10 +659,16 @@ p_isURLPath(TParser *prs)
+ 	int			res = 0;
+ 
+ 	tmpprs->state = newTParserPosition(tmpprs->state);
+ 	tmpprs->state->state = TPS_InURLPathFirst;
+ 
++	/*
++	 * Check stack depth before recursing.  (Since TParserGet() doesn't
++	 * normally recurse, we put the cost of checking here not there.)
++	 */
++	check_stack_depth();
++
+ 	if (TParserGet(tmpprs) && tmpprs->type == URLPATH)
+ 	{
+ 		prs->state->posbyte += tmpprs->lenbytetoken;
+ 		prs->state->poschar += tmpprs->lenchartoken;
+ 		prs->state->lenbytetoken += tmpprs->lenbytetoken;
+@@ -1695,10 +1708,12 @@ static const TParserStateAction Actions[] = {
+ static bool
+ TParserGet(TParser *prs)
+ {
+ 	const TParserStateActionItem *item = NULL;
+ 
++	CHECK_FOR_INTERRUPTS();
++
+ 	Assert(prs->state);
+ 
+ 	if (prs->state->posbyte >= prs->lenstr)
+ 		return false;
+ 

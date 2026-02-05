@@ -1,0 +1,55 @@
+commit 6a5bcf7f7dd1e3c1c669912d82591397dbe24a10
+Author: Andres Freund <andres@anarazel.de>
+Date:   Wed Nov 27 11:17:23 2024 -0500
+
+    postmaster: Reduce verbosity of environment dump debug message
+    
+    Emitting each variable separately is unnecessarily verbose / hard to skim
+    over. Emit the whole thing in one ereport() to address that.
+    
+    Also remove program name and function reference from the message. The former
+    doesn't seem particularly helpful and the latter is provided by the elog.c
+    infrastructure these days.
+    
+    Reviewed-by: Heikki Linnakangas <hlinnaka@iki.fi>
+    Reviewed-by: Peter Eisentraut <peter@eisentraut.org>
+    Discussion: https://postgr.es/m/leouteo5ozcrux3fepuhtbp6c56tbfd4naxeokidbx7m75cabz@hhw6g4urlowt
+
+diff --git a/src/backend/postmaster/postmaster.c b/src/backend/postmaster/postmaster.c
+index 78e66a06ac5..6376d430870 100644
+--- a/src/backend/postmaster/postmaster.c
++++ b/src/backend/postmaster/postmaster.c
+@@ -837,24 +837,24 @@ PostmasterMain(int argc, char *argv[])
+ #ifdef HAVE_INT_OPTRESET
+ 	optreset = 1;				/* some systems need this too */
+ #endif
+ 
+ 	/* For debugging: display postmaster environment */
++	if (message_level_is_interesting(DEBUG3))
+ 	{
+ 		extern char **environ;
+ 		char	  **p;
++		StringInfoData si;
+ 
+-		ereport(DEBUG3,
+-				(errmsg_internal("%s: PostmasterMain: initial environment dump:",
+-								 progname)));
+-		ereport(DEBUG3,
+-				(errmsg_internal("-----------------------------------------")));
++		initStringInfo(&si);
++
++		appendStringInfoString(&si, "initial environment dump:");
+ 		for (p = environ; *p; ++p)
+-			ereport(DEBUG3,
+-					(errmsg_internal("\t%s", *p)));
+-		ereport(DEBUG3,
+-				(errmsg_internal("-----------------------------------------")));
++			appendStringInfo(&si, "\n%s", *p);
++
++		ereport(DEBUG3, errmsg_internal("%s", si.data));
++		pfree(si.data);
+ 	}
+ 
+ 	/*
+ 	 * Create lockfile for data directory.
+ 	 *

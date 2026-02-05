@@ -1,0 +1,79 @@
+commit 335fa5a26029d8040ebf332fda3f900cc9da23f2
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sat Feb 12 13:23:20 2022 -0500
+
+    Fix thinko in PQisBusy().
+    
+    In commit 1f39a1c06 I made PQisBusy consider conn->write_failed, but
+    that is now looking like complete brain fade.  In the first place, the
+    logic is quite wrong: it ought to be like "and not" rather than "or".
+    This meant that once we'd gotten into a write_failed state, PQisBusy
+    would always return true, probably causing the calling application to
+    iterate its loop until PQconsumeInput returns a hard failure thanks
+    to connection loss.  That's not what we want: the intended behavior
+    is to return an error PGresult, which the application probably has
+    much cleaner support for.
+    
+    But in the second place, checking write_failed here seems like the
+    wrong thing anyway.  The idea of the write_failed mechanism is to
+    postpone handling of a write failure until we've read all we can from
+    the server; so that flag should not interfere with input-processing
+    behavior.  (Compare 7247e243a.)  What we *should* check for is
+    status = CONNECTION_BAD, ie, socket already closed.  (Most places that
+    close the socket don't touch asyncStatus, but they do reset status.)
+    This primarily ensures that if PQisBusy() returns true then there is
+    an open socket, which is assumed by several call sites in our own
+    code, and probably other applications too.
+    
+    While at it, fix a nearby thinko in libpq's my_sock_write: we should
+    only consult errno for res < 0, not res == 0.  This is harmless since
+    pqsecure_raw_write would force errno to zero in such a case, but it
+    still could confuse readers.
+    
+    Noted by Andres Freund.  Backpatch to v12 where 1f39a1c06 came in.
+    
+    Discussion: https://postgr.es/m/20220211011025.ek7exh6owpzjyudn@alap3.anarazel.de
+
+diff --git a/src/interfaces/libpq/fe-exec.c b/src/interfaces/libpq/fe-exec.c
+index 59121873d2d..9afd4d88b44 100644
+--- a/src/interfaces/libpq/fe-exec.c
++++ b/src/interfaces/libpq/fe-exec.c
+@@ -1955,14 +1955,18 @@ PQisBusy(PGconn *conn)
+ 
+ 	/* Parse any available data, if our state permits. */
+ 	parseInput(conn);
+ 
+ 	/*
+-	 * PQgetResult will return immediately in all states except BUSY, or if we
+-	 * had a write failure.
++	 * PQgetResult will return immediately in all states except BUSY.  Also,
++	 * if we've detected read EOF and dropped the connection, we can expect
++	 * that PQgetResult will fail immediately.  Note that we do *not* check
++	 * conn->write_failed here --- once that's become set, we know we have
++	 * trouble, but we need to keep trying to read until we have a complete
++	 * server message or detect read EOF.
+ 	 */
+-	return conn->asyncStatus == PGASYNC_BUSY || conn->write_failed;
++	return conn->asyncStatus == PGASYNC_BUSY && conn->status != CONNECTION_BAD;
+ }
+ 
+ /*
+  * PQgetResult
+  *	  Get the next PGresult produced by a query.  Returns NULL if no
+diff --git a/src/interfaces/libpq/fe-secure-openssl.c b/src/interfaces/libpq/fe-secure-openssl.c
+index 9f735ba437c..f6e563a2e50 100644
+--- a/src/interfaces/libpq/fe-secure-openssl.c
++++ b/src/interfaces/libpq/fe-secure-openssl.c
+@@ -1680,11 +1680,11 @@ my_sock_write(BIO *h, const char *buf, int size)
+ {
+ 	int			res;
+ 
+ 	res = pqsecure_raw_write((PGconn *) BIO_get_data(h), buf, size);
+ 	BIO_clear_retry_flags(h);
+-	if (res <= 0)
++	if (res < 0)
+ 	{
+ 		/* If we were interrupted, tell caller to retry */
+ 		switch (SOCK_ERRNO)
+ 		{
+ #ifdef EAGAIN

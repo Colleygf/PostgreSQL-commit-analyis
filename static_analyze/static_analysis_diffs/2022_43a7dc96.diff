@@ -1,0 +1,79 @@
+commit 43a7dc96eb363f87286494223861301361ce766c
+Author: Andres Freund <andres@anarazel.de>
+Date:   Sun Mar 27 21:39:43 2022 -0700
+
+    Fix NULL input behaviour of pg_stat_get_replication_slot().
+    
+    pg_stat_get_replication_slot() accidentally was marked as non-strict, crashing
+    when called with NULL input. As it's already released, introduce an explicit
+    NULL check in 14, fix the catalog in HEAD.
+    
+    Bumps catversion in HEAD.
+    
+    Discussion: https://postgr.es/m/20220326212432.s5n2maw6kugnpyxw@alap3.anarazel.de
+    Backpatch: 14-, where replication slot stats were introduced
+
+diff --git a/src/include/catalog/catversion.h b/src/include/catalog/catversion.h
+index a3a49d39386..706475dfa80 100644
+--- a/src/include/catalog/catversion.h
++++ b/src/include/catalog/catversion.h
+@@ -51,8 +51,8 @@
+  * on that day.  (Hopefully we'll never commit ten independent sets of
+  * catalog changes on the same day...)
+  */
+ 
+ /*							yyyymmddN */
+-#define CATALOG_VERSION_NO	202203241
++#define CATALOG_VERSION_NO	202203271
+ 
+ #endif
+diff --git a/src/include/catalog/pg_proc.dat b/src/include/catalog/pg_proc.dat
+index 5e612a6b67e..a26625f8233 100644
+--- a/src/include/catalog/pg_proc.dat
++++ b/src/include/catalog/pg_proc.dat
+@@ -5368,11 +5368,11 @@
+   proallargtypes => '{int4,text,pg_lsn,int4,pg_lsn,pg_lsn,int4,timestamptz,timestamptz,pg_lsn,timestamptz,text,text,int4,text}',
+   proargmodes => '{o,o,o,o,o,o,o,o,o,o,o,o,o,o,o}',
+   proargnames => '{pid,status,receive_start_lsn,receive_start_tli,written_lsn,flushed_lsn,received_tli,last_msg_send_time,last_msg_receipt_time,latest_end_lsn,latest_end_time,slot_name,sender_host,sender_port,conninfo}',
+   prosrc => 'pg_stat_get_wal_receiver' },
+ { oid => '6169', descr => 'statistics: information about replication slot',
+-  proname => 'pg_stat_get_replication_slot', proisstrict => 'f', provolatile => 's',
++  proname => 'pg_stat_get_replication_slot', provolatile => 's',
+   proparallel => 'r', prorettype => 'record', proargtypes => 'text',
+   proallargtypes => '{text,text,int8,int8,int8,int8,int8,int8,int8,int8,timestamptz}',
+   proargmodes => '{i,o,o,o,o,o,o,o,o,o,o}',
+   proargnames => '{slot_name,slot_name,spill_txns,spill_count,spill_bytes,stream_txns,stream_count,stream_bytes,total_txns,total_bytes,stats_reset}',
+   prosrc => 'pg_stat_get_replication_slot' },
+diff --git a/src/test/regress/expected/stats.out b/src/test/regress/expected/stats.out
+index b7416c8f8fb..dcf48112f64 100644
+--- a/src/test/regress/expected/stats.out
++++ b/src/test/regress/expected/stats.out
+@@ -253,6 +253,13 @@ SELECT pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid);
+                               1
+ (1 row)
+ 
+ DROP TABLE brin_hot;
+ DROP FUNCTION wait_for_hot_stats();
++-- ensure that stats accessors handle NULL input correctly
++SELECT pg_stat_get_replication_slot(NULL);
++ pg_stat_get_replication_slot 
++------------------------------
++ 
++(1 row)
++
+ -- End of Stats Test
+diff --git a/src/test/regress/sql/stats.sql b/src/test/regress/sql/stats.sql
+index dbc2dd28b6b..076c763451a 100644
+--- a/src/test/regress/sql/stats.sql
++++ b/src/test/regress/sql/stats.sql
+@@ -227,6 +227,10 @@ SELECT pg_stat_get_tuples_hot_updated('brin_hot'::regclass::oid);
+ 
+ DROP TABLE brin_hot;
+ DROP FUNCTION wait_for_hot_stats();
+ 
+ 
++-- ensure that stats accessors handle NULL input correctly
++SELECT pg_stat_get_replication_slot(NULL);
++
++
+ -- End of Stats Test

@@ -1,0 +1,96 @@
+commit 78e4841c1bbc4ed4cbd3ae7eb8aac5672190d985
+Author: Bruce Momjian <bruce@momjian.us>
+Date:   Tue May 14 20:42:55 2024 -0400
+
+    doc PG 17 relnotes:  wording fixes
+    
+    Reported-by: Elena Indrupskaya
+    
+    Discussion: https://postgr.es/m/22110133-bca5-4a99-889c-aa0096423456@postgrespro.ru
+    
+    Author: Elena Indrupskaya
+    
+    Backpatch-through: master
+
+diff --git a/doc/src/sgml/release-17.sgml b/doc/src/sgml/release-17.sgml
+index fa0a703629c..a3b4a8fb3b9 100644
+--- a/doc/src/sgml/release-17.sgml
++++ b/doc/src/sgml/release-17.sgml
+@@ -71,11 +71,11 @@ Author: Michael Paquier <michael@paquier.xyz>
+ 2023-08-28 [617f9b7d4] Tighten unit parsing in internal values
+ -->
+ 
+ <listitem>
+ <para>
+-Restrict "ago" to only appear at the end of in interval values (Joseph Koshakow)
++Restrict "ago" to only appear at the end in interval values (Joseph Koshakow)
+ </para>
+ 
+ <para>
+ Also, prevent empty interval units and interval units from appearing multiple times.
+ </para>
+@@ -476,11 +476,11 @@ Author: Tomas Vondra <tomas.vondra@postgresql.org>
+ 2023-12-08 [b43757171] Allow parallel CREATE INDEX for BRIN indexes
+ -->
+ 
+ <listitem>
+ <para>
+-Allow a BRIN indexes to be created using parallel workers (Tomas Vondra, Matthias van de Meent)
++Allow BRIN indexes to be created using parallel workers (Tomas Vondra, Matthias van de Meent)
+ </para>
+ </listitem>
+ 
+ <!--
+ Author: Peter Eisentraut <peter@eisentraut.org>
+@@ -961,11 +961,11 @@ Author: Robert Haas <rhaas@postgresql.org>
+ <para>
+ Allow the creation of WAL summarization files (Robert Haas, Nathan Bossart, Hubert Depesz Lubaczewski)
+ </para>
+ 
+ <para>
+-These files record the block numbers that have changed within an LSN range, and is useful for incremental file system backups.  This is controlled by the server variables
++These files record the block numbers that have changed within an LSN range and are useful for incremental file system backups.  This is controlled by the server variables
+ summarize_wal and wal_summarize_keep_time, and introspected with pg_available_wal_summaries(), pg_wal_summary_contents(), and pg_get_wal_summarizer_state().
+ </para>
+ </listitem>
+ 
+ <!--
+@@ -1133,11 +1133,11 @@ Author: Amit Kapila <akapila@postgresql.org>
+ <para>
+ Allow the application of logical replication changes to use hash indexes on the subscriber (Hayato Kuroda)
+ </para>
+ 
+ <para>
+-Previously only btree indexes could be use for this purpose.
++Previously only btree indexes could be used for this purpose.
+ </para>
+ </listitem>
+ 
+ <!--
+ Author: Amit Kapila <akapila@postgresql.org>
+@@ -2227,11 +2227,11 @@ Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+ <para>
+ Allow pg_basebackup and pg_receivewal to use dbname in their connection specification (Jelte Fennema-Nio)
+ </para>
+ 
+ <para>
+-This is useful for connection poolers who are sensitive to the database name.
++This is useful for connection poolers that are sensitive to the database name.
+ </para>
+ </listitem>
+ 
+ <!--
+ Author: Thomas Munro <tmunro@postgresql.org>
+@@ -2388,11 +2388,11 @@ Author: Michael Paquier <michael@paquier.xyz>
+ 2023-12-20 [1301c80b2] Remove MSVC scripts
+ -->
+ 
+ <listitem>
+ <para>
+-Remove the Microsoft Visual Studio Studio-specific Postgres build option (Michael Paquier)
++Remove the Microsoft Visual Studio-specific Postgres build option (Michael Paquier)
+ </para>
+ 
+ <para>
+ Meson is now the only available method for Visual Studio builds.
+ </para>

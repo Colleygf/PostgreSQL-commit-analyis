@@ -1,0 +1,159 @@
+commit 768f0c3e21b31f92ebb510a7e4d0c2cd1c1ecb97
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Thu Jul 4 13:25:31 2024 +0200
+
+    Remove bogus assertion in pg_atomic_monotonic_advance_u64
+    
+    This code wanted to ensure that the 'exchange' variable passed to
+    pg_atomic_compare_exchange_u64 has correct alignment, but apparently
+    platforms don't actually require anything that doesn't come naturally.
+    
+    While messing with pg_atomic_monotonic_advance_u64: instead of using
+    Max() to determine the value to return, just use
+    pg_atomic_compare_exchange_u64()'s return value to decide; also, use
+    pg_atomic_compare_exchange_u64 instead of the _impl version; also remove
+    the unnecessary underscore at the end of variable name "target".
+    
+    Backpatch to 17, where this code was introduced by commit bf3ff7bf83bc.
+    
+    Reported-by: Alexander Lakhin <exclusion@gmail.com>
+    Discussion: https://postgr.es/m/36796438-a718-cf9b-2071-b2c1b947c1b5@gmail.com
+
+diff --git a/src/include/port/atomics.h b/src/include/port/atomics.h
+index c911c6b9564..f6fa432d2df 100644
+--- a/src/include/port/atomics.h
++++ b/src/include/port/atomics.h
+@@ -505,11 +505,10 @@ static inline bool
+ pg_atomic_compare_exchange_u64(volatile pg_atomic_uint64 *ptr,
+ 							   uint64 *expected, uint64 newval)
+ {
+ #ifndef PG_HAVE_ATOMIC_U64_SIMULATION
+ 	AssertPointerAlignment(ptr, 8);
+-	AssertPointerAlignment(expected, 8);
+ #endif
+ 	return pg_atomic_compare_exchange_u64_impl(ptr, expected, newval);
+ }
+ 
+ static inline uint64
+@@ -574,36 +573,32 @@ pg_atomic_sub_fetch_u64(volatile pg_atomic_uint64 *ptr, int64 sub_)
+  * may or may not be the target value.
+  *
+  * Full barrier semantics (even when value is unchanged).
+  */
+ static inline uint64
+-pg_atomic_monotonic_advance_u64(volatile pg_atomic_uint64 *ptr, uint64 target_)
++pg_atomic_monotonic_advance_u64(volatile pg_atomic_uint64 *ptr, uint64 target)
+ {
+ 	uint64		currval;
+ 
+ #ifndef PG_HAVE_ATOMIC_U64_SIMULATION
+ 	AssertPointerAlignment(ptr, 8);
+ #endif
+ 
+ 	currval = pg_atomic_read_u64_impl(ptr);
+-	if (currval >= target_)
++	if (currval >= target)
+ 	{
+ 		pg_memory_barrier();
+ 		return currval;
+ 	}
+ 
+-#ifndef PG_HAVE_ATOMIC_U64_SIMULATION
+-	AssertPointerAlignment(&currval, 8);
+-#endif
+-
+-	while (currval < target_)
++	while (currval < target)
+ 	{
+-		if (pg_atomic_compare_exchange_u64_impl(ptr, &currval, target_))
+-			break;
++		if (pg_atomic_compare_exchange_u64(ptr, &currval, target))
++			return target;
+ 	}
+ 
+-	return Max(target_, currval);
++	return currval;
+ }
+ 
+ #undef INSIDE_ATOMICS_H
+ 
+ #endif							/* ATOMICS_H */
+diff --git a/src/include/port/atomics/arch-ppc.h b/src/include/port/atomics/arch-ppc.h
+index 94ba2597fb7..edaab7c8957 100644
+--- a/src/include/port/atomics/arch-ppc.h
++++ b/src/include/port/atomics/arch-ppc.h
+@@ -171,10 +171,12 @@ pg_atomic_compare_exchange_u64_impl(volatile pg_atomic_uint64 *ptr,
+ {
+ 	uint64 found;
+ 	uint32 condition_register;
+ 	bool ret;
+ 
++	AssertPointerAlignment(expected, 8);
++
+ 	/* Like u32, but s/lwarx/ldarx/; s/stwcx/stdcx/; s/cmpw/cmpd/ */
+ #ifdef HAVE_I_CONSTRAINT__BUILTIN_CONSTANT_P
+ 	if (__builtin_constant_p(*expected) &&
+ 		(int64) *expected <= PG_INT16_MAX &&
+ 		(int64) *expected >= PG_INT16_MIN)
+diff --git a/src/include/port/atomics/arch-x86.h b/src/include/port/atomics/arch-x86.h
+index 3efa79dc3df..2a8eca30fcf 100644
+--- a/src/include/port/atomics/arch-x86.h
++++ b/src/include/port/atomics/arch-x86.h
+@@ -205,10 +205,12 @@ static inline bool
+ pg_atomic_compare_exchange_u64_impl(volatile pg_atomic_uint64 *ptr,
+ 									uint64 *expected, uint64 newval)
+ {
+ 	char	ret;
+ 
++	AssertPointerAlignment(expected, 8);
++
+ 	/*
+ 	 * Perform cmpxchg and use the zero flag which it implicitly sets when
+ 	 * equal to measure the success.
+ 	 */
+ 	__asm__ __volatile__(
+diff --git a/src/include/port/atomics/generic-gcc.h b/src/include/port/atomics/generic-gcc.h
+index 9d91370fa8c..872d2f02af4 100644
+--- a/src/include/port/atomics/generic-gcc.h
++++ b/src/include/port/atomics/generic-gcc.h
+@@ -238,10 +238,11 @@ pg_atomic_fetch_or_u32_impl(volatile pg_atomic_uint32 *ptr, uint32 or_)
+ #define PG_HAVE_ATOMIC_COMPARE_EXCHANGE_U64
+ static inline bool
+ pg_atomic_compare_exchange_u64_impl(volatile pg_atomic_uint64 *ptr,
+ 									uint64 *expected, uint64 newval)
+ {
++	AssertPointerAlignment(expected, 8);
+ 	return __atomic_compare_exchange_n(&ptr->value, expected, newval, false,
+ 									   __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+ }
+ #endif
+ 
+@@ -251,10 +252,12 @@ static inline bool
+ pg_atomic_compare_exchange_u64_impl(volatile pg_atomic_uint64 *ptr,
+ 									uint64 *expected, uint64 newval)
+ {
+ 	bool	ret;
+ 	uint64	current;
++
++	AssertPointerAlignment(expected, 8);
+ 	current = __sync_val_compare_and_swap(&ptr->value, *expected, newval);
+ 	ret = current == *expected;
+ 	*expected = current;
+ 	return ret;
+ }
+diff --git a/src/include/port/atomics/generic-sunpro.h b/src/include/port/atomics/generic-sunpro.h
+index e060c0868a9..840a45e7788 100644
+--- a/src/include/port/atomics/generic-sunpro.h
++++ b/src/include/port/atomics/generic-sunpro.h
+@@ -100,10 +100,11 @@ pg_atomic_compare_exchange_u64_impl(volatile pg_atomic_uint64 *ptr,
+ 									uint64 *expected, uint64 newval)
+ {
+ 	bool	ret;
+ 	uint64	current;
+ 
++	AssertPointerAlignment(expected, 8);
+ 	current = atomic_cas_64(&ptr->value, *expected, newval);
+ 	ret = current == *expected;
+ 	*expected = current;
+ 	return ret;
+ }

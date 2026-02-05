@@ -1,0 +1,70 @@
+commit 086b9a33aafeeeaa0af0c806410ea6228f2f63f4
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Thu Jul 24 11:43:20 2025 +0900
+
+    doc: Add missing index entries and fix title formatting in pg_buffercache docs.
+    
+    This commit adds missing index entries for the functions pg_buffercache_numa()
+    and pg_buffercache_usage_counts() in the pg_buffercache documentation.
+    
+    It also makes the function titles consistent by adding parentheses after
+    function names where they were previously missing.
+    
+    Author: Fujii Masao <masao.fujii@gmail.com>
+    Reviewed-by: Michael Paquier <michael@paquier.xyz>
+    Discussion: https://postgr.es/m/7d19af4b-7da3-4862-9f52-ff958960bd8d@oss.nttdata.com
+    Backpatch-through: 18
+
+diff --git a/doc/src/sgml/pgbuffercache.sgml b/doc/src/sgml/pgbuffercache.sgml
+index 546ace8369e..eeb85a0e049 100644
+--- a/doc/src/sgml/pgbuffercache.sgml
++++ b/doc/src/sgml/pgbuffercache.sgml
+@@ -17,14 +17,22 @@
+ 
+  <indexterm>
+   <primary>pg_buffercache_pages</primary>
+  </indexterm>
+ 
++ <indexterm>
++  <primary>pg_buffercache_numa</primary>
++ </indexterm>
++
+  <indexterm>
+   <primary>pg_buffercache_summary</primary>
+  </indexterm>
+ 
++ <indexterm>
++  <primary>pg_buffercache_usage_counts</primary>
++ </indexterm>
++
+  <indexterm>
+   <primary>pg_buffercache_evict</primary>
+  </indexterm>
+ 
+  <indexterm>
+@@ -487,11 +495,11 @@
+    only.
+   </para>
+  </sect2>
+ 
+  <sect2 id="pgbuffercache-pg-buffercache-evict-relation">
+-  <title>The <structname>pg_buffercache_evict_relation</structname> Function</title>
++  <title>The <structname>pg_buffercache_evict_relation()</structname> Function</title>
+   <para>
+    The <function>pg_buffercache_evict_relation()</function> function is very
+    similar to the <function>pg_buffercache_evict()</function> function.  The
+    difference is that the <function>pg_buffercache_evict_relation()</function>
+    takes a relation identifier instead of buffer identifier.  It tries to
+@@ -505,11 +513,11 @@
+    developer testing only.
+   </para>
+  </sect2>
+ 
+  <sect2 id="pgbuffercache-pg-buffercache-evict-all">
+-  <title>The <structname>pg_buffercache_evict_all</structname> Function</title>
++  <title>The <structname>pg_buffercache_evict_all()</structname> Function</title>
+   <para>
+    The <function>pg_buffercache_evict_all()</function> function is very
+    similar to the <function>pg_buffercache_evict()</function> function.  The
+    difference is, the <function>pg_buffercache_evict_all()</function> function
+    does not take an argument; instead it tries to evict all buffers in the

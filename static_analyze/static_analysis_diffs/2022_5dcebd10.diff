@@ -1,0 +1,78 @@
+commit 5dcebd10baa8ec14a97029ca0bacaf2a9a0f8652
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Fri Sep 9 13:51:45 2022 +0200
+
+    Doc fixes for MERGE statement
+    
+    In commit 3d895bc846f2 I introduced a bogus semicolon mid-statement by
+    careless cut-n-paste; move it.  This had already been reported by Justin
+    Pryzby.
+    
+    Also, change the styling a bit by avoiding names in CamelCase.  This is
+    more consistent with the style we use elsewhere.
+    
+    Backpatch to 15.
+    
+    Author: Vitaly Burovoy <vitaly.burovoy@gmail.com>
+    Reviewed-by: Vik Fearing <vik@postgresfriends.org>
+    Discussion: https://postgr.es/m/9afe5766-5a61-7860-598c-136867fad065@gmail.com
+    Discussion: https://postgr.es/m/20220819133016.GV26426@telsasoft.com
+
+diff --git a/doc/src/sgml/ref/merge.sgml b/doc/src/sgml/ref/merge.sgml
+index a129a6edd5b..e07addaea42 100644
+--- a/doc/src/sgml/ref/merge.sgml
++++ b/doc/src/sgml/ref/merge.sgml
+@@ -552,39 +552,39 @@ MERGE <replaceable class="parameter">total_count</replaceable>
+ 
+  <refsect1>
+   <title>Examples</title>
+ 
+   <para>
+-   Perform maintenance on <literal>CustomerAccounts</literal> based
+-   upon new <literal>Transactions</literal>.
++   Perform maintenance on <literal>customer_accounts</literal> based
++   upon new <literal>recent_transactions</literal>.
+ 
+ <programlisting>
+-MERGE INTO CustomerAccount CA
+-USING RecentTransactions T
+-ON T.CustomerId = CA.CustomerId
++MERGE INTO customer_account ca
++USING recent_transactions t
++ON t.customer_id = ca.customer_id
+ WHEN MATCHED THEN
+-  UPDATE SET Balance = Balance + TransactionValue
++  UPDATE SET balance = balance + transaction_value
+ WHEN NOT MATCHED THEN
+-  INSERT (CustomerId, Balance)
+-  VALUES (T.CustomerId, T.TransactionValue);
++  INSERT (customer_id, balance)
++  VALUES (t.customer_id, t.transaction_value);
+ </programlisting>
+   </para>
+ 
+   <para>
+    Notice that this would be exactly equivalent to the following
+    statement because the <literal>MATCHED</literal> result does not change
+    during execution.
+ 
+ <programlisting>
+-MERGE INTO CustomerAccount CA
+-USING (Select CustomerId, TransactionValue From RecentTransactions) AS T
+-ON T.CustomerId = CA.CustomerId
++MERGE INTO customer_account ca
++USING (SELECT customer_id, transaction_value FROM recent_transactions) AS t
++ON t.customer_id = ca.customer_id
+ WHEN MATCHED THEN
+-  UPDATE SET Balance = Balance + TransactionValue;
++  UPDATE SET balance = balance + transaction_value
+ WHEN NOT MATCHED THEN
+-  INSERT (CustomerId, Balance)
+-  VALUES (T.CustomerId, T.TransactionValue)
++  INSERT (customer_id, balance)
++  VALUES (t.customer_id, t.transaction_value);
+ </programlisting>
+   </para>
+ 
+   <para>
+    Attempt to insert a new stock item along with the quantity of stock. If

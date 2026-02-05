@@ -1,0 +1,130 @@
+commit 554841699f0ee5b56ef5eaf35402934f1e025eda
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sun Mar 26 13:41:06 2023 -0400
+
+    Fix oversights in array manipulation.
+    
+    The nested-arrays code path in ExecEvalArrayExpr() used palloc to
+    allocate the result array, whereas every other array-creating function
+    has used palloc0 since 18c0b4ecc.  This mostly works, but unused bits
+    past the end of the nulls bitmap may end up undefined.  That causes
+    valgrind complaints with -DWRITE_READ_PARSE_PLAN_TREES, and could
+    cause planner misbehavior as cited in 18c0b4ecc.  There seems no very
+    good reason why we should strive to avoid palloc0 in just this one case,
+    so fix it the easy way with s/palloc/palloc0/.
+    
+    While looking at that I noted that we also failed to check for overflow
+    of "nbytes" and "nitems" while summing the sizes of the sub-arrays,
+    potentially allowing a crash due to undersized output allocation.
+    For "nbytes", follow the policy used by other array-munging code of
+    checking for overflow after each addition.  (As elsewhere, the last
+    addition of the array's overhead space doesn't need an extra check,
+    since palloc itself will catch a value between 1Gb and 2Gb.)
+    For "nitems", there's no very good reason to sum the inputs at all,
+    since we can perfectly well use ArrayGetNItems' result instead of
+    ignoring it.
+    
+    Per discussion of this bug, also remove redundant zeroing of the
+    nulls bitmap in array_set_element and array_set_slice.
+    
+    Patch by Alexander Lakhin and myself, per bug #17858 from Alexander
+    Lakhin; thanks also to Richard Guo.  These bugs are a dozen years old,
+    so back-patch to all supported branches.
+    
+    Discussion: https://postgr.es/m/17858-8fd287fd3663d051@postgresql.org
+
+diff --git a/src/backend/executor/execExprInterp.c b/src/backend/executor/execExprInterp.c
+index 9cb9625ce91..dd7d1af220a 100644
+--- a/src/backend/executor/execExprInterp.c
++++ b/src/backend/executor/execExprInterp.c
+@@ -2657,11 +2657,11 @@ ExecEvalArrayExpr(ExprState *state, ExprEvalStep *op)
+ 	}
+ 	else
+ 	{
+ 		/* Must be nested array expressions */
+ 		int			nbytes = 0;
+-		int			nitems = 0;
++		int			nitems;
+ 		int			outer_nelems = 0;
+ 		int			elem_ndims = 0;
+ 		int		   *elem_dims = NULL;
+ 		int		   *elem_lbs = NULL;
+ 		bool		firstone = true;
+@@ -2752,13 +2752,18 @@ ExecEvalArrayExpr(ExprState *state, ExprEvalStep *op)
+ 
+ 			subdata[outer_nelems] = ARR_DATA_PTR(array);
+ 			subbitmaps[outer_nelems] = ARR_NULLBITMAP(array);
+ 			subbytes[outer_nelems] = ARR_SIZE(array) - ARR_DATA_OFFSET(array);
+ 			nbytes += subbytes[outer_nelems];
++			/* check for overflow of total request */
++			if (!AllocSizeIsValid(nbytes))
++				ereport(ERROR,
++						(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
++						 errmsg("array size exceeds the maximum allowed (%d)",
++								(int) MaxAllocSize)));
+ 			subnitems[outer_nelems] = ArrayGetNItems(this_ndims,
+ 													 ARR_DIMS(array));
+-			nitems += subnitems[outer_nelems];
+ 			havenulls |= ARR_HASNULL(array);
+ 			outer_nelems++;
+ 		}
+ 
+ 		/*
+@@ -2788,11 +2793,11 @@ ExecEvalArrayExpr(ExprState *state, ExprEvalStep *op)
+ 			dims[i] = elem_dims[i - 1];
+ 			lbs[i] = elem_lbs[i - 1];
+ 		}
+ 
+ 		/* check for subscript overflow */
+-		(void) ArrayGetNItems(ndims, dims);
++		nitems = ArrayGetNItems(ndims, dims);
+ 		ArrayCheckBounds(ndims, dims, lbs);
+ 
+ 		if (havenulls)
+ 		{
+ 			dataoffset = ARR_OVERHEAD_WITHNULLS(ndims, nitems);
+@@ -2802,11 +2807,11 @@ ExecEvalArrayExpr(ExprState *state, ExprEvalStep *op)
+ 		{
+ 			dataoffset = 0;		/* marker for no null bitmap */
+ 			nbytes += ARR_OVERHEAD_NONULLS(ndims);
+ 		}
+ 
+-		result = (ArrayType *) palloc(nbytes);
++		result = (ArrayType *) palloc0(nbytes);
+ 		SET_VARSIZE(result, nbytes);
+ 		result->ndim = ndims;
+ 		result->dataoffset = dataoffset;
+ 		result->elemtype = element_type;
+ 		memcpy(ARR_DIMS(result), dims, ndims * sizeof(int));
+diff --git a/src/backend/utils/adt/arrayfuncs.c b/src/backend/utils/adt/arrayfuncs.c
+index c100152162e..87c987fb270 100644
+--- a/src/backend/utils/adt/arrayfuncs.c
++++ b/src/backend/utils/adt/arrayfuncs.c
+@@ -2481,12 +2481,11 @@ array_set_element(Datum arraydatum,
+ 	 */
+ 	if (newhasnulls)
+ 	{
+ 		bits8	   *newnullbitmap = ARR_NULLBITMAP(newarray);
+ 
+-		/* Zero the bitmap to take care of marking inserted positions null */
+-		MemSet(newnullbitmap, 0, (newnitems + 7) / 8);
++		/* palloc0 above already marked any inserted positions as nulls */
+ 		/* Fix the inserted value */
+ 		if (addedafter)
+ 			array_set_isnull(newnullbitmap, newnitems - 1, isNull);
+ 		else
+ 			array_set_isnull(newnullbitmap, offset, isNull);
+@@ -3098,12 +3097,11 @@ array_set_slice(Datum arraydatum,
+ 		if (newhasnulls)
+ 		{
+ 			bits8	   *newnullbitmap = ARR_NULLBITMAP(newarray);
+ 			bits8	   *oldnullbitmap = ARR_NULLBITMAP(array);
+ 
+-			/* Zero the bitmap to handle marking inserted positions null */
+-			MemSet(newnullbitmap, 0, (nitems + 7) / 8);
++			/* palloc0 above already marked any inserted positions as nulls */
+ 			array_bitmap_copy(newnullbitmap, addedbefore,
+ 							  oldnullbitmap, 0,
+ 							  itemsbefore);
+ 			array_bitmap_copy(newnullbitmap, lowerIndx[0] - lb[0],
+ 							  ARR_NULLBITMAP(srcArray), 0,

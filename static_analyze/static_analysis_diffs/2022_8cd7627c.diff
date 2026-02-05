@@ -1,0 +1,37 @@
+commit 8cd7627c7b19c5a1bb235e7ad91b53856b101e65
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Tue Mar 29 08:58:54 2022 +0200
+
+    psql: Add test for psql behavior on server crash
+    
+    Author: Fabien COELHO <coelho@cri.ensmp.fr>
+    Discussion: https://www.postgresql.org/message-id/flat/alpine.DEB.2.21.1904132231510.8961@lancre
+
+diff --git a/src/bin/psql/t/001_basic.pl b/src/bin/psql/t/001_basic.pl
+index 44ecd05add6..02a84543fd5 100644
+--- a/src/bin/psql/t/001_basic.pl
++++ b/src/bin/psql/t/001_basic.pl
+@@ -113,6 +113,23 @@ psql_like(
+ 	"LISTEN foo;
+ NOTIFY foo, 'bar';",
+ 	qr/^Asynchronous notification "foo" with payload "bar" received from server process with PID \d+\.$/,
+ 	'notification with payload');
+ 
++# test behavior and output on server crash
++my ($ret, $out, $err) = $node->psql(
++	'postgres',
++	"SELECT 'before' AS running;\n" .
++	"SELECT pg_terminate_backend(pg_backend_pid());\n" .
++	"SELECT 'AFTER' AS not_running;\n");
++
++is($ret, 2, 'server crash: psql exit code');
++like($out, qr/before/, 'server crash: output before crash');
++ok($out !~ qr/AFTER/, 'server crash: no output after crash');
++is($err, 'psql:<stdin>:2: FATAL:  terminating connection due to administrator command
++server closed the connection unexpectedly
++	This probably means the server terminated abnormally
++	before or while processing the request.
++psql:<stdin>:2: fatal: connection to server was lost',
++	'server crash: error message');
++
+ done_testing();

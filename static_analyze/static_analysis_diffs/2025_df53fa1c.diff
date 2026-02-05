@@ -1,0 +1,65 @@
+commit df53fa1c1ebf9bb3e8c17217f7cc1435107067fb
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Wed Nov 12 13:37:58 2025 +0900
+
+    doc: Fix incorrect synopsis for ALTER PUBLICATION ... DROP ...
+    
+    The synopsis for the ALTER PUBLICATION ... DROP ... command incorrectly
+    implied that a column list and WHERE clause could be specified as part of
+    the publication object. However, these options are not allowed for
+    DROP operations, making the documentation misleading.
+    
+    This commit corrects the synopsis  to clearly show only the valid forms
+    of publication objects.
+    
+    Backpatched to v15, where the incorrect synopsis was introduced.
+    
+    Author: Peter Smith <smithpb2250@gmail.com>
+    Reviewed-by: Fujii Masao <masao.fujii@gmail.com>
+    Discussion: https://postgr.es/m/CAHut+PsPu+47Q7b0o6h1r-qSt90U3zgbAHMHUag5o5E1Lo+=uw@mail.gmail.com
+    Backpatch-through: 15
+
+diff --git a/doc/src/sgml/ref/alter_publication.sgml b/doc/src/sgml/ref/alter_publication.sgml
+index c36e754f887..8dd250d2f3b 100644
+--- a/doc/src/sgml/ref/alter_publication.sgml
++++ b/doc/src/sgml/ref/alter_publication.sgml
+@@ -21,19 +21,24 @@ PostgreSQL documentation
+ 
+  <refsynopsisdiv>
+ <synopsis>
+ ALTER PUBLICATION <replaceable class="parameter">name</replaceable> ADD <replaceable class="parameter">publication_object</replaceable> [, ...]
+ ALTER PUBLICATION <replaceable class="parameter">name</replaceable> SET <replaceable class="parameter">publication_object</replaceable> [, ...]
+-ALTER PUBLICATION <replaceable class="parameter">name</replaceable> DROP <replaceable class="parameter">publication_object</replaceable> [, ...]
++ALTER PUBLICATION <replaceable class="parameter">name</replaceable> DROP <replaceable class="parameter">publication_drop_object</replaceable> [, ...]
+ ALTER PUBLICATION <replaceable class="parameter">name</replaceable> SET ( <replaceable class="parameter">publication_parameter</replaceable> [= <replaceable class="parameter">value</replaceable>] [, ... ] )
+ ALTER PUBLICATION <replaceable class="parameter">name</replaceable> OWNER TO { <replaceable>new_owner</replaceable> | CURRENT_ROLE | CURRENT_USER | SESSION_USER }
+ ALTER PUBLICATION <replaceable class="parameter">name</replaceable> RENAME TO <replaceable>new_name</replaceable>
+ 
+ <phrase>where <replaceable class="parameter">publication_object</replaceable> is one of:</phrase>
+ 
+     TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ] [ ( <replaceable class="parameter">column_name</replaceable> [, ... ] ) ] [ WHERE ( <replaceable class="parameter">expression</replaceable> ) ] [, ... ]
+     TABLES IN SCHEMA { <replaceable class="parameter">schema_name</replaceable> | CURRENT_SCHEMA } [, ... ]
++
++<phrase>where <replaceable class="parameter">publication_drop_object</replaceable> is one of:</phrase>
++
++    TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ] [, ... ]
++    TABLES IN SCHEMA { <replaceable class="parameter">schema_name</replaceable> | CURRENT_SCHEMA } [, ... ]
+ </synopsis>
+  </refsynopsisdiv>
+ 
+  <refsect1>
+   <title>Description</title>
+@@ -55,12 +60,11 @@ ALTER PUBLICATION <replaceable class="parameter">name</replaceable> RENAME TO <r
+    <literal>ALTER SUBSCRIPTION ... REFRESH PUBLICATION</literal></link> action on the
+    subscribing side in order to become effective. Note also that
+    <literal>DROP TABLES IN SCHEMA</literal> will not drop any schema tables
+    that were specified using
+    <link linkend="sql-createpublication-params-for-table"><literal>FOR TABLE</literal></link>/
+-   <literal>ADD TABLE</literal>, and the combination of <literal>DROP</literal>
+-   with a <literal>WHERE</literal> clause is not allowed.
++   <literal>ADD TABLE</literal>.
+   </para>
+ 
+   <para>
+    The fourth variant of this command listed in the synopsis can change
+    all of the publication properties specified in

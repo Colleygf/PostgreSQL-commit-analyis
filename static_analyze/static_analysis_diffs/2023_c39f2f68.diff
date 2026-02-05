@@ -1,0 +1,89 @@
+commit c39f2f68e95a54e430c6a7b7d1e9f98cedff5aff
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Wed May 10 18:26:10 2023 +0200
+
+    Fix publication syntax error message
+    
+    There was some odd wording in corner-case gram.y error messages "some
+    error ... at or near", which appears to have been modeled after "syntax
+    error" messages.  However, they don't work that way, and they're just
+    wrong.  They're also uncovered by tests.  Remove the trailing words,
+    and also add tests.
+    
+    They were introduced with 5a2832465fd8; backpatch to 15.
+    
+    Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+
+diff --git a/src/backend/parser/gram.y b/src/backend/parser/gram.y
+index a723d9db78f..d6426f3b8e0 100644
+--- a/src/backend/parser/gram.y
++++ b/src/backend/parser/gram.y
+@@ -18830,11 +18830,11 @@ preprocess_pubobj_list(List *pubobjspec_list, core_yyscan_t yyscanner)
+ 		{
+ 			/* relation name or pubtable must be set for this type of object */
+ 			if (!pubobj->name && !pubobj->pubtable)
+ 				ereport(ERROR,
+ 						errcode(ERRCODE_SYNTAX_ERROR),
+-						errmsg("invalid table name at or near"),
++						errmsg("invalid table name"),
+ 						parser_errposition(pubobj->location));
+ 
+ 			if (pubobj->name)
+ 			{
+ 				/* convert it to PublicationTable */
+@@ -18872,11 +18872,11 @@ preprocess_pubobj_list(List *pubobjspec_list, core_yyscan_t yyscanner)
+ 			else if (!pubobj->name && !pubobj->pubtable)
+ 				pubobj->pubobjtype = PUBLICATIONOBJ_TABLES_IN_CUR_SCHEMA;
+ 			else
+ 				ereport(ERROR,
+ 						errcode(ERRCODE_SYNTAX_ERROR),
+-						errmsg("invalid schema name at or near"),
++						errmsg("invalid schema name"),
+ 						parser_errposition(pubobj->location));
+ 		}
+ 
+ 		prevobjtype = pubobj->pubobjtype;
+ 	}
+diff --git a/src/test/regress/expected/publication.out b/src/test/regress/expected/publication.out
+index 427f87ea077..69dc6cfd859 100644
+--- a/src/test/regress/expected/publication.out
++++ b/src/test/regress/expected/publication.out
+@@ -130,10 +130,19 @@ RESET client_min_messages;
+ Tables:
+     "pub_test.testpub_nopk"
+ Tables from schemas:
+     "pub_test"
+ 
++-- weird parser corner case
++CREATE PUBLICATION testpub_parsertst FOR TABLE pub_test.testpub_nopk, CURRENT_SCHEMA;
++ERROR:  invalid table name
++LINE 1: ...estpub_parsertst FOR TABLE pub_test.testpub_nopk, CURRENT_SC...
++                                                             ^
++CREATE PUBLICATION testpub_parsertst FOR TABLES IN SCHEMA foo, test.foo;
++ERROR:  invalid schema name
++LINE 1: ...CATION testpub_parsertst FOR TABLES IN SCHEMA foo, test.foo;
++                                                              ^
+ -- should be able to add a table of the same schema to the schema publication
+ ALTER PUBLICATION testpub_forschema ADD TABLE pub_test.testpub_nopk;
+ \dRp+ testpub_forschema
+                                Publication testpub_forschema
+           Owner           | All tables | Inserts | Updates | Deletes | Truncates | Via root 
+diff --git a/src/test/regress/sql/publication.sql b/src/test/regress/sql/publication.sql
+index a47c5939d58..d5051a5e746 100644
+--- a/src/test/regress/sql/publication.sql
++++ b/src/test/regress/sql/publication.sql
+@@ -77,10 +77,14 @@ CREATE PUBLICATION testpub_forschema FOR TABLES IN SCHEMA pub_test;
+ -- schema
+ CREATE PUBLICATION testpub_for_tbl_schema FOR TABLES IN SCHEMA pub_test, TABLE pub_test.testpub_nopk;
+ RESET client_min_messages;
+ \dRp+ testpub_for_tbl_schema
+ 
++-- weird parser corner case
++CREATE PUBLICATION testpub_parsertst FOR TABLE pub_test.testpub_nopk, CURRENT_SCHEMA;
++CREATE PUBLICATION testpub_parsertst FOR TABLES IN SCHEMA foo, test.foo;
++
+ -- should be able to add a table of the same schema to the schema publication
+ ALTER PUBLICATION testpub_forschema ADD TABLE pub_test.testpub_nopk;
+ \dRp+ testpub_forschema
+ 
+ -- should be able to drop the table

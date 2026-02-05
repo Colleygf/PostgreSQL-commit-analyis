@@ -1,0 +1,61 @@
+commit 9c487efe355692a4a219df1a1e5330ac02079bf8
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Thu Mar 30 12:06:34 2023 -0400
+
+    Fix documentation build for c3afe8cf5a1e465bd71e48e4bc717f5bfdc7a7d6.
+    
+    This documentation hunk was intended to be part of that commit,
+    but I goofed.
+
+diff --git a/doc/src/sgml/ref/create_subscription.sgml b/doc/src/sgml/ref/create_subscription.sgml
+index e6dfb416437..5469f57dd84 100644
+--- a/doc/src/sgml/ref/create_subscription.sgml
++++ b/doc/src/sgml/ref/create_subscription.sgml
+@@ -351,10 +351,23 @@ CREATE SUBSCRIPTION <replaceable class="parameter">subscription_name</replaceabl
+           <literal>false</literal>.
+          </para>
+         </listitem>
+        </varlistentry>
+ 
++       <varlistentry id="sql-createsubscription-with-password-required">
++        <term><literal>password_required</literal> (<type>string</type>)</term>
++        <listitem>
++         <para>
++          Specifies whether connections to the publisher made as a result
++          of this subscription must use password authentication. This setting
++          is ignored when the subscription is owned by a superuser.
++          The default is <literal>true</literal>. Only superusers can set
++          this value to <literal>false</literal>.
++         </para>
++        </listitem>
++       </varlistentry>
++
+        <varlistentry id="sql-createsubscription-with-origin">
+         <term><literal>origin</literal> (<type>string</type>)</term>
+         <listitem>
+          <para>
+           Specifies whether the subscription will request the publisher to only
+@@ -370,23 +383,10 @@ CREATE SUBSCRIPTION <replaceable class="parameter">subscription_name</replaceabl
+           <literal>copy_data = true</literal> can interact with the
+           <literal>origin</literal> parameter.
+          </para>
+         </listitem>
+        </varlistentry>
+-
+-       <varlistentry>
+-        <term><literal>password_required</literal> (<type>string</type>)</term>
+-        <listitem>
+-         <para>
+-          Specifies whether connections to the publisher made as a result
+-          of this subscription must use password authentication. This setting
+-          is ignored when the subscription is owned by a superuser.
+-          The default is <literal>true</literal>. Only superusers can set
+-          this value to <literal>false</literal>.
+-         </para>
+-        </listitem>
+-       </varlistentry>
+       </variablelist></para>
+ 
+     </listitem>
+    </varlistentry>
+   </variablelist>

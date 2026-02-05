@@ -1,0 +1,54 @@
+commit ff030ebe25022bdb90cecb7bfe45c6f863e3be30
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Thu Jan 16 08:35:57 2025 +0100
+
+    Check return of pg_b64_encode() for error
+    
+    Forgotten in commit 761c79508e7.
+    
+    Author: Ranier Vilela <ranier.vf@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/CAEudQAq-3yHsSdWoOOaw%2BgAQYgPMpMGuB5pt2yCXgv-YuxG2Hg%40mail.gmail.com
+
+diff --git a/contrib/postgres_fdw/connection.c b/contrib/postgres_fdw/connection.c
+index 0274d6c253d..8a8d3b4481f 100644
+--- a/contrib/postgres_fdw/connection.c
++++ b/contrib/postgres_fdw/connection.c
+@@ -557,27 +557,32 @@ connect_pg_server(ForeignServer *server, UserMapping *user)
+ 		n++;
+ 
+ 		if (MyProcPort->has_scram_keys && UseScramPassthrough(server, user))
+ 		{
+ 			int			len;
++			int			encoded_len;
+ 
+ 			keywords[n] = "scram_client_key";
+ 			len = pg_b64_enc_len(sizeof(MyProcPort->scram_ClientKey));
+ 			/* don't forget the zero-terminator */
+ 			values[n] = palloc0(len + 1);
+-			pg_b64_encode((const char *) MyProcPort->scram_ClientKey,
+-						  sizeof(MyProcPort->scram_ClientKey),
+-						  (char *) values[n], len);
++			encoded_len = pg_b64_encode((const char *) MyProcPort->scram_ClientKey,
++										sizeof(MyProcPort->scram_ClientKey),
++										(char *) values[n], len);
++			if (encoded_len < 0)
++				elog(ERROR, "could not encode SCRAM client key");
+ 			n++;
+ 
+ 			keywords[n] = "scram_server_key";
+ 			len = pg_b64_enc_len(sizeof(MyProcPort->scram_ServerKey));
+ 			/* don't forget the zero-terminator */
+ 			values[n] = palloc0(len + 1);
+-			pg_b64_encode((const char *) MyProcPort->scram_ServerKey,
+-						  sizeof(MyProcPort->scram_ServerKey),
+-						  (char *) values[n], len);
++			encoded_len = pg_b64_encode((const char *) MyProcPort->scram_ServerKey,
++										sizeof(MyProcPort->scram_ServerKey),
++										(char *) values[n], len);
++			if (encoded_len < 0)
++				elog(ERROR, "could not encode SCRAM server key");
+ 			n++;
+ 		}
+ 
+ 		keywords[n] = values[n] = NULL;
+ 

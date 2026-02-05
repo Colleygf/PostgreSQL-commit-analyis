@@ -1,0 +1,148 @@
+commit 1469e312977c8a5baeb1f9cb4222d171faf285b3
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Tue Aug 5 10:53:49 2025 +0200
+
+    Fix mixups of FooGetDatum() vs. DatumGetFoo()
+    
+    Some of these were accidentally reversed, but there was no ill effect.
+    
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://www.postgresql.org/message-id/flat/8246d7ff-f4b7-4363-913e-827dadfeb145%40eisentraut.org
+
+diff --git a/contrib/pageinspect/btreefuncs.c b/contrib/pageinspect/btreefuncs.c
+index 294821231fc..4e2e8891cdd 100644
+--- a/contrib/pageinspect/btreefuncs.c
++++ b/contrib/pageinspect/btreefuncs.c
+@@ -504,11 +504,11 @@ bt_page_print_tuples(ua_page_items *uargs)
+ 
+ 	itup = (IndexTuple) PageGetItem(page, id);
+ 
+ 	j = 0;
+ 	memset(nulls, 0, sizeof(nulls));
+-	values[j++] = DatumGetInt16(offset);
++	values[j++] = Int16GetDatum(offset);
+ 	values[j++] = ItemPointerGetDatum(&itup->t_tid);
+ 	values[j++] = Int32GetDatum((int) IndexTupleSize(itup));
+ 	values[j++] = BoolGetDatum(IndexTupleHasNulls(itup));
+ 	values[j++] = BoolGetDatum(IndexTupleHasVarwidths(itup));
+ 
+diff --git a/contrib/pageinspect/gistfuncs.c b/contrib/pageinspect/gistfuncs.c
+index 7b16e2a1ef3..1b299374890 100644
+--- a/contrib/pageinspect/gistfuncs.c
++++ b/contrib/pageinspect/gistfuncs.c
+@@ -172,11 +172,11 @@ gist_page_items_bytea(PG_FUNCTION_ARGS)
+ 		itup = (IndexTuple) PageGetItem(page, id);
+ 		tuple_len = IndexTupleSize(itup);
+ 
+ 		memset(nulls, 0, sizeof(nulls));
+ 
+-		values[0] = DatumGetInt16(offset);
++		values[0] = Int16GetDatum(offset);
+ 		values[1] = ItemPointerGetDatum(&itup->t_tid);
+ 		values[2] = Int32GetDatum((int) IndexTupleSize(itup));
+ 
+ 		tuple_bytea = (bytea *) palloc(tuple_len + VARHDRSZ);
+ 		SET_VARSIZE(tuple_bytea, tuple_len + VARHDRSZ);
+@@ -279,11 +279,11 @@ gist_page_items(PG_FUNCTION_ARGS)
+ 		index_deform_tuple(itup, tupdesc,
+ 						   itup_values, itup_isnull);
+ 
+ 		memset(nulls, 0, sizeof(nulls));
+ 
+-		values[0] = DatumGetInt16(offset);
++		values[0] = Int16GetDatum(offset);
+ 		values[1] = ItemPointerGetDatum(&itup->t_tid);
+ 		values[2] = Int32GetDatum((int) IndexTupleSize(itup));
+ 		values[3] = BoolGetDatum(ItemIdIsDead(id));
+ 
+ 		if (index_columns)
+diff --git a/src/backend/access/common/printsimple.c b/src/backend/access/common/printsimple.c
+index f346ab3e812..a09c8fcd332 100644
+--- a/src/backend/access/common/printsimple.c
++++ b/src/backend/access/common/printsimple.c
+@@ -121,11 +121,11 @@ printsimple(TupleTableSlot *slot, DestReceiver *self)
+ 				}
+ 				break;
+ 
+ 			case OIDOID:
+ 				{
+-					Oid			num = ObjectIdGetDatum(value);
++					Oid			num = DatumGetObjectId(value);
+ 					char		str[10];	/* 10 digits */
+ 					int			len;
+ 
+ 					len = pg_ultoa_n(num, str);
+ 					pq_sendcountedtext(&buf, str, len);
+diff --git a/src/backend/access/nbtree/nbtcompare.c b/src/backend/access/nbtree/nbtcompare.c
+index 4da5a3c1d16..e1b52acd20d 100644
+--- a/src/backend/access/nbtree/nbtcompare.c
++++ b/src/backend/access/nbtree/nbtcompare.c
+@@ -553,11 +553,11 @@ btcharcmp(PG_FUNCTION_ARGS)
+ }
+ 
+ static Datum
+ char_decrement(Relation rel, Datum existing, bool *underflow)
+ {
+-	uint8		cexisting = UInt8GetDatum(existing);
++	uint8		cexisting = DatumGetUInt8(existing);
+ 
+ 	if (cexisting == 0)
+ 	{
+ 		/* return value is undefined */
+ 		*underflow = true;
+@@ -569,11 +569,11 @@ char_decrement(Relation rel, Datum existing, bool *underflow)
+ }
+ 
+ static Datum
+ char_increment(Relation rel, Datum existing, bool *overflow)
+ {
+-	uint8		cexisting = UInt8GetDatum(existing);
++	uint8		cexisting = DatumGetUInt8(existing);
+ 
+ 	if (cexisting == UCHAR_MAX)
+ 	{
+ 		/* return value is undefined */
+ 		*overflow = true;
+diff --git a/src/backend/access/transam/xlog.c b/src/backend/access/transam/xlog.c
+index 5553c20fee8..9a4de1616bc 100644
+--- a/src/backend/access/transam/xlog.c
++++ b/src/backend/access/transam/xlog.c
+@@ -9009,11 +9009,11 @@ do_pg_backup_start(const char *backupidstr, bool fast, List **tablespaces,
+ 	/*
+ 	 * Ensure we decrement runningBackups if we fail below. NB -- for this to
+ 	 * work correctly, it is critical that sessionBackupState is only updated
+ 	 * after this block is over.
+ 	 */
+-	PG_ENSURE_ERROR_CLEANUP(do_pg_abort_backup, DatumGetBool(true));
++	PG_ENSURE_ERROR_CLEANUP(do_pg_abort_backup, BoolGetDatum(true));
+ 	{
+ 		bool		gotUniqueStartpoint = false;
+ 		DIR		   *tblspcdir;
+ 		struct dirent *de;
+ 		tablespaceinfo *ti;
+@@ -9248,11 +9248,11 @@ do_pg_backup_start(const char *backupidstr, bool fast, List **tablespaces,
+ 		}
+ 		FreeDir(tblspcdir);
+ 
+ 		state->starttime = (pg_time_t) time(NULL);
+ 	}
+-	PG_END_ENSURE_ERROR_CLEANUP(do_pg_abort_backup, DatumGetBool(true));
++	PG_END_ENSURE_ERROR_CLEANUP(do_pg_abort_backup, BoolGetDatum(true));
+ 
+ 	state->started_in_recovery = backup_started_in_recovery;
+ 
+ 	/*
+ 	 * Mark that the start phase has correctly finished for the backup.
+@@ -9588,11 +9588,11 @@ register_persistent_abort_backup_handler(void)
+ {
+ 	static bool already_done = false;
+ 
+ 	if (already_done)
+ 		return;
+-	before_shmem_exit(do_pg_abort_backup, DatumGetBool(false));
++	before_shmem_exit(do_pg_abort_backup, BoolGetDatum(false));
+ 	already_done = true;
+ }
+ 
+ /*
+  * Get latest WAL insert pointer

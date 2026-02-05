@@ -1,0 +1,42 @@
+commit dc9a2d54fd2571c21c074103cc8ddd93e840b985
+Author: Álvaro Herrera <alvherre@kurilemu.de>
+Date:   Sun May 11 09:22:12 2025 -0400
+
+    relcache: Avoid memory leak on tables with no CHECK constraints
+    
+    As complained about by Valgrind, in commit a379061a22a8 I failed to
+    realize that I was causing rd_att->constr->check to become allocated
+    when no CHECK constraints exist; previously it'd remain NULL.  (This was
+    my bug, not the mentioned commit author's).  Fix by making the
+    allocation conditional, and set ->check to NULL if unallocated.
+    
+    Reported-by: Yasir <yasir.hussain.shah@gmail.com>
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/202505082025.57ijx3qrbx7u@alvherre.pgsql
+
+diff --git a/src/backend/utils/cache/relcache.c b/src/backend/utils/cache/relcache.c
+index 68ff67de549..559ba9cdb2c 100644
+--- a/src/backend/utils/cache/relcache.c
++++ b/src/backend/utils/cache/relcache.c
+@@ -4596,14 +4596,17 @@ CheckNNConstraintFetch(Relation relation)
+ 	SysScanDesc conscan;
+ 	ScanKeyData skey[1];
+ 	HeapTuple	htup;
+ 	int			found = 0;
+ 
+-	/* Allocate array with room for as many entries as expected */
+-	check = (ConstrCheck *)
+-		MemoryContextAllocZero(CacheMemoryContext,
+-							   ncheck * sizeof(ConstrCheck));
++	/* Allocate array with room for as many entries as expected, if needed */
++	if (ncheck > 0)
++		check = (ConstrCheck *)
++			MemoryContextAllocZero(CacheMemoryContext,
++								   ncheck * sizeof(ConstrCheck));
++	else
++		check = NULL;
+ 
+ 	/* Search pg_constraint for relevant entries */
+ 	ScanKeyInit(&skey[0],
+ 				Anum_pg_constraint_conrelid,
+ 				BTEqualStrategyNumber, F_OIDEQ,

@@ -1,0 +1,53 @@
+commit 46778187f5373f6072b58d5e4c298b775333a37c
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Thu Jan 25 11:13:38 2024 +0100
+
+    Fix s_lock_test compile
+    
+    This is a mostly unused tool, but I discovered while nosing around the
+    Makefile that it hasn't been kept in line with other changes.  Fix it.
+    
+    Backpatching doesn't appear to be necessary.
+    
+    Discussion: https://postgr.es/m/202401241114.ied53jcich72@alvherre.pgsql
+
+diff --git a/src/backend/storage/lmgr/Makefile b/src/backend/storage/lmgr/Makefile
+index 504480e8477..1aef423384c 100644
+--- a/src/backend/storage/lmgr/Makefile
++++ b/src/backend/storage/lmgr/Makefile
+@@ -31,11 +31,11 @@ TASPATH = $(top_builddir)/src/backend/port/tas.o
+ endif
+ 
+ s_lock_test: s_lock.c $(top_builddir)/src/common/libpgcommon.a $(top_builddir)/src/port/libpgport.a
+ 	$(CC) $(CPPFLAGS) $(CFLAGS) -DS_LOCK_TEST=1 $(srcdir)/s_lock.c \
+ 		$(TASPATH) -L $(top_builddir)/src/common -lpgcommon \
+-		-L $(top_builddir)/src/port -lpgport -o s_lock_test
++		-L $(top_builddir)/src/port -lpgport -lm -o s_lock_test
+ 
+ # see notes in src/backend/parser/Makefile
+ lwlocknames.c: lwlocknames.h
+ 	touch $@
+ 
+diff --git a/src/backend/storage/lmgr/s_lock.c b/src/backend/storage/lmgr/s_lock.c
+index 0e5f7ab0b9f..8437b130736 100644
+--- a/src/backend/storage/lmgr/s_lock.c
++++ b/src/backend/storage/lmgr/s_lock.c
+@@ -59,10 +59,18 @@
+ #define MAX_SPINS_PER_DELAY 1000
+ #define NUM_DELAYS			1000
+ #define MIN_DELAY_USEC		1000L
+ #define MAX_DELAY_USEC		1000000L
+ 
++#ifdef S_LOCK_TEST
++/*
++ * These are needed by pgstat_report_wait_start in the standalone compile of
++ * s_lock_test.
++ */
++static uint32 local_my_wait_event_info;
++uint32	   *my_wait_event_info = &local_my_wait_event_info;
++#endif
+ 
+ slock_t		dummy_spinlock;
+ 
+ static int	spins_per_delay = DEFAULT_SPINS_PER_DELAY;
+ 

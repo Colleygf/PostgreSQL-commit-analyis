@@ -1,0 +1,54 @@
+commit 82b07eba9e8b863cc05adb7e53a86ff02b51d888
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Wed Sep 4 14:45:31 2024 +0200
+
+    Remove a couple of strerror() calls
+    
+    Change to using %m in the error message string.  We need to be a bit
+    careful here to preserve errno until we need to print it.
+    
+    This change avoids the use of not-thread-safe strerror() and unifies
+    some error message strings, and maybe makes the code appear more
+    consistent.
+    
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://www.postgresql.org/message-id/flat/daa87d79-c044-46c4-8458-8d77241ed7b0%40eisentraut.org
+
+diff --git a/src/backend/libpq/hba.c b/src/backend/libpq/hba.c
+index 75d588e36a1..2fd96a71294 100644
+--- a/src/backend/libpq/hba.c
++++ b/src/backend/libpq/hba.c
+@@ -622,12 +622,15 @@ open_auth_file(const char *filename, int elevel, int depth,
+ 		ereport(elevel,
+ 				(errcode_for_file_access(),
+ 				 errmsg("could not open file \"%s\": %m",
+ 						filename)));
+ 		if (err_msg)
+-			*err_msg = psprintf("could not open file \"%s\": %s",
+-								filename, strerror(save_errno));
++		{
++			errno = save_errno;
++			*err_msg = psprintf("could not open file \"%s\": %m",
++								filename);
++		}
+ 		/* the caller may care about some specific errno */
+ 		errno = save_errno;
+ 		return NULL;
+ 	}
+ 
+@@ -760,12 +763,13 @@ tokenize_auth_file(const char *filename, FILE *file, List **tok_lines,
+ 			int			save_errno = errno;
+ 
+ 			ereport(elevel,
+ 					(errcode_for_file_access(),
+ 					 errmsg("could not read file \"%s\": %m", filename)));
+-			err_msg = psprintf("could not read file \"%s\": %s",
+-							   filename, strerror(save_errno));
++			errno = save_errno;
++			err_msg = psprintf("could not read file \"%s\": %m",
++							   filename);
+ 			break;
+ 		}
+ 
+ 		/* Parse fields */
+ 		lineptr = buf.data;

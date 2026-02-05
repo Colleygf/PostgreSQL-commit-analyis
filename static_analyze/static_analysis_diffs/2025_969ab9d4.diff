@@ -1,0 +1,80 @@
+commit 969ab9d4f5d141ac25db092a0e5cd004d3d60a60
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Mon Apr 7 14:14:28 2025 -0400
+
+    Follow-up fixes for SHA-2 patch (commit 749a9e20c).
+    
+    This changes the check for valid characters in the salt string to
+    only allow plain ASCII letters and digits.  The previous coding was
+    locale-dependent which doesn't really seem like a great idea here;
+    moreover it could not work correctly in multibyte encodings.
+    
+    This fixes a careless pointer-use-after-pfree, too.
+    
+    Reported-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Reported-by: Andres Freund <andres@anarazel.de>
+    Author: Bernd Helmle <mailings@oopsware.de>
+    Discussion: https://postgr.es/m/6fab35422df6b6b9727fdcc243c5fa1c667dd3b5.camel@oopsware.de
+
+diff --git a/contrib/pgcrypto/crypt-sha.c b/contrib/pgcrypto/crypt-sha.c
+index 7e9440ca784..7ec21771a83 100644
+--- a/contrib/pgcrypto/crypt-sha.c
++++ b/contrib/pgcrypto/crypt-sha.c
+@@ -44,10 +44,11 @@
+  *
+  */
+ #include "postgres.h"
+ 
+ #include "common/string.h"
++#include "mb/pg_wchar.h"
+ #include "miscadmin.h"
+ 
+ #include "px-crypt.h"
+ #include "px.h"
+ 
+@@ -56,11 +57,11 @@ typedef enum
+ 	PGCRYPTO_SHA256CRYPT = 0,
+ 	PGCRYPTO_SHA512CRYPT = 1,
+ 	PGCRYPTO_SHA_UNKOWN
+ } PGCRYPTO_SHA_t;
+ 
+-static unsigned char _crypt_itoa64[64 + 1] =
++static const char _crypt_itoa64[64 + 1] =
+ "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+ 
+ /*
+  * Modern UNIX password, based on SHA crypt hashes
+  */
+@@ -319,14 +320,17 @@ px_crypt_shacrypt(const char *pw, const char *salt, char *passwd, unsigned dstle
+ 		if (fp != NULL)
+ 			elog(ERROR, "invalid rounds option specified in salt string");
+ 
+ 		if (*ep != '$')
+ 		{
+-			if (isalpha(*ep) || isdigit(*ep) || (*ep == '.') || (*ep == '/'))
++			if (strchr(_crypt_itoa64, *ep) != NULL)
+ 				appendStringInfoCharMacro(decoded_salt, *ep);
+ 			else
+-				elog(ERROR, "invalid character in salt string: \"%c\"", *ep);
++				ereport(ERROR,
++						errcode(ERRCODE_INVALID_PARAMETER_VALUE),
++						errmsg("invalid character in salt string: \"%.*s\"",
++							   pg_mblen(ep), ep));
+ 		}
+ 		else
+ 		{
+ 			/*
+ 			 * We encountered a '$' marker. Check if we already absorbed some
+@@ -600,12 +604,10 @@ px_crypt_shacrypt(const char *pw, const char *salt, char *passwd, unsigned dstle
+ 		case PGCRYPTO_SHA_UNKOWN:
+ 			/* we shouldn't land here ... */
+ 			elog(ERROR, "unsupported digest length");
+ 	}
+ 
+-	*cp = '\0';
+-
+ 	/*
+ 	 * Copy over result to specified buffer.
+ 	 *
+ 	 * The passwd character buffer should have at least PX_SHACRYPT_BUF_LEN
+ 	 * allocated, since we checked above if dstlen is smaller than

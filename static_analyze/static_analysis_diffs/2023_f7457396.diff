@@ -1,0 +1,61 @@
+commit f745739697e49a38a31a755d7d36d6c97008dd9f
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Tue Jan 10 08:53:12 2023 +0530
+
+    Fix the display of lock information for specktoken.
+    
+    A transaction id is now displayed in the transactionid field and
+    speculative insertion token is displayed in the objid field.
+    
+    Author: Sawada Masahiko
+    Reviewed-by: Amit Kapila
+    Discussion: https://postgr.es/m/CAD21AoCEKxZztULP1CDm45aSNNR1QO-Bh1q6LMTspQ78PBuJrw@mail.gmail.com
+
+diff --git a/doc/src/sgml/system-views.sgml b/doc/src/sgml/system-views.sgml
+index 1d1b7de8f1e..5b1c73269b9 100644
+--- a/doc/src/sgml/system-views.sgml
++++ b/doc/src/sgml/system-views.sgml
+@@ -1577,10 +1577,16 @@
+    If a process is waiting for a
+    row-level lock, it will usually appear in the view as waiting for the
+    permanent transaction ID of the current holder of that row lock.
+   </para>
+ 
++  <para>
++   A specualtive insertion lock consists of a transaction ID and a speculative
++   insertion token. The speculative insertion token is displayed in the
++   <structfield>objid</structfield> column.
++  </para>
++
+   <para>
+    Advisory locks can be acquired on keys consisting of either a single
+    <type>bigint</type> value or two integer values.
+    A <type>bigint</type> key is displayed with its
+    high-order half in the <structfield>classid</structfield> column, its low-order half
+diff --git a/src/backend/utils/adt/lockfuncs.c b/src/backend/utils/adt/lockfuncs.c
+index c8aac0694fe..f9b9590997b 100644
+--- a/src/backend/utils/adt/lockfuncs.c
++++ b/src/backend/utils/adt/lockfuncs.c
+@@ -311,10 +311,22 @@ pg_lock_status(PG_FUNCTION_ARGS)
+ 				nulls[6] = true;
+ 				nulls[7] = true;
+ 				nulls[8] = true;
+ 				nulls[9] = true;
+ 				break;
++			case LOCKTAG_SPECULATIVE_TOKEN:
++				values[6] =
++					TransactionIdGetDatum(instance->locktag.locktag_field1);
++				values[8] = ObjectIdGetDatum(instance->locktag.locktag_field2);
++				nulls[1] = true;
++				nulls[2] = true;
++				nulls[3] = true;
++				nulls[4] = true;
++				nulls[5] = true;
++				nulls[7] = true;
++				nulls[9] = true;
++				break;
+ 			case LOCKTAG_APPLY_TRANSACTION:
+ 				values[1] = ObjectIdGetDatum(instance->locktag.locktag_field1);
+ 				values[8] = ObjectIdGetDatum(instance->locktag.locktag_field2);
+ 				values[6] = ObjectIdGetDatum(instance->locktag.locktag_field3);
+ 				values[9] = Int16GetDatum(instance->locktag.locktag_field4);

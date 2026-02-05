@@ -1,0 +1,37 @@
+commit 8e053dc6dfbee4ae412e98ad73cfd4662d7453ac
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Wed Mar 30 15:53:08 2022 -0400
+
+    Fix possible NULL-pointer-deference in backup_compression.c.
+    
+    Per Coverity and Tom Lane. Reviewed by Tom Lane and Justin Pryzby.
+    
+    Discussion: http://postgr.es/m/384291.1648403267@sss.pgh.pa.us
+
+diff --git a/src/common/backup_compression.c b/src/common/backup_compression.c
+index 969e08cca20..867f2f2eb5e 100644
+--- a/src/common/backup_compression.c
++++ b/src/common/backup_compression.c
+@@ -189,12 +189,20 @@ parse_bc_specification(bc_algorithm algorithm, char *specification,
+ 		/* Release memory, just to be tidy. */
+ 		pfree(keyword);
+ 		if (value != NULL)
+ 			pfree(value);
+ 
+-		/* If we got an error or have reached the end of the string, stop. */
+-		if (result->parse_error != NULL || *kwend == '\0' || *vend == '\0')
++		/*
++		 * If we got an error or have reached the end of the string, stop.
++		 *
++		 * If there is no value, then the end of the keyword might have been
++		 * the end of the string. If there is a value, then the end of the
++		 * keyword cannot have been the end of the string, but the end of the
++		 * value might have been.
++		 */
++		if (result->parse_error != NULL ||
++			(vend == NULL ? *kwend == '\0' : *vend == '\0'))
+ 			break;
+ 
+ 		/* Advance to next entry and loop around. */
+ 		specification = vend == NULL ? kwend + 1 : vend + 1;
+ 	}

@@ -1,0 +1,185 @@
+commit 98c6231d198a98b1c5ec9d400cd5593752fa9de9
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Dec 27 11:02:53 2023 -0500
+
+    Fix incorrect data type choices in some read and write calls.
+    
+    Recently-introduced code in reconstruct.c was using "unsigned"
+    to store the result of read(), pg_pread(), or write().  This is
+    completely bogus: it breaks subsequent tests for the result being
+    negative, as we're being reminded of by a chorus of buildfarm
+    warnings.  Switch to "int" as was doubtless intended.  (There are
+    several other uses of "unsigned" in this file that also look poorly
+    chosen to me, but for now I'm just trying to clean up the buildfarm.)
+    
+    A larger problem is that "int" is not necessarily wide enough to hold
+    the result: per POSIX, all these functions return ssize_t.  In places
+    where the requested read or write length clearly fits in int, that's
+    academic.  It may be academic anyway as long as we constrain
+    individual data files to 1GB, since even a readv or writev-like
+    operation would then not be responsible for transferring more than
+    1GB.  Nonetheless it seems like trouble waiting to happen, so I made
+    a pass over readv and writev calls and fixed the result variables
+    where that seemed appropriate.  We might want to think about changing
+    some of the fd.c functions to return ssize_t too, for future-proofing;
+    but I didn't tackle that here.
+    
+    Discussion: https://postgr.es/m/1672202.1703441340@sss.pgh.pa.us
+
+diff --git a/src/backend/access/transam/xlog.c b/src/backend/access/transam/xlog.c
+index 1e9019156a5..1264849883b 100644
+--- a/src/backend/access/transam/xlog.c
++++ b/src/backend/access/transam/xlog.c
+@@ -2278,11 +2278,11 @@ XLogWrite(XLogwrtRqst WriteRqst, TimeLineID tli, bool flexible)
+ 			finishing_seg)
+ 		{
+ 			char	   *from;
+ 			Size		nbytes;
+ 			Size		nleft;
+-			int			written;
++			ssize_t		written;
+ 			instr_time	start;
+ 
+ 			/* OK to write the page(s) */
+ 			from = XLogCtl->pages + startidx * (Size) XLOG_BLCKSZ;
+ 			nbytes = npages * (Size) XLOG_BLCKSZ;
+diff --git a/src/backend/backup/basebackup.c b/src/backend/backup/basebackup.c
+index 5ee9628422e..84246739ae6 100644
+--- a/src/backend/backup/basebackup.c
++++ b/src/backend/backup/basebackup.c
+@@ -115,12 +115,12 @@ static void _tarWritePadding(bbsink *sink, int len);
+ static void convert_link_to_directory(const char *pathbuf, struct stat *statbuf);
+ static void perform_base_backup(basebackup_options *opt, bbsink *sink,
+ 								IncrementalBackupInfo *ib);
+ static void parse_basebackup_options(List *options, basebackup_options *opt);
+ static int	compareWalFileNames(const ListCell *a, const ListCell *b);
+-static int	basebackup_read_file(int fd, char *buf, size_t nbytes, off_t offset,
+-								 const char *filename, bool partial_read_ok);
++static ssize_t basebackup_read_file(int fd, char *buf, size_t nbytes, off_t offset,
++									const char *filename, bool partial_read_ok);
+ 
+ /* Was the backup currently in-progress initiated in recovery mode? */
+ static bool backup_started_in_recovery = false;
+ 
+ /* Total number of checksum failures during base backup. */
+@@ -523,11 +523,11 @@ perform_base_backup(basebackup_options *opt, bbsink *sink,
+ 		/* Ok, we have everything we need. Send the WAL files. */
+ 		foreach(lc, walFileList)
+ 		{
+ 			char	   *walFileName = (char *) lfirst(lc);
+ 			int			fd;
+-			size_t		cnt;
++			ssize_t		cnt;
+ 			pgoff_t		len = 0;
+ 
+ 			snprintf(pathbuf, MAXPGPATH, XLOGDIR "/%s", walFileName);
+ 			XLogFromFileName(walFileName, &tli, &segno, wal_segment_size);
+ 
+@@ -2077,15 +2077,15 @@ convert_link_to_directory(const char *pathbuf, struct stat *statbuf)
+  * If partial_read_ok is false, also report an error if the number of bytes
+  * read is not equal to the number of bytes requested.
+  *
+  * Returns the number of bytes read.
+  */
+-static int
++static ssize_t
+ basebackup_read_file(int fd, char *buf, size_t nbytes, off_t offset,
+ 					 const char *filename, bool partial_read_ok)
+ {
+-	int			rc;
++	ssize_t		rc;
+ 
+ 	pgstat_report_wait_start(WAIT_EVENT_BASEBACKUP_READ);
+ 	rc = pg_pread(fd, buf, nbytes, offset);
+ 	pgstat_report_wait_end();
+ 
+@@ -2094,10 +2094,10 @@ basebackup_read_file(int fd, char *buf, size_t nbytes, off_t offset,
+ 				(errcode_for_file_access(),
+ 				 errmsg("could not read file \"%s\": %m", filename)));
+ 	if (!partial_read_ok && rc > 0 && rc != nbytes)
+ 		ereport(ERROR,
+ 				(errcode_for_file_access(),
+-				 errmsg("could not read file \"%s\": read %d of %zu",
++				 errmsg("could not read file \"%s\": read %zd of %zu",
+ 						filename, rc, nbytes)));
+ 
+ 	return rc;
+ }
+diff --git a/src/bin/pg_combinebackup/reconstruct.c b/src/bin/pg_combinebackup/reconstruct.c
+index 6decdd89340..874e6cd150b 100644
+--- a/src/bin/pg_combinebackup/reconstruct.c
++++ b/src/bin/pg_combinebackup/reconstruct.c
+@@ -502,19 +502,19 @@ make_rfile(char *filename, bool missing_ok)
+  * Read the indicated number of bytes from an rfile into the buffer.
+  */
+ static void
+ read_bytes(rfile *rf, void *buffer, unsigned length)
+ {
+-	unsigned	rb = read(rf->fd, buffer, length);
++	int			rb = read(rf->fd, buffer, length);
+ 
+ 	if (rb != length)
+ 	{
+ 		if (rb < 0)
+ 			pg_fatal("could not read file \"%s\": %m", rf->filename);
+ 		else
+ 			pg_fatal("could not read file \"%s\": read only %d of %d bytes",
+-					 rf->filename, (int) rb, length);
++					 rf->filename, rb, length);
+ 	}
+ }
+ 
+ /*
+  * Write out a reconstructed file.
+@@ -612,11 +612,11 @@ write_reconstructed_file(char *input_filename,
+ 	/* Read and write the blocks as required. */
+ 	for (i = 0; i < block_length; ++i)
+ 	{
+ 		uint8		buffer[BLCKSZ];
+ 		rfile	   *s = sourcemap[i];
+-		unsigned	wb;
++		int			wb;
+ 
+ 		/* Update accounting information. */
+ 		if (s == NULL)
+ 			++zero_blocks;
+ 		else
+@@ -639,33 +639,33 @@ write_reconstructed_file(char *input_filename,
+ 			 */
+ 			memset(buffer, 0, BLCKSZ);
+ 		}
+ 		else
+ 		{
+-			unsigned	rb;
++			int			rb;
+ 
+ 			/* Read the block from the correct source, except if dry-run. */
+ 			rb = pg_pread(s->fd, buffer, BLCKSZ, offsetmap[i]);
+ 			if (rb != BLCKSZ)
+ 			{
+ 				if (rb < 0)
+ 					pg_fatal("could not read file \"%s\": %m", s->filename);
+ 				else
+-					pg_fatal("could not read file \"%s\": read only %d of %d bytes at offset %u",
+-							 s->filename, (int) rb, BLCKSZ,
+-							 (unsigned) offsetmap[i]);
++					pg_fatal("could not read file \"%s\": read only %d of %d bytes at offset %llu",
++							 s->filename, rb, BLCKSZ,
++							 (unsigned long long) offsetmap[i]);
+ 			}
+ 		}
+ 
+ 		/* Write out the block. */
+ 		if ((wb = write(wfd, buffer, BLCKSZ)) != BLCKSZ)
+ 		{
+ 			if (wb < 0)
+ 				pg_fatal("could not write file \"%s\": %m", output_filename);
+ 			else
+ 				pg_fatal("could not write file \"%s\": wrote only %d of %d bytes",
+-						 output_filename, (int) wb, BLCKSZ);
++						 output_filename, wb, BLCKSZ);
+ 		}
+ 
+ 		/* Update the checksum computation. */
+ 		if (pg_checksum_update(checksum_ctx, buffer, BLCKSZ) < 0)
+ 			pg_fatal("could not update checksum of file \"%s\"",

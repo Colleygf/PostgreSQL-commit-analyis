@@ -1,0 +1,98 @@
+commit 5cfba1ad69c6d43184645419476f6cc62e5dd3c5
+Author: David Rowley <drowley@postgresql.org>
+Date:   Thu Sep 21 17:47:20 2023 +1200
+
+    Fix vacuumdb to pass buffer-usage-limit with analyze-only mode
+    
+    ae78cae3b added the --buffer-usage-limit to vacuumdb to allow it to
+    include the BUFFER_USAGE_LIMIT option in the VACUUM command.
+    Unfortunately, that commit forgot to adjust the code so the option was
+    added to the ANALYZE command when the -Z command line argument was
+    specified.
+    
+    There were no issues with the -z command as that option just adds
+    ANALYZE to the VACUUM command.
+    
+    In passing adjust the code to escape the --buffer-usage-limit option
+    before passing it to the server.  It seems nothing beyond a confusing
+    error message could become this lack of escaping as VACUUM cannot be
+    specified in a multi-command string.
+    
+    Reported-by: Ryoga Yoshida
+    Author: Ryoga Yoshida, David Rowley
+    Discussion: https://postgr.es/m/08930c0b541700a5264e5fbf3a685f5a%40oss.nttdata.com
+    Backpatch-through: 16, where ae78cae3b was introduced.
+
+diff --git a/src/bin/scripts/vacuumdb.c b/src/bin/scripts/vacuumdb.c
+index f03d5b1c6cb..005b064c06c 100644
+--- a/src/bin/scripts/vacuumdb.c
++++ b/src/bin/scripts/vacuumdb.c
+@@ -83,10 +83,12 @@ static void run_vacuum_command(PGconn *conn, const char *sql, bool echo,
+ 
+ static void help(const char *progname);
+ 
+ void		check_objfilter(void);
+ 
++static char *escape_quotes(const char *src);
++
+ /* For analyze-in-stages mode */
+ #define ANALYZE_NO_STAGE	-1
+ #define ANALYZE_NUM_STAGES	3
+ 
+ 
+@@ -268,11 +270,11 @@ main(int argc, char *argv[])
+ 				break;
+ 			case 12:
+ 				vacopts.process_main = false;
+ 				break;
+ 			case 13:
+-				vacopts.buffer_usage_limit = pg_strdup(optarg);
++				vacopts.buffer_usage_limit = escape_quotes(optarg);
+ 				break;
+ 			default:
+ 				/* getopt_long already emitted a complaint */
+ 				pg_log_error_hint("Try \"%s --help\" for more information.", progname);
+ 				exit(1);
+@@ -450,10 +452,24 @@ check_objfilter(void)
+ 	if ((objfilter & OBJFILTER_SCHEMA) &&
+ 		(objfilter & OBJFILTER_SCHEMA_EXCLUDE))
+ 		pg_fatal("cannot vacuum all tables in schema(s) and exclude schema(s) at the same time");
+ }
+ 
++/*
++ * Returns a newly malloc'd version of 'src' with escaped single quotes and
++ * backslashes.
++ */
++static char *
++escape_quotes(const char *src)
++{
++	char	   *result = escape_single_quotes_ascii(src);
++
++	if (!result)
++		pg_fatal("out of memory");
++	return result;
++}
++
+ /*
+  * vacuum_one_database
+  *
+  * Process tables in the given database.  If the 'tables' list is empty,
+  * process all tables in the database.
+@@ -962,10 +978,17 @@ prepare_vacuum_command(PQExpBuffer sql, int serverVersion,
+ 			if (vacopts->verbose)
+ 			{
+ 				appendPQExpBuffer(sql, "%sVERBOSE", sep);
+ 				sep = comma;
+ 			}
++			if (vacopts->buffer_usage_limit)
++			{
++				Assert(serverVersion >= 160000);
++				appendPQExpBuffer(sql, "%sBUFFER_USAGE_LIMIT '%s'", sep,
++								  vacopts->buffer_usage_limit);
++				sep = comma;
++			}
+ 			if (sep != paren)
+ 				appendPQExpBufferChar(sql, ')');
+ 		}
+ 		else
+ 		{

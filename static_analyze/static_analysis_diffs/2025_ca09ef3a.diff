@@ -1,0 +1,80 @@
+commit ca09ef3a6aa69a1250bc83e6d9517f28a2ff181c
+Author: Tomas Vondra <tomas.vondra@postgresql.org>
+Date:   Thu Jul 31 15:17:26 2025 +0200
+
+    Fix tab completion for ALTER ROLE|USER ... RESET
+    
+    Commit c407d5426b87 added tab completion for ALTER ROLE|USER ... RESET,
+    with the intent to offer only the variables actually set on the role.
+    But as soon as the user started typing something, it would start to
+    offer all possible matching variables.
+    
+    Fix this the same way ALTER DATABASE ... RESET does it, i.e. by
+    properly considering the prefix.
+    
+    A second issue causing similar symptoms (offering variables that are not
+    actually set for a role) was caused by a match to another pattern. The
+    ALTER DATABASE ... RESET was already excluded, so do the same thing for
+    ROLE/USER.
+    
+    Report and fix by Dagfinn Ilmari Mannsåker. Backpatch to 18, same as
+    c407d5426b87.
+    
+    Author: Dagfinn Ilmari Mannsåker <ilmari@ilmari.org>
+    Reviewed-by: jian he <jian.universality@gmail.com>
+    Discussion: https://postgr.es/m/87qzyghw2x.fsf%40wibble.ilmari.org
+    Discussion: https://postgr.es/m/87tt4lumqz.fsf%40wibble.ilmari.org
+    Backpatch-through: 18
+
+diff --git a/src/bin/psql/tab-complete.in.c b/src/bin/psql/tab-complete.in.c
+index 3c50847f958..1f2ca946fc5 100644
+--- a/src/bin/psql/tab-complete.in.c
++++ b/src/bin/psql/tab-complete.in.c
+@@ -1084,13 +1084,16 @@ Keywords_for_list_of_owner_roles, "PUBLIC"
+ " SELECT usename "\
+ "   FROM pg_catalog.pg_user_mappings "\
+ "  WHERE usename LIKE '%s'"
+ 
+ #define Query_for_list_of_user_vars \
+-" SELECT pg_catalog.split_part(pg_catalog.unnest(rolconfig),'=',1) "\
+-"   FROM pg_catalog.pg_roles "\
+-"  WHERE rolname LIKE '%s'"
++"SELECT conf FROM ("\
++"       SELECT rolname, pg_catalog.split_part(pg_catalog.unnest(rolconfig),'=',1) conf"\
++"         FROM pg_catalog.pg_roles"\
++"       ) s"\
++"  WHERE s.conf like '%s' "\
++"    AND s.rolname LIKE '%s'"
+ 
+ #define Query_for_list_of_access_methods \
+ " SELECT amname "\
+ "   FROM pg_catalog.pg_am "\
+ "  WHERE amname LIKE '%s'"
+@@ -2515,11 +2518,14 @@ match_previous_words(int pattern_id,
+ 					  "RENAME TO", "REPLICATION", "RESET", "SET", "SUPERUSER",
+ 					  "VALID UNTIL", "WITH");
+ 
+ 	/* ALTER USER,ROLE <name> RESET */
+ 	else if (Matches("ALTER", "USER|ROLE", MatchAny, "RESET"))
++	{
++		set_completion_reference(prev2_wd);
+ 		COMPLETE_WITH_QUERY_PLUS(Query_for_list_of_user_vars, "ALL");
++	}
+ 
+ 	/* ALTER USER,ROLE <name> WITH */
+ 	else if (Matches("ALTER", "USER|ROLE", MatchAny, "WITH"))
+ 		/* Similar to the above, but don't complete "WITH" again. */
+ 		COMPLETE_WITH("BYPASSRLS", "CONNECTION LIMIT", "CREATEDB", "CREATEROLE",
+@@ -5013,11 +5019,11 @@ match_previous_words(int pattern_id,
+ 
+ /* SET, RESET, SHOW */
+ 	/* Complete with a variable name */
+ 	else if (TailMatches("SET|RESET") &&
+ 			 !TailMatches("UPDATE", MatchAny, "SET") &&
+-			 !TailMatches("ALTER", "DATABASE", MatchAny, "RESET"))
++			 !TailMatches("ALTER", "DATABASE|USER|ROLE", MatchAny, "RESET"))
+ 		COMPLETE_WITH_QUERY_VERBATIM_PLUS(Query_for_list_of_set_vars,
+ 										  "CONSTRAINTS",
+ 										  "TRANSACTION",
+ 										  "SESSION",
+ 										  "ROLE",

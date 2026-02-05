@@ -1,0 +1,56 @@
+commit 91e7115b177b0523f9757574b8a329ebe10c0af7
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu May 2 17:36:31 2024 -0400
+
+    Throw a more on-point error for publications depending on columns.
+    
+    Same as 42b041243, except that the trouble case is a publication
+    WHERE clause that depends on a column.
+    
+    Again reported by Alexander Lakhin.  Back-patch to v15 where
+    we added publication WHERE clauses.
+    
+    Discussion: https://postgr.es/m/548a47bc-87ae-b3df-c6a2-60b9966f808b@gmail.com
+
+diff --git a/src/backend/commands/tablecmds.c b/src/backend/commands/tablecmds.c
+index c31783373f0..3309332f1ae 100644
+--- a/src/backend/commands/tablecmds.c
++++ b/src/backend/commands/tablecmds.c
+@@ -44,10 +44,11 @@
+ #include "catalog/pg_largeobject.h"
+ #include "catalog/pg_namespace.h"
+ #include "catalog/pg_opclass.h"
+ #include "catalog/pg_policy.h"
+ #include "catalog/pg_proc.h"
++#include "catalog/pg_publication_rel.h"
+ #include "catalog/pg_rewrite.h"
+ #include "catalog/pg_statistic_ext.h"
+ #include "catalog/pg_tablespace.h"
+ #include "catalog/pg_trigger.h"
+ #include "catalog/pg_type.h"
+@@ -14225,10 +14226,25 @@ RememberAllDependentForRebuilding(AlteredTableInfo *tab, AlterTableType subtype,
+ 				 * that this column type change would break.
+ 				 */
+ 				RememberStatisticsForRebuilding(foundObject.objectId, tab);
+ 				break;
+ 
++			case PublicationRelRelationId:
++
++				/*
++				 * Column reference in a PUBLICATION ... FOR TABLE ... WHERE
++				 * clause.  Same issues as above.  FIXME someday.
++				 */
++				if (subtype == AT_AlterColumnType)
++					ereport(ERROR,
++							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
++							 errmsg("cannot alter type of a column used by a publication WHERE clause"),
++							 errdetail("%s depends on column \"%s\"",
++									   getObjectDescription(&foundObject, false),
++									   colName)));
++				break;
++
+ 			default:
+ 
+ 				/*
+ 				 * We don't expect any other sorts of objects to depend on a
+ 				 * column.

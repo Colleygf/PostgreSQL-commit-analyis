@@ -1,0 +1,66 @@
+commit e1f95ec8cf6ea75d90905b2c746e2e1e9f3c9fc1
+Author: Noah Misch <noah@leadboat.com>
+Date:   Sun Oct 1 12:20:55 2023 -0700
+
+    Correct assertion and comments about XLogRecordMaxSize.
+    
+    The largest allocation, of xl_tot_len+8192, is in allocate_recordbuf().
+    
+    Discussion: https://postgr.es/m/20230812211327.GB2326466@rfd.leadboat.com
+
+diff --git a/src/backend/access/transam/xloginsert.c b/src/backend/access/transam/xloginsert.c
+index 258cbd70355..588626424e6 100644
+--- a/src/backend/access/transam/xloginsert.c
++++ b/src/backend/access/transam/xloginsert.c
+@@ -895,12 +895,11 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
+ 	/*
+ 	 * Ensure that the XLogRecord is not too large.
+ 	 *
+ 	 * XLogReader machinery is only able to handle records up to a certain
+ 	 * size (ignoring machine resource limitations), so make sure that we will
+-	 * not emit records larger than the sizes advertised to be supported. This
+-	 * cap is based on DecodeXLogRecordRequiredSpace().
++	 * not emit records larger than the sizes advertised to be supported.
+ 	 */
+ 	if (total_len > XLogRecordMaxSize)
+ 		ereport(ERROR,
+ 				(errmsg_internal("oversized WAL record"),
+ 				 errdetail_internal("WAL record would be %llu bytes (of maximum %u bytes); rmid %u flags %u.",
+@@ -1337,14 +1336,16 @@ InitXLogInsert(void)
+ {
+ #ifdef USE_ASSERT_CHECKING
+ 
+ 	/*
+ 	 * Check that any records assembled can be decoded.  This is capped based
+-	 * on what XLogReader would require at its maximum bound.  This code path
++	 * on what XLogReader would require at its maximum bound.  The XLOG_BLCKSZ
++	 * addend covers the larger allocate_recordbuf() demand.  This code path
+ 	 * is called once per backend, more than enough for this check.
+ 	 */
+-	size_t		max_required = DecodeXLogRecordRequiredSpace(XLogRecordMaxSize);
++	size_t		max_required =
++		DecodeXLogRecordRequiredSpace(XLogRecordMaxSize + XLOG_BLCKSZ);
+ 
+ 	Assert(AllocSizeIsValid(max_required));
+ #endif
+ 
+ 	/* Initialize the working areas */
+diff --git a/src/include/access/xlogrecord.h b/src/include/access/xlogrecord.h
+index f355e08e1d3..ec9a3c802a3 100644
+--- a/src/include/access/xlogrecord.h
++++ b/src/include/access/xlogrecord.h
+@@ -66,12 +66,12 @@ typedef struct XLogRecord
+  * XLogReader needs to allocate all the data of a WAL record in a single
+  * chunk.  This means that a single XLogRecord cannot exceed MaxAllocSize
+  * in length if we ignore any allocation overhead of the XLogReader.
+  *
+  * To accommodate some overhead, this value allows for 4M of allocation
+- * overhead, that should be plenty enough for what
+- * DecodeXLogRecordRequiredSpace() expects as extra.
++ * overhead, that should be plenty enough for what the XLogReader
++ * infrastructure expects as extra.
+  */
+ #define XLogRecordMaxSize	(1020 * 1024 * 1024)
+ 
+ /*
+  * If a WAL record modifies any relation files, in ways not covered by the

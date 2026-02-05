@@ -1,0 +1,89 @@
+commit 5c9f35fc48ea99e59300a267e090e3eafd1b3b0e
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Sun Apr 28 22:39:35 2024 +0300
+
+    Fix documentation and comments on what happens after GSS rejection
+    
+    The paragraph in the docs and the comment applied to
+    sslnegotiaton=direct, but not sslnegotiation=requiredirect. In
+    'requiredirect' mode, negotiated SSL is never used. Move the paragraph
+    in the docs under the description of 'direct' mode, and rephrase it.
+    
+    Also the comment's reference to reusing a plaintext connection was
+    bogus. Authentication failure in plaintext mode only happens after
+    sending the startup packet, so the connection cannot be reused.
+    
+    Reported-by: Jacob Champion
+    Discussion: https://www.postgresql.org/message-id/CAOYmi+=sj+1uydS0NR4nYzw-LRWp3Q-s5speBug5UCLSPMbvGA@mail.gmail.com
+
+diff --git a/doc/src/sgml/libpq.sgml b/doc/src/sgml/libpq.sgml
+index 0db3667fdf2..aed45f3428b 100644
+--- a/doc/src/sgml/libpq.sgml
++++ b/doc/src/sgml/libpq.sgml
+@@ -1801,10 +1801,19 @@ postgresql://%2Fvar%2Flib%2Fpostgresql/dbname
+              first attempt to establish a standard SSL connection and if that
+              fails reconnect and perform the negotiation. This fallback
+              process adds significant latency if the initial SSL connection
+              fails.
+            </para>
++           <para>
++             An exception is if <literal>gssencmode</literal> is set
++             to <literal>prefer</literal>, but the server rejects GSS encryption.
++             In that case, SSL is negotiated over the same TCP connection using
++             <productname>PostgreSQL</productname> protocol negotiation. In
++             other words, the direct SSL handshake is not used, if a TCP
++             connection has already been established and can be used for the
++             SSL handshake.
++           </para>
+           </listitem>
+          </varlistentry>
+ 
+          <varlistentry>
+           <term><literal>requiredirect</literal></term>
+@@ -1814,20 +1823,10 @@ postgresql://%2Fvar%2Flib%2Fpostgresql/dbname
+              return a connection failure immediately.
+            </para>
+           </listitem>
+          </varlistentry>
+         </variablelist>
+-
+-       <para>
+-        Note that if <literal>gssencmode</literal> is set
+-        to <literal>prefer</literal>, a <acronym>GSS</acronym> connection is
+-        attempted first. If the server rejects GSS encryption, SSL is
+-        negotiated over the same TCP connection using the traditional postgres
+-        protocol, regardless of <literal>sslnegotiation</literal>. In other
+-        words, the direct SSL handshake is not used, if a TCP connection has
+-        already been established and can be used for the SSL handshake.
+-       </para>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry id="libpq-connect-sslcompression" xreflabel="sslcompression">
+       <term><literal>sslcompression</literal></term>
+diff --git a/src/interfaces/libpq/fe-connect.c b/src/interfaces/libpq/fe-connect.c
+index ec20e3f3a90..5c6f0d9943a 100644
+--- a/src/interfaces/libpq/fe-connect.c
++++ b/src/interfaces/libpq/fe-connect.c
+@@ -4428,15 +4428,16 @@ select_next_encryption_method(PGconn *conn, bool have_valid_connection)
+ 	if (conn->sslmode[0] == 'a')
+ 		SELECT_NEXT_METHOD(ENC_PLAINTEXT);
+ 
+ 	/*
+ 	 * If enabled, try direct SSL. Unless we have a valid TCP connection that
+-	 * failed negotiating GSSAPI encryption or a plaintext connection in case
+-	 * of sslmode='allow'; in that case we prefer to reuse the connection with
+-	 * negotiated SSL, instead of reconnecting to do direct SSL. The point of
+-	 * direct SSL is to avoid the roundtrip from the negotiation, but
+-	 * reconnecting would also incur a roundtrip.
++	 * failed negotiating GSSAPI encryption; in that case we prefer to reuse
++	 * the connection with negotiated SSL, instead of reconnecting to do
++	 * direct SSL. The point of sslnegotiation=direct is to avoid the
++	 * roundtrip from the negotiation, but reconnecting would also incur a
++	 * roundtrip. (In sslnegotiation=requiredirect mode, negotiated SSL is not
++	 * in the list of allowed methods and we will reconnect.)
+ 	 */
+ 	if (have_valid_connection)
+ 		SELECT_NEXT_METHOD(ENC_NEGOTIATED_SSL);
+ 
+ 	SELECT_NEXT_METHOD(ENC_DIRECT_SSL);

@@ -1,0 +1,81 @@
+commit 3b35f9a4c5e0ed85c367b1397dac02fe7bd5b8a8
+Author: Richard Guo <rguo@postgresql.org>
+Date:   Wed Apr 16 10:55:44 2025 +0900
+
+    Fix an incorrect check in get_memoize_path
+    
+    Memoize typically marks cache entries as complete after fully scanning
+    the inner side of a join.  However, in the case of unique joins, we
+    skip to the next outer tuple as soon as the first matching inner tuple
+    is found, leaving no opportunity to scan the inner side to completion.
+    To work around that, we mark cache entries as complete after fetching
+    the first matching inner tuple in unique joins.
+    
+    This approach is only safe when all of the join's restriction clauses
+    are parameterized; otherwise, there is no guarantee that reading just
+    one tuple from the inner side is sufficient.
+    
+    Currently, we check for this by verifying that the number of clauses
+    in ppi_clauses is no less than the number of the join's restriction
+    clauses.  However, this check isn't entirely reliable, as ppi_clauses
+    includes join clauses available from all outer rels, not just the
+    current outer rel.  This means the check could pass even if a
+    restriction clause isn't parameterized, as long as another join
+    clause, which doesn't belong to the current join, is included in
+    ppi_clauses.
+    
+    To fix this, we explicitly check whether each restriction clause of
+    the current join is present in ppi_clauses.
+    
+    While we're here, remove the XXX comment from the modified code, as
+    it's not justified; in certain cases, it's not possible to move a join
+    clause to the inner side.
+    
+    This is arguably a bugfix, but no backpatch given the lack of field
+    reports.
+    
+    Author: Richard Guo <guofenglinux@gmail.com>
+    Reviewed-by: wenhui qiu <qiuwenhuifx@gmail.com>
+    Reviewed-by: Andrei Lepikhov <lepihov@gmail.com>
+    Discussion: https://postgr.es/m/CAMbWs4-8JPouj=wBDj4DhK-WO4+Xdx=A2jbjvvyyTBQneJ1=BQ@mail.gmail.com
+
+diff --git a/src/backend/optimizer/path/joinpath.c b/src/backend/optimizer/path/joinpath.c
+index 18891ce9156..14ed9daeca8 100644
+--- a/src/backend/optimizer/path/joinpath.c
++++ b/src/backend/optimizer/path/joinpath.c
+@@ -746,20 +746,26 @@ get_memoize_path(PlannerInfo *root, RelOptInfo *innerrel,
+ 	 * inner scan of a unique join.  Since the scope is limited to that, we
+ 	 * just don't bother making a memoize path in this case.
+ 	 *
+ 	 * Lateral vars needn't be considered here as they're not considered when
+ 	 * determining if the join is unique.
+-	 *
+-	 * XXX this could be enabled if the remaining join quals were made part of
+-	 * the inner scan's filter instead of the join filter.  Maybe it's worth
+-	 * considering doing that?
+ 	 */
+-	if (extra->inner_unique &&
+-		(inner_path->param_info == NULL ||
+-		 bms_num_members(inner_path->param_info->ppi_serials) <
+-		 list_length(extra->restrictlist)))
+-		return NULL;
++	if (extra->inner_unique)
++	{
++		Bitmapset  *ppi_serials;
++
++		if (inner_path->param_info == NULL)
++			return NULL;
++
++		ppi_serials = inner_path->param_info->ppi_serials;
++
++		foreach_node(RestrictInfo, rinfo, extra->restrictlist)
++		{
++			if (!bms_is_member(rinfo->rinfo_serial, ppi_serials))
++				return NULL;
++		}
++	}
+ 
+ 	/*
+ 	 * We can't use a memoize node if there are volatile functions in the
+ 	 * inner rel's target list or restrict list.  A cache hit could reduce the
+ 	 * number of calls to these functions.

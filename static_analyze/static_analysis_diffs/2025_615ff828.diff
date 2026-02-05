@@ -1,0 +1,86 @@
+commit 615ff828e1cb8eaa2a987d4390c5c9970fc1a3e6
+Author: Álvaro Herrera <alvherre@kurilemu.de>
+Date:   Sat Oct 18 18:18:19 2025 +0200
+
+    Fix determination of not-null constraint "locality" for inherited columns
+    
+    It is possible to have a non-inherited not-null constraint on an
+    inherited column, but we were failing to preserve such constraints
+    during pg_upgrade where the source is 17 or older, because of a bug in
+    the pg_dump query for it.  Oversight in commit 14e87ffa5c54.  Fix that
+    query.  In passing, touch-up a bogus nearby comment introduced by the
+    same commit.
+    
+    In version 17, make the regression tests leave a table in this
+    situation, so that this scenario is tested in the cross-version upgrade
+    tests of 18 and up.
+    
+    Author: Dilip Kumar <dilipbalaut@gmail.com>
+    Reported-by: Andrew Bille <andrewbille@gmail.com>
+    Bug: #19074
+    Backpatch-through: 18
+    Discussion: https://postgr.es/m/19074-ae2548458cf0195c@postgresql.org
+
+diff --git a/src/bin/pg_dump/pg_dump.c b/src/bin/pg_dump/pg_dump.c
+index 890db7b08c2..4b8cd49df09 100644
+--- a/src/bin/pg_dump/pg_dump.c
++++ b/src/bin/pg_dump/pg_dump.c
+@@ -9349,12 +9349,11 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
+ 	 * is invalid, and NULL otherwise.  Their comments are handled not here
+ 	 * but by collectComments, because they're their own dumpable object.
+ 	 *
+ 	 * We track in notnull_islocal whether the constraint was defined directly
+ 	 * in this table or via an ancestor, for binary upgrade.  flagInhAttrs
+-	 * might modify this later; that routine is also in charge of determining
+-	 * the correct inhcount.
++	 * might modify this later.
+ 	 */
+ 	if (fout->remoteVersion >= 180000)
+ 		appendPQExpBufferStr(q,
+ 							 "co.conname AS notnull_name,\n"
+ 							 "CASE WHEN co.convalidated THEN pt.description"
+@@ -9367,11 +9366,14 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
+ 		appendPQExpBufferStr(q,
+ 							 "CASE WHEN a.attnotnull THEN '' ELSE NULL END AS notnull_name,\n"
+ 							 "NULL AS notnull_comment,\n"
+ 							 "NULL AS notnull_invalidoid,\n"
+ 							 "false AS notnull_noinherit,\n"
+-							 "a.attislocal AS notnull_islocal,\n");
++							 "CASE WHEN a.attislocal THEN true\n"
++							 "     WHEN a.attnotnull AND NOT a.attislocal THEN true\n"
++							 "     ELSE false\n"
++							 "END AS notnull_islocal,\n");
+ 
+ 	if (fout->remoteVersion >= 140000)
+ 		appendPQExpBufferStr(q,
+ 							 "a.attcompression AS attcompression,\n");
+ 	else
+diff --git a/src/test/regress/expected/constraints.out b/src/test/regress/expected/constraints.out
+index 3590d3274f0..dda67798cb3 100644
+--- a/src/test/regress/expected/constraints.out
++++ b/src/test/regress/expected/constraints.out
+@@ -1703,5 +1703,9 @@ DROP ROLE regress_constraint_comments;
+ DROP ROLE regress_constraint_comments_noaccess;
+ -- Leave some constraints for the pg_upgrade test to pick up
+ CREATE DOMAIN constraint_comments_dom AS int;
+ ALTER DOMAIN constraint_comments_dom ADD CONSTRAINT inv_ck CHECK (value > 0) NOT VALID;
+ COMMENT ON CONSTRAINT inv_ck ON DOMAIN constraint_comments_dom IS 'comment on invalid constraint';
++-- Create a table that exercises pg_upgrade
++CREATE TABLE regress_notnull1 (a integer);
++CREATE TABLE regress_notnull2 () INHERITS (regress_notnull1);
++ALTER TABLE ONLY regress_notnull2 ALTER COLUMN a SET NOT NULL;
+diff --git a/src/test/regress/sql/constraints.sql b/src/test/regress/sql/constraints.sql
+index 1f6dc8fd69f..0a6290bc571 100644
+--- a/src/test/regress/sql/constraints.sql
++++ b/src/test/regress/sql/constraints.sql
+@@ -1047,5 +1047,10 @@ DROP ROLE regress_constraint_comments_noaccess;
+ -- Leave some constraints for the pg_upgrade test to pick up
+ CREATE DOMAIN constraint_comments_dom AS int;
+ 
+ ALTER DOMAIN constraint_comments_dom ADD CONSTRAINT inv_ck CHECK (value > 0) NOT VALID;
+ COMMENT ON CONSTRAINT inv_ck ON DOMAIN constraint_comments_dom IS 'comment on invalid constraint';
++
++-- Create a table that exercises pg_upgrade
++CREATE TABLE regress_notnull1 (a integer);
++CREATE TABLE regress_notnull2 () INHERITS (regress_notnull1);
++ALTER TABLE ONLY regress_notnull2 ALTER COLUMN a SET NOT NULL;

@@ -1,0 +1,88 @@
+commit 7da51590ed6cd46ff886e8e4d08e8703db9c2b5b
+Author: David Rowley <drowley@postgresql.org>
+Date:   Mon Feb 13 20:38:37 2023 +1300
+
+    Fix incorrect presorted DISTINCT aggregate if condition
+    
+    Here we fix a faulty "if" condition which failed to correctly handle two
+    or more consecutive NULL transition values when checking if the new value
+    is DISTINCT from the old value for presorted aggregates.  Given a suitably
+    non-strict aggregate transition function, a byref aggregate could cause a
+    crash due to calling the type's equality function and passing along a
+    (Datum) 0 value to test for equality, the equality function would then try
+    to dereference that 0 Datum and segfault.  For byval types, there'd have
+    been no crash and the equality function would have seen that the two 0
+    Datums matched, which (only by chance) meant the calling code would have
+    worked correctly.
+    
+    Here we ensure that we only call the equality function when neither of
+    the input values are NULL.
+    
+    This code is all new as of 1349d2790, so no backpatch needed.
+    
+    Reported-by: Fujii Masao
+    Discussion: https://postgr.es/m/860c6d6f-a3c5-3ae9-9da2-827177bede06@oss.nttdata.com
+
+diff --git a/src/backend/executor/execExprInterp.c b/src/backend/executor/execExprInterp.c
+index 1470edc0aba..827c65cc852 100644
+--- a/src/backend/executor/execExprInterp.c
++++ b/src/backend/executor/execExprInterp.c
+@@ -4248,13 +4248,13 @@ ExecEvalPreOrderedDistinctSingle(AggState *aggstate, AggStatePerTrans pertrans)
+ 	Datum		value = pertrans->transfn_fcinfo->args[1].value;
+ 	bool		isnull = pertrans->transfn_fcinfo->args[1].isnull;
+ 
+ 	if (!pertrans->haslast ||
+ 		pertrans->lastisnull != isnull ||
+-		!DatumGetBool(FunctionCall2Coll(&pertrans->equalfnOne,
+-										pertrans->aggCollation,
+-										pertrans->lastdatum, value)))
++		(!isnull && !DatumGetBool(FunctionCall2Coll(&pertrans->equalfnOne,
++													pertrans->aggCollation,
++													pertrans->lastdatum, value))))
+ 	{
+ 		if (pertrans->haslast && !pertrans->inputtypeByVal)
+ 			pfree(DatumGetPointer(pertrans->lastdatum));
+ 
+ 		pertrans->haslast = true;
+diff --git a/src/test/regress/expected/aggregates.out b/src/test/regress/expected/aggregates.out
+index 82d09615248..52046c33dc8 100644
+--- a/src/test/regress/expected/aggregates.out
++++ b/src/test/regress/expected/aggregates.out
+@@ -1504,10 +1504,18 @@ group by ten;
+    ->  Sort
+          Sort Key: ten, four, two
+          ->  Seq Scan on tenk1
+ (5 rows)
+ 
++-- Ensure consecutive NULLs are properly treated as distinct from each other
++select array_agg(distinct val)
++from (select null as val from generate_series(1, 2));
++ array_agg 
++-----------
++ {NULL}
++(1 row)
++
+ -- Ensure no ordering is requested when enable_presorted_aggregate is off
+ set enable_presorted_aggregate to off;
+ explain (costs off)
+ select sum(two order by two) from tenk1;
+        QUERY PLAN        
+diff --git a/src/test/regress/sql/aggregates.sql b/src/test/regress/sql/aggregates.sql
+index e81a22465b2..e7970983c36 100644
+--- a/src/test/regress/sql/aggregates.sql
++++ b/src/test/regress/sql/aggregates.sql
+@@ -565,10 +565,14 @@ select
+   sum(unique1 order by four, two), sum(unique1 order by two, random()),
+   sum(unique1 order by two, random(), random() + 1)
+ from tenk1
+ group by ten;
+ 
++-- Ensure consecutive NULLs are properly treated as distinct from each other
++select array_agg(distinct val)
++from (select null as val from generate_series(1, 2));
++
+ -- Ensure no ordering is requested when enable_presorted_aggregate is off
+ set enable_presorted_aggregate to off;
+ explain (costs off)
+ select sum(two order by two) from tenk1;
+ reset enable_presorted_aggregate;

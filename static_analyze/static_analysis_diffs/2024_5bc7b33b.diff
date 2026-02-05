@@ -1,0 +1,74 @@
+commit 5bc7b33b4e16d02fc21b493649939e438b071850
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Tue Jan 2 12:27:38 2024 -0500
+
+    jsonpath_exec: fix typo "absense" -> "absence"
+    
+    Dagfinn Ilmari Mannsåker, reviewed by Shubham Khanna.
+    
+    Discussion: http://postgr.es/m/87le9fmi01.fsf@wibble.ilmari.org
+
+diff --git a/src/backend/utils/adt/jsonpath_exec.c b/src/backend/utils/adt/jsonpath_exec.c
+index 2d0599b4aaa..9a09604f642 100644
+--- a/src/backend/utils/adt/jsonpath_exec.c
++++ b/src/backend/utils/adt/jsonpath_exec.c
+@@ -151,11 +151,11 @@ typedef struct JsonValueListIterator
+ 	List	   *list;
+ 	ListCell   *next;
+ } JsonValueListIterator;
+ 
+ /* strict/lax flags is decomposed into four [un]wrap/error flags */
+-#define jspStrictAbsenseOfErrors(cxt)	(!(cxt)->laxMode)
++#define jspStrictAbsenceOfErrors(cxt)	(!(cxt)->laxMode)
+ #define jspAutoUnwrap(cxt)				((cxt)->laxMode)
+ #define jspAutoWrap(cxt)				((cxt)->laxMode)
+ #define jspIgnoreStructuralErrors(cxt)	((cxt)->ignoreStructuralErrors)
+ #define jspThrowErrors(cxt)				((cxt)->throwErrors)
+ 
+@@ -568,11 +568,11 @@ executeJsonPath(JsonPath *path, Jsonb *vars, Jsonb *json, bool throwErrors,
+ 	cxt.lastGeneratedObjectId = vars ? 2 : 1;
+ 	cxt.innermostArraySize = -1;
+ 	cxt.throwErrors = throwErrors;
+ 	cxt.useTz = useTz;
+ 
+-	if (jspStrictAbsenseOfErrors(&cxt) && !result)
++	if (jspStrictAbsenceOfErrors(&cxt) && !result)
+ 	{
+ 		/*
+ 		 * In strict mode we must get a complete list of values to check that
+ 		 * there are no errors at all.
+ 		 */
+@@ -1316,11 +1316,11 @@ executeBoolItem(JsonPathExecContext *cxt, JsonPathItem *jsp,
+ 			}
+ 
+ 		case jpiExists:
+ 			jspGetArg(jsp, &larg);
+ 
+-			if (jspStrictAbsenseOfErrors(cxt))
++			if (jspStrictAbsenceOfErrors(cxt))
+ 			{
+ 				/*
+ 				 * In strict mode we must get a complete list of values to
+ 				 * check that there are no errors at all.
+ 				 */
+@@ -1514,18 +1514,18 @@ executePredicate(JsonPathExecContext *cxt, JsonPathItem *pred,
+ 		{
+ 			JsonPathBool res = exec(pred, lval, rval, param);
+ 
+ 			if (res == jpbUnknown)
+ 			{
+-				if (jspStrictAbsenseOfErrors(cxt))
++				if (jspStrictAbsenceOfErrors(cxt))
+ 					return jpbUnknown;
+ 
+ 				error = true;
+ 			}
+ 			else if (res == jpbTrue)
+ 			{
+-				if (!jspStrictAbsenseOfErrors(cxt))
++				if (!jspStrictAbsenceOfErrors(cxt))
+ 					return jpbTrue;
+ 
+ 				found = true;
+ 			}
+ 

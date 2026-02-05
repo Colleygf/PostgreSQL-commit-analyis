@@ -1,0 +1,118 @@
+commit 4f981df8e0b7bc00d22ab0db65579589c9d4bb8c
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Nov 9 12:28:34 2022 -0500
+
+    Report a more useful error for reloptions on a partitioned table.
+    
+    Previously, trying to set storage parameters on a partitioned table
+    always led to "unrecognized parameter foo", because the code expected
+    there might be some valid parameters; but there aren't any.  The docs
+    make clear that it's intended that there never will be any, so let's
+    replace this useless search with a more to-the-point message.
+    
+    Simon Riggs and Karina Litskevich
+    
+    Discussion: https://postgr.es/m/CANbhV-H=eZ9kTR9mUgKGK0Qv9uXP=U+dQg3rinQHfTdFMhBA2A@mail.gmail.com
+
+diff --git a/src/backend/access/common/reloptions.c b/src/backend/access/common/reloptions.c
+index 6458a9c2769..75b7344891a 100644
+--- a/src/backend/access/common/reloptions.c
++++ b/src/backend/access/common/reloptions.c
+@@ -1982,17 +1982,16 @@ build_local_reloptions(local_relopts *relopts, Datum options, bool validate)
+  * Option parser for partitioned tables
+  */
+ bytea *
+ partitioned_table_reloptions(Datum reloptions, bool validate)
+ {
+-	/*
+-	 * There are no options for partitioned tables yet, but this is able to do
+-	 * some validation.
+-	 */
+-	return (bytea *) build_reloptions(reloptions, validate,
+-									  RELOPT_KIND_PARTITIONED,
+-									  0, NULL, 0);
++	if (validate && reloptions)
++		ereport(ERROR,
++				errcode(ERRCODE_WRONG_OBJECT_TYPE),
++				errmsg("cannot specify storage parameters for a partitioned table"),
++				errhint("Specify storage parameters for its leaf partitions, instead."));
++	return NULL;
+ }
+ 
+ /*
+  * Option parser for views
+  */
+diff --git a/src/test/regress/expected/alter_table.out b/src/test/regress/expected/alter_table.out
+index 346f594ad02..cab49ec0a8f 100644
+--- a/src/test/regress/expected/alter_table.out
++++ b/src/test/regress/expected/alter_table.out
+@@ -3799,10 +3799,14 @@ ALTER TABLE partitioned ALTER COLUMN a TYPE char(5);
+ ERROR:  cannot alter column "a" because it is part of the partition key of relation "partitioned"
+ ALTER TABLE partitioned DROP COLUMN b;
+ ERROR:  cannot drop column "b" because it is part of the partition key of relation "partitioned"
+ ALTER TABLE partitioned ALTER COLUMN b TYPE char(5);
+ ERROR:  cannot alter column "b" because it is part of the partition key of relation "partitioned"
++-- specifying storage parameters for partitioned tables is not supported
++ALTER TABLE partitioned SET (fillfactor=100);
++ERROR:  cannot specify storage parameters for a partitioned table
++HINT:  Specify storage parameters for its leaf partitions, instead.
+ -- partitioned table cannot participate in regular inheritance
+ CREATE TABLE nonpartitioned (
+ 	a int,
+ 	b int
+ );
+diff --git a/src/test/regress/expected/create_table.out b/src/test/regress/expected/create_table.out
+index 4407a017a9f..5eace915a79 100644
+--- a/src/test/regress/expected/create_table.out
++++ b/src/test/regress/expected/create_table.out
+@@ -985,10 +985,14 @@ SELECT obj_description('parted_col_comment'::regclass);
+  b      | text    |           |          |         | extended |              | 
+ Partition key: LIST (a)
+ Number of partitions: 0
+ 
+ DROP TABLE parted_col_comment;
++-- specifying storage parameters for partitioned tables is not supported
++CREATE TABLE parted_col_comment (a int, b text) PARTITION BY LIST (a) WITH (fillfactor=100);
++ERROR:  cannot specify storage parameters for a partitioned table
++HINT:  Specify storage parameters for its leaf partitions, instead.
+ -- list partitioning on array type column
+ CREATE TABLE arrlp (a int[]) PARTITION BY LIST (a);
+ CREATE TABLE arrlp12 PARTITION OF arrlp FOR VALUES IN ('{1}', '{2}');
+ \d+ arrlp12
+                                    Table "public.arrlp12"
+diff --git a/src/test/regress/sql/alter_table.sql b/src/test/regress/sql/alter_table.sql
+index 9f773aeeb94..5a71961f02d 100644
+--- a/src/test/regress/sql/alter_table.sql
++++ b/src/test/regress/sql/alter_table.sql
+@@ -2323,10 +2323,13 @@ ALTER TABLE partitioned ADD EXCLUDE USING gist (a WITH &&);
+ ALTER TABLE partitioned DROP COLUMN a;
+ ALTER TABLE partitioned ALTER COLUMN a TYPE char(5);
+ ALTER TABLE partitioned DROP COLUMN b;
+ ALTER TABLE partitioned ALTER COLUMN b TYPE char(5);
+ 
++-- specifying storage parameters for partitioned tables is not supported
++ALTER TABLE partitioned SET (fillfactor=100);
++
+ -- partitioned table cannot participate in regular inheritance
+ CREATE TABLE nonpartitioned (
+ 	a int,
+ 	b int
+ );
+diff --git a/src/test/regress/sql/create_table.sql b/src/test/regress/sql/create_table.sql
+index 5175f404f77..93ccf77d4a1 100644
+--- a/src/test/regress/sql/create_table.sql
++++ b/src/test/regress/sql/create_table.sql
+@@ -650,10 +650,13 @@ COMMENT ON TABLE parted_col_comment IS 'Am partitioned table';
+ COMMENT ON COLUMN parted_col_comment.a IS 'Partition key';
+ SELECT obj_description('parted_col_comment'::regclass);
+ \d+ parted_col_comment
+ DROP TABLE parted_col_comment;
+ 
++-- specifying storage parameters for partitioned tables is not supported
++CREATE TABLE parted_col_comment (a int, b text) PARTITION BY LIST (a) WITH (fillfactor=100);
++
+ -- list partitioning on array type column
+ CREATE TABLE arrlp (a int[]) PARTITION BY LIST (a);
+ CREATE TABLE arrlp12 PARTITION OF arrlp FOR VALUES IN ('{1}', '{2}');
+ \d+ arrlp12
+ DROP TABLE arrlp;

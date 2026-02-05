@@ -1,0 +1,83 @@
+commit aeebb8bf233e7f48a7a6eb6857e7b7c61ef0ef4c
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Tue Apr 12 14:14:32 2022 +0530
+
+    Fix grammatical errors and typos in logical replication docs.
+    
+    Author: Justin Pryzby
+    Reviewed By: Masahiko Sawada
+    Discussion: https://postgr.es/m/20220411020336.GB26620@telsasoft.com
+
+diff --git a/doc/src/sgml/logical-replication.sgml b/doc/src/sgml/logical-replication.sgml
+index 555fbd749cc..1126ce4ccf7 100644
+--- a/doc/src/sgml/logical-replication.sgml
++++ b/doc/src/sgml/logical-replication.sgml
+@@ -361,25 +361,25 @@ DETAIL:  Key (c)=(1) already exists.
+ CONTEXT:  processing remote data for replication origin "pg_16395" during "INSERT" for replication target relation "public.test" in transaction 725 finished at 0/14C0378
+ </screen>
+    The LSN of the transaction that contains the change violating the constraint and
+    the replication origin name can be found from the server log (LSN 0/14C0378 and
+    replication origin <literal>pg_16395</literal> in the above case).  The
+-   transaction that produces conflict can be skipped by using
++   transaction that produced the conflict can be skipped by using
+    <command>ALTER SUBSCRIPTION ... SKIP</command> with the finish LSN
+    (i.e., LSN 0/14C0378).  The finish LSN could be an LSN at which the transaction
+    is committed or prepared on the publisher.  Alternatively, the transaction can
+    also be skipped by calling the <link linkend="pg-replication-origin-advance">
+-   <function>pg_replication_origin_advance()</function></link> function
+-   transaction.  Before using this function, the subscription needs to be disabled
+-   temporarily either by <command>ALTER SUBSCRIPTION ... DISABLE</command> or, the
++   <function>pg_replication_origin_advance()</function></link> function.
++   Before using this function, the subscription needs to be disabled temporarily
++   either by <command>ALTER SUBSCRIPTION ... DISABLE</command> or, the
+    subscription can be used with the <literal>disable_on_error</literal> option.
+    Then, you can use <function>pg_replication_origin_advance()</function> function
+    with the <parameter>node_name</parameter> (i.e., <literal>pg_16395</literal>)
+    and the next LSN of the finish LSN (i.e., 0/14C0379).  The current position of
+    origins can be seen in the <link linkend="view-pg-replication-origin-status">
+    <structname>pg_replication_origin_status</structname></link> system view.
+-   Please note that skipping the whole transaction include skipping changes that
++   Please note that skipping the whole transaction includes skipping changes that
+    might not violate any constraint.  This can easily make the subscriber
+    inconsistent.
+   </para>
+  </sect1>
+ 
+diff --git a/doc/src/sgml/ref/alter_subscription.sgml b/doc/src/sgml/ref/alter_subscription.sgml
+index 7c5203b6d3b..353ea5def23 100644
+--- a/doc/src/sgml/ref/alter_subscription.sgml
++++ b/doc/src/sgml/ref/alter_subscription.sgml
+@@ -217,17 +217,17 @@ ALTER SUBSCRIPTION <replaceable class="parameter">name</replaceable> RENAME TO <
+     <term><literal>SKIP ( <replaceable class="parameter">skip_option</replaceable> = <replaceable class="parameter">value</replaceable> )</literal></term>
+     <listitem>
+      <para>
+       Skips applying all changes of the remote transaction.  If incoming data
+       violates any constraints, logical replication will stop until it is
+-      resolved.  By using <command>ALTER SUBSCRIPTION ... SKIP</command> command,
++      resolved.  By using the <command>ALTER SUBSCRIPTION ... SKIP</command> command,
+       the logical replication worker skips all data modification changes within
+       the transaction.  This option has no effect on the transactions that are
+       already prepared by enabling <literal>two_phase</literal> on
+       subscriber.
+-      After logical replication worker successfully skips the transaction or
+-      finishes a transaction, LSN (stored in
++      After the logical replication worker successfully skips the transaction or
++      finishes a transaction, the LSN (stored in
+       <structname>pg_subscription</structname>.<structfield>subskiplsn</structfield>)
+       is cleared.  See <xref linkend="logical-replication-conflicts"/> for
+       the details of logical replication conflicts.  Using this command requires
+       superuser privilege.
+      </para>
+@@ -242,11 +242,11 @@ ALTER SUBSCRIPTION <replaceable class="parameter">name</replaceable> RENAME TO <
+         <listitem>
+          <para>
+           Specifies the finish LSN of the remote transaction whose changes
+           are to be skipped by the logical replication worker.  The finish LSN
+           is the LSN at which the transaction is either committed or prepared.
+-          Skipping individual subtransaction is not supported.  Setting
++          Skipping individual subtransactions is not supported.  Setting
+           <literal>NONE</literal> resets the LSN.
+          </para>
+         </listitem>
+        </varlistentry>
+       </variablelist></para>

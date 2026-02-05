@@ -1,0 +1,73 @@
+commit 26eadf4d2b14a8a8d110b214dbb7ef952fbf8e93
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu Sep 11 17:17:04 2025 +0900
+
+    Fix description of WAL record blocks in hash_xlog.h
+    
+    hash_xlog.h included descriptions for the blocks used in WAL records
+    that were was not completely consistent with how the records are
+    generated, with one block missing for SQUEEZE_PAGE, and inconsistent
+    descriptions used for block 0 in VACUUM_ONE_PAGE and MOVE_PAGE_CONTENTS.
+    
+    This information was incorrect since c11453ce0aea, cross-checking the
+    logic for the record generation.
+    
+    Author: Kirill Reshke <reshkekirill@gmail.com>
+    Reviewed-by: Andrey Borodin <x4mmm@yandex-team.ru>
+    Discussion: https://postgr.es/m/CALdSSPj1j=a1d1hVA3oabRFz0hSU3KKrYtZPijw4UPUM7LY9zw@mail.gmail.com
+    Backpatch-through: 13
+
+diff --git a/src/include/access/hash_xlog.h b/src/include/access/hash_xlog.h
+index 6fe97de4d66..5d4671dc4c1 100644
+--- a/src/include/access/hash_xlog.h
++++ b/src/include/access/hash_xlog.h
+@@ -127,11 +127,11 @@ typedef struct xl_hash_split_complete
+  * This is what we need to know about move page contents required during
+  * squeeze operation.
+  *
+  * This data record is used for XLOG_HASH_MOVE_PAGE_CONTENTS
+  *
+- * Backup Blk 0: bucket page
++ * Backup Blk 0: primary bucket page
+  * Backup Blk 1: page containing moved tuples
+  * Backup Blk 2: page from which tuples will be removed
+  */
+ typedef struct xl_hash_move_page_contents
+ {
+@@ -147,16 +147,17 @@ typedef struct xl_hash_move_page_contents
+ /*
+  * This is what we need to know about the squeeze page operation.
+  *
+  * This data record is used for XLOG_HASH_SQUEEZE_PAGE
+  *
+- * Backup Blk 0: page containing tuples moved from freed overflow page
+- * Backup Blk 1: freed overflow page
+- * Backup Blk 2: page previous to the freed overflow page
+- * Backup Blk 3: page next to the freed overflow page
+- * Backup Blk 4: bitmap page containing info of freed overflow page
+- * Backup Blk 5: meta page
++ * Backup Blk 0: primary bucket page
++ * Backup Blk 1: page containing tuples moved from freed overflow page
++ * Backup Blk 2: freed overflow page
++ * Backup Blk 3: page previous to the freed overflow page
++ * Backup Blk 4: page next to the freed overflow page
++ * Backup Blk 5: bitmap page containing info of freed overflow page
++ * Backup Blk 6: meta page
+  */
+ typedef struct xl_hash_squeeze_page
+ {
+ 	BlockNumber prevblkno;
+ 	BlockNumber nextblkno;
+@@ -243,11 +244,11 @@ typedef struct xl_hash_init_bitmap_page
+  * This is what we need for index tuple deletion and to
+  * update the meta page.
+  *
+  * This data record is used for XLOG_HASH_VACUUM_ONE_PAGE
+  *
+- * Backup Blk 0: bucket page
++ * Backup Blk 0: primary bucket page
+  * Backup Blk 1: meta page
+  */
+ typedef struct xl_hash_vacuum_one_page
+ {
+ 	TransactionId snapshotConflictHorizon;

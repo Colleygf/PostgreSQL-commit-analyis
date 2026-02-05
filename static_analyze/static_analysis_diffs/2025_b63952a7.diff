@@ -1,0 +1,83 @@
+commit b63952a7811319a6525a9ea23afa294a900fa895
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Fri Aug 22 11:11:28 2025 -0500
+
+    vacuumdb: Fix --missing-stats-only with virtual generated columns.
+    
+    Statistics aren't created for virtual generated columns, so
+    "vacuumdb --missing-stats-only" always chooses to analyze tables
+    that have them.  To fix, modify vacuumdb's query for retrieving
+    relations that are missing statistics to exclude those columns.
+    
+    Oversight in commit edba754f05.
+    
+    Author: Yugo Nagata <nagata@sraoss.co.jp>
+    Reviewed-by: Fujii Masao <masao.fujii@gmail.com>
+    Reviewed-by: Corey Huinker <corey.huinker@gmail.com>
+    Discussion: https://postgr.es/m/20250820104226.8ba51e43164cd590b863ce41%40sraoss.co.jp
+    Backpatch-through: 18
+
+diff --git a/src/bin/scripts/t/100_vacuumdb.pl b/src/bin/scripts/t/100_vacuumdb.pl
+index 240f0fdd3e5..945c30df156 100644
+--- a/src/bin/scripts/t/100_vacuumdb.pl
++++ b/src/bin/scripts/t/100_vacuumdb.pl
+@@ -235,13 +235,14 @@ $node->command_fails_like(
+ $node->command_fails_like(
+ 	[ 'vacuumdb', '--all', 'postgres' ],
+ 	qr/cannot vacuum all databases and a specific one at the same time/,
+ 	'cannot use option --all and a dbname as argument at the same time');
+ 
+-$node->safe_psql('postgres',
+-	'CREATE TABLE regression_vacuumdb_test AS select generate_series(1, 10) a, generate_series(2, 11) b;'
+-);
++$node->safe_psql('postgres', q|
++  CREATE TABLE regression_vacuumdb_test AS select generate_series(1, 10) a, generate_series(2, 11) b;
++  ALTER TABLE regression_vacuumdb_test ADD COLUMN c INT GENERATED ALWAYS AS (a + b);
++|);
+ $node->issues_sql_like(
+ 	[
+ 		'vacuumdb', '--analyze-only',
+ 		'--missing-stats-only', '-t',
+ 		'regression_vacuumdb_test', 'postgres'
+diff --git a/src/bin/scripts/vacuumdb.c b/src/bin/scripts/vacuumdb.c
+index 22093e50aa5..fd236087e90 100644
+--- a/src/bin/scripts/vacuumdb.c
++++ b/src/bin/scripts/vacuumdb.c
+@@ -12,10 +12,11 @@
+ 
+ #include "postgres_fe.h"
+ 
+ #include <limits.h>
+ 
++#include "catalog/pg_attribute_d.h"
+ #include "catalog/pg_class_d.h"
+ #include "common.h"
+ #include "common/connect.h"
+ #include "common/logging.h"
+ #include "fe_utils/cancel.h"
+@@ -971,10 +972,12 @@ retrieve_objects(PGconn *conn, vacuumingOptions *vacopts,
+ 							 " EXISTS (SELECT NULL FROM pg_catalog.pg_attribute a\n"
+ 							 " WHERE a.attrelid OPERATOR(pg_catalog.=) c.oid\n"
+ 							 " AND a.attnum OPERATOR(pg_catalog.>) 0::pg_catalog.int2\n"
+ 							 " AND NOT a.attisdropped\n"
+ 							 " AND a.attstattarget IS DISTINCT FROM 0::pg_catalog.int2\n"
++							 " AND a.attgenerated OPERATOR(pg_catalog.<>) "
++							 CppAsString2(ATTRIBUTE_GENERATED_VIRTUAL) "\n"
+ 							 " AND NOT EXISTS (SELECT NULL FROM pg_catalog.pg_statistic s\n"
+ 							 " WHERE s.starelid OPERATOR(pg_catalog.=) a.attrelid\n"
+ 							 " AND s.staattnum OPERATOR(pg_catalog.=) a.attnum\n"
+ 							 " AND s.stainherit OPERATOR(pg_catalog.=) p.inherited))\n");
+ 
+@@ -1008,10 +1011,12 @@ retrieve_objects(PGconn *conn, vacuumingOptions *vacopts,
+ 							 " OR EXISTS (SELECT NULL FROM pg_catalog.pg_attribute a\n"
+ 							 " WHERE a.attrelid OPERATOR(pg_catalog.=) c.oid\n"
+ 							 " AND a.attnum OPERATOR(pg_catalog.>) 0::pg_catalog.int2\n"
+ 							 " AND NOT a.attisdropped\n"
+ 							 " AND a.attstattarget IS DISTINCT FROM 0::pg_catalog.int2\n"
++							 " AND a.attgenerated OPERATOR(pg_catalog.<>) "
++							 CppAsString2(ATTRIBUTE_GENERATED_VIRTUAL) "\n"
+ 							 " AND c.relhassubclass\n"
+ 							 " AND NOT p.inherited\n"
+ 							 " AND EXISTS (SELECT NULL FROM pg_catalog.pg_inherits h\n"
+ 							 " WHERE h.inhparent OPERATOR(pg_catalog.=) c.oid)\n"
+ 							 " AND NOT EXISTS (SELECT NULL FROM pg_catalog.pg_statistic s\n"

@@ -1,0 +1,45 @@
+commit d96c854dfc634212193007ca58f8978bc272d457
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Tue Sep 9 14:35:30 2025 -0500
+
+    Fix documentation for shmem_startup_hook.
+    
+    This section claims that each backend executes the
+    shmem_startup_hook shortly after attaching to shared memory, which
+    is true for EXEC_BACKEND builds, but not for others.  This commit
+    adds this important detail.
+    
+    Oversight in commit 964152c476.
+    
+    Reported-by: Sami Imseih <samimseih@gmail.com>
+    Reviewed-by: Sami Imseih <samimseih@gmail.com>
+    Discussion: https://postgr.es/m/CAA5RZ0vEGT1eigGbVt604LkXP6mUPMwPMxQoRCbFny44w%2B9EUQ%40mail.gmail.com
+    Backpatch-through: 17
+
+diff --git a/doc/src/sgml/xfunc.sgml b/doc/src/sgml/xfunc.sgml
+index da21ef56891..04bf919b343 100644
+--- a/doc/src/sgml/xfunc.sgml
++++ b/doc/src/sgml/xfunc.sgml
+@@ -3666,15 +3666,18 @@ if (!found)
+ }
+ LWLockRelease(AddinShmemInitLock);
+ </programlisting>
+       <literal>shmem_startup_hook</literal> provides a convenient place for the
+       initialization code, but it is not strictly required that all such code
+-      be placed in this hook.  Each backend will execute the registered
+-      <literal>shmem_startup_hook</literal> shortly after it attaches to shared
+-      memory.  Note that add-ins should still acquire
++      be placed in this hook.  On Windows (and anywhere else where
++      <literal>EXEC_BACKEND</literal> is defined), each backend executes the
++      registered <literal>shmem_startup_hook</literal> shortly after it
++      attaches to shared memory, so add-ins should still acquire
+       <function>AddinShmemInitLock</function> within this hook, as shown in the
+-      example above.
++      example above.  On other platforms, only the postmaster process executes
++      the <literal>shmem_startup_hook</literal>, and each backend automatically
++      inherits the pointers to shared memory.
+      </para>
+ 
+      <para>
+       An example of a <literal>shmem_request_hook</literal> and
+       <literal>shmem_startup_hook</literal> can be found in

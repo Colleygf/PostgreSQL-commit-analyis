@@ -1,0 +1,85 @@
+commit 0f92b230f88b98c34b9804c4b4226e0d1822dc53
+Author: Tomas Vondra <tomas.vondra@postgresql.org>
+Date:   Mon Aug 19 00:04:41 2024 +0200
+
+    Fix DROP DATABASE for databases with many ACLs
+    
+    Commit c66a7d75e652 modified DROP DATABASE so that if interrupted, the
+    database is known to be in an invalid state and can only be dropped.
+    This is done by setting a flag using an in-place update, so that it's
+    not lost in case of rollback.
+    
+    For databases with many ACLs, this may however fail like this:
+    
+      ERROR:  wrong tuple length
+    
+    This happens because with many ACLs, the pg_database.datacl attribute
+    gets TOASTed. The dropdb() code reads the tuple from the syscache, which
+    means it's detoasted. But the in-place update expects the tuple length
+    to match the on-disk tuple.
+    
+    Fixed by reading the tuple from the catalog directly, not from syscache.
+    
+    Report and fix by Ayush Tiwari. Backpatch to 12. The DROP DATABASE fix
+    was backpatched to 11, but 11 is EOL at this point.
+    
+    Reported-by: Ayush Tiwari
+    Author: Ayush Tiwari
+    Reviewed-by: Tomas Vondra
+    Backpatch-through: 12
+    Discussion: https://postgr.es/m/CAJTYsWWNkCt+-UnMhg=BiCD3Mh8c2JdHLofPxsW3m2dkDFw8RA@mail.gmail.com
+
+diff --git a/src/backend/commands/dbcommands.c b/src/backend/commands/dbcommands.c
+index eb2301a5cf4..7a7e2c6e3ef 100644
+--- a/src/backend/commands/dbcommands.c
++++ b/src/backend/commands/dbcommands.c
+@@ -1648,10 +1648,12 @@ dropdb(const char *dbname, bool missing_ok, bool force)
+ {
+ 	Oid			db_id;
+ 	bool		db_istemplate;
+ 	Relation	pgdbrel;
+ 	HeapTuple	tup;
++	ScanKeyData scankey;
++	SysScanDesc scan;
+ 	Form_pg_database datform;
+ 	int			notherbackends;
+ 	int			npreparedxacts;
+ 	int			nslots,
+ 				nslots_active;
+@@ -1785,11 +1787,22 @@ dropdb(const char *dbname, bool missing_ok, bool force)
+ 	/*
+ 	 * Tell the cumulative stats system to forget it immediately, too.
+ 	 */
+ 	pgstat_drop_database(db_id);
+ 
+-	tup = SearchSysCacheCopy1(DATABASEOID, ObjectIdGetDatum(db_id));
++	/*
++	 * Update the database's pg_database tuple
++	 */
++	ScanKeyInit(&scankey,
++				Anum_pg_database_datname,
++				BTEqualStrategyNumber, F_NAMEEQ,
++				CStringGetDatum(dbname));
++
++	scan = systable_beginscan(pgdbrel, DatabaseNameIndexId, true,
++							  NULL, 1, &scankey);
++
++	tup = systable_getnext(scan);
+ 	if (!HeapTupleIsValid(tup))
+ 		elog(ERROR, "cache lookup failed for database %u", db_id);
+ 	datform = (Form_pg_database) GETSTRUCT(tup);
+ 
+ 	/*
+@@ -1811,10 +1824,12 @@ dropdb(const char *dbname, bool missing_ok, bool force)
+ 	 * Also delete the tuple - transactionally. If this transaction commits,
+ 	 * the row will be gone, but if we fail, dropdb() can be invoked again.
+ 	 */
+ 	CatalogTupleDelete(pgdbrel, &tup->t_self);
+ 
++	systable_endscan(scan);
++
+ 	/*
+ 	 * Drop db-specific replication slots.
+ 	 */
+ 	ReplicationSlotsDropDBSlots(db_id);
+ 

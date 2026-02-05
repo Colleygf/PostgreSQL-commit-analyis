@@ -1,0 +1,60 @@
+commit 359d601095ce2361bad50f9f8b0bcfe4da1eb886
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Tue Oct 25 15:10:49 2022 +1300
+
+    Fix symlink() errno on Windows.
+    
+    Ancient bug noticed while working on a test suite for these functions.
+    
+    https://postgr.es/m/CA%2BhUKG%2BajSQ_8eu2AogTncOnZ5me2D-Cn66iN_-wZnRjLN%2Bicg%40mail.gmail.com
+
+diff --git a/src/port/dirmod.c b/src/port/dirmod.c
+index ae6301dd6cc..51c9bded8fb 100644
+--- a/src/port/dirmod.c
++++ b/src/port/dirmod.c
+@@ -195,11 +195,14 @@ pgsymlink(const char *oldpath, const char *newpath)
+ 	dirhandle = CreateFile(newpath, GENERIC_READ | GENERIC_WRITE,
+ 						   0, 0, OPEN_EXISTING,
+ 						   FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, 0);
+ 
+ 	if (dirhandle == INVALID_HANDLE_VALUE)
++	{
++		_dosmaperr(GetLastError());
+ 		return -1;
++	}
+ 
+ 	/* make sure we have an unparsed native win32 path */
+ 	if (memcmp("\\??\\", oldpath, 4) != 0)
+ 		snprintf(nativeTarget, sizeof(nativeTarget), "\\??\\%s", oldpath);
+ 	else
+@@ -228,12 +231,15 @@ pgsymlink(const char *oldpath, const char *newpath)
+ 						 reparseBuf,
+ 						 reparseBuf->ReparseDataLength + REPARSE_JUNCTION_DATA_BUFFER_HEADER_SIZE,
+ 						 0, 0, &len, 0))
+ 	{
+ 		LPSTR		msg;
++		int			save_errno;
++
++		_dosmaperr(GetLastError());
++		save_errno = errno;
+ 
+-		errno = 0;
+ 		FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER |
+ 					  FORMAT_MESSAGE_IGNORE_INSERTS |
+ 					  FORMAT_MESSAGE_FROM_SYSTEM,
+ 					  NULL, GetLastError(),
+ 					  MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT),
+@@ -249,10 +255,13 @@ pgsymlink(const char *oldpath, const char *newpath)
+ #endif
+ 		LocalFree(msg);
+ 
+ 		CloseHandle(dirhandle);
+ 		RemoveDirectory(newpath);
++
++		errno = save_errno;
++
+ 		return -1;
+ 	}
+ 
+ 	CloseHandle(dirhandle);
+ 

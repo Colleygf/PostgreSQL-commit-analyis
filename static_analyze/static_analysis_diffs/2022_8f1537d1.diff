@@ -1,0 +1,114 @@
+commit 8f1537d10e83ad9c23ed2772cc28f74582b237ea
+Author: Andres Freund <andres@anarazel.de>
+Date:   Mon May 2 18:25:00 2022 -0700
+
+    Fix possibility of self-deadlock in ResolveRecoveryConflictWithBufferPin().
+    
+    The tests added in 9f8a050f68d failed nearly reliably on FreeBSD in CI, and
+    occasionally on the buildfarm. That turns out to be caused not by a bug in the
+    test, but by a longstanding bug in recovery conflict handling.
+    
+    The standby timeout handler, used by ResolveRecoveryConflictWithBufferPin(),
+    executed SendRecoveryConflictWithBufferPin() inside a signal handler. A bad
+    idea, because the deadlock timeout handler (or a spurious latch set) could
+    have interrupted ProcWaitForSignal(). If unlucky that could cause a
+    self-deadlock on ProcArrayLock, if the deadlock check is in
+    SendRecoveryConflictWithBufferPin()->CancelDBBackends().
+    
+    To fix, set a flag in StandbyTimeoutHandler(), and check the flag in
+    ResolveRecoveryConflictWithBufferPin().
+    
+    Subsequently the recovery conflict tests will be backpatched.
+    
+    Discussion: https://postgr.es/m/20220413002626.udl7lll7f3o7nre7@alap3.anarazel.de
+    Backpatch: 10-
+
+diff --git a/src/backend/storage/ipc/standby.c b/src/backend/storage/ipc/standby.c
+index 2850867323b..8c5e8432e73 100644
+--- a/src/backend/storage/ipc/standby.c
++++ b/src/backend/storage/ipc/standby.c
+@@ -44,10 +44,11 @@ bool		log_recovery_conflict_waits = false;
+ 
+ static HTAB *RecoveryLockLists;
+ 
+ /* Flags set by timeout handlers */
+ static volatile sig_atomic_t got_standby_deadlock_timeout = false;
++static volatile sig_atomic_t got_standby_delay_timeout = false;
+ static volatile sig_atomic_t got_standby_lock_timeout = false;
+ 
+ static void ResolveRecoveryConflictWithVirtualXIDs(VirtualTransactionId *waitlist,
+ 												   ProcSignalReason reason,
+ 												   uint32 wait_event_info,
+@@ -791,20 +792,23 @@ ResolveRecoveryConflictWithBufferPin(void)
+ 
+ 		enable_timeouts(timeouts, cnt);
+ 	}
+ 
+ 	/*
+-	 * Wait to be signaled by UnpinBuffer().
++	 * Wait to be signaled by UnpinBuffer() or for the wait to be interrupted
++	 * by one of the timeouts established above.
+ 	 *
+ 	 * We assume that only UnpinBuffer() and the timeout requests established
+ 	 * above can wake us up here. WakeupRecovery() called by walreceiver or
+ 	 * SIGHUP signal handler, etc cannot do that because it uses the different
+ 	 * latch from that ProcWaitForSignal() waits on.
+ 	 */
+ 	ProcWaitForSignal(PG_WAIT_BUFFER_PIN);
+ 
+-	if (got_standby_deadlock_timeout)
++	if (got_standby_delay_timeout)
++		SendRecoveryConflictWithBufferPin(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN);
++	else if (got_standby_deadlock_timeout)
+ 	{
+ 		/*
+ 		 * Send out a request for hot-standby backends to check themselves for
+ 		 * deadlocks.
+ 		 *
+@@ -826,10 +830,11 @@ ResolveRecoveryConflictWithBufferPin(void)
+ 	 * Startup process doesn't have any other timeouts than what this function
+ 	 * uses.  If that stops being true, we could cancel the timeouts
+ 	 * individually, but that'd be slower.
+ 	 */
+ 	disable_all_timeouts(false);
++	got_standby_delay_timeout = false;
+ 	got_standby_deadlock_timeout = false;
+ }
+ 
+ static void
+ SendRecoveryConflictWithBufferPin(ProcSignalReason reason)
+@@ -885,31 +890,26 @@ CheckRecoveryConflictDeadlock(void)
+  *		timeout handler routines
+  * --------------------------------
+  */
+ 
+ /*
+- * StandbyDeadLockHandler() will be called if STANDBY_DEADLOCK_TIMEOUT
+- * occurs before STANDBY_TIMEOUT.
++ * StandbyDeadLockHandler() will be called if STANDBY_DEADLOCK_TIMEOUT is
++ * exceeded.
+  */
+ void
+ StandbyDeadLockHandler(void)
+ {
+ 	got_standby_deadlock_timeout = true;
+ }
+ 
+ /*
+  * StandbyTimeoutHandler() will be called if STANDBY_TIMEOUT is exceeded.
+- * Send out a request to release conflicting buffer pins unconditionally,
+- * so we can press ahead with applying changes in recovery.
+  */
+ void
+ StandbyTimeoutHandler(void)
+ {
+-	/* forget any pending STANDBY_DEADLOCK_TIMEOUT request */
+-	disable_timeout(STANDBY_DEADLOCK_TIMEOUT, false);
+-
+-	SendRecoveryConflictWithBufferPin(PROCSIG_RECOVERY_CONFLICT_BUFFERPIN);
++	got_standby_delay_timeout = true;
+ }
+ 
+ /*
+  * StandbyLockTimeoutHandler() will be called if STANDBY_LOCK_TIMEOUT is exceeded.
+  */

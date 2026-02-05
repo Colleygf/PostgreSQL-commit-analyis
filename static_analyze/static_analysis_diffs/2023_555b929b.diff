@@ -1,0 +1,95 @@
+commit 555b929bbe7bd2f228e804d2c5bf4a246a319358
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Jun 21 11:07:11 2023 -0400
+
+    Avoid Assert failure when processing empty statement in aborted xact.
+    
+    exec_parse_message() wants to create a cached plan in all cases,
+    including for empty input.  The empty-input path does not have
+    a test for being in an aborted transaction, making it possible
+    that plancache.c will fail due to trying to do database lookups
+    even though there's no real work to do.
+    
+    One solution would be to throw an aborted-transaction error in
+    this path too, but it's not entirely clear whether the lack of
+    such an error was intentional or whether some clients might be
+    relying on non-error behavior.  Instead, let's hack plancache.c
+    so that it treats empty statements with the same logic it
+    already had for transaction control commands, ensuring that it
+    can soldier through even in an already-aborted transaction.
+    
+    Per bug #17983 from Alexander Lakhin.  Back-patch to all
+    supported branches.
+    
+    Discussion: https://postgr.es/m/17983-da4569fcb878672e@postgresql.org
+
+diff --git a/src/backend/utils/cache/plancache.c b/src/backend/utils/cache/plancache.c
+index 87210fcf627..3d3f7a9beae 100644
+--- a/src/backend/utils/cache/plancache.c
++++ b/src/backend/utils/cache/plancache.c
+@@ -76,13 +76,15 @@
+ 
+ 
+ /*
+  * We must skip "overhead" operations that involve database access when the
+  * cached plan's subject statement is a transaction control command.
++ * For the convenience of postgres.c, treat empty statements as control
++ * commands too.
+  */
+ #define IsTransactionStmtPlan(plansource)  \
+-	((plansource)->raw_parse_tree && \
++	((plansource)->raw_parse_tree == NULL || \
+ 	 IsA((plansource)->raw_parse_tree->stmt, TransactionStmt))
+ 
+ /*
+  * This is the head of the backend's list of "saved" CachedPlanSources (i.e.,
+  * those that are in long-lived storage and are examined for sinval events).
+diff --git a/src/test/regress/expected/psql.out b/src/test/regress/expected/psql.out
+index 8f930283636..c062c3dc7b5 100644
+--- a/src/test/regress/expected/psql.out
++++ b/src/test/regress/expected/psql.out
+@@ -266,10 +266,21 @@ SELECT 3 AS x, 'Hello', 4 AS y, true AS "dirty\name" \gdesc \g
+  x | ?column? | y | dirty\name 
+ ---+----------+---+------------
+  3 | Hello    | 4 | t
+ (1 row)
+ 
++-- test for server bug #17983 with empty statement in aborted transaction
++set search_path = default;
++begin;
++bogus;
++ERROR:  syntax error at or near "bogus"
++LINE 1: bogus;
++        ^
++;
++\gdesc
++The command has no result, or the result has no columns.
++rollback;
+ -- \gexec
+ create temporary table gexec_test(a int, b text, c date, d float);
+ select format('create index on gexec_test(%I)', attname)
+ from pg_attribute
+ where attrelid = 'gexec_test'::regclass and attnum > 0
+diff --git a/src/test/regress/sql/psql.sql b/src/test/regress/sql/psql.sql
+index 630f638f025..965021fd84d 100644
+--- a/src/test/regress/sql/psql.sql
++++ b/src/test/regress/sql/psql.sql
+@@ -131,10 +131,18 @@ SELECT 1 AS x, 'Hello', 2 AS y, true AS "dirty\name"
+ \g
+ 
+ -- all on one line
+ SELECT 3 AS x, 'Hello', 4 AS y, true AS "dirty\name" \gdesc \g
+ 
++-- test for server bug #17983 with empty statement in aborted transaction
++set search_path = default;
++begin;
++bogus;
++;
++\gdesc
++rollback;
++
+ -- \gexec
+ 
+ create temporary table gexec_test(a int, b text, c date, d float);
+ select format('create index on gexec_test(%I)', attname)
+ from pg_attribute

@@ -1,0 +1,113 @@
+commit f862d57057fdc73e663fe09d8948ed06b1b71dd7
+Author: Etsuro Fujita <efujita@postgresql.org>
+Date:   Thu Feb 3 15:15:00 2022 +0900
+
+    Further fix for EvalPlanQual with mix of local and foreign partitions.
+    
+    We assume that direct-modify ForeignScan nodes cannot be re-evaluated
+    during EvalPlanQual processing, but the rework for inherited
+    UPDATE/DELETE in commit 86dc90056 changed things, without considering
+    that, so that such ForeignScan nodes get called as part of the
+    EvalPlanQual subtree during EvalPlanQual processing in the case of an
+    inherited UPDATE/DELETE where the inheritance set contains foreign
+    target relations.  To avoid re-evaluating such ForeignScan nodes during
+    EvalPlanQual processing, commit c3928b467 modified nodeForeignscan.c,
+    but the assumption made there that ExecForeignScan() should never be
+    called for such ForeignScan nodes during EvalPlanQual processing turned
+    out to be wrong in some cases, leading to a segmentation fault or a
+    "cannot re-evaluate a Foreign Update or Delete during EvalPlanQual"
+    error.
+    
+    Fix by modifying nodeForeignscan.c further to avoid re-evaluating such
+    ForeignScan nodes even in ExecForeignScan()/ExecReScanForeignScan()
+    during EvalPlanQual processing.  Since this makes non-reachable the
+    test-and-elog added to ForeignNext() by commit c3928b467 that produced
+    the aforesaid error, convert the test-and-elog to an Assert.
+    
+    Per bug #17355 from Alexander Lakhin.  Back-patch to v14 where both
+    commits came in.
+    
+    Patch by me, reviewed and tested by Alexander Lakhin and Amit Langote.
+    
+    Discussion: https://postgr.es/m/17355-de8e362eb7001a96@postgresql.org
+
+diff --git a/src/backend/executor/nodeForeignscan.c b/src/backend/executor/nodeForeignscan.c
+index 847e41856cd..2c87b2e238a 100644
+--- a/src/backend/executor/nodeForeignscan.c
++++ b/src/backend/executor/nodeForeignscan.c
+@@ -53,12 +53,11 @@ ForeignNext(ForeignScanState *node)
+ 	{
+ 		/*
+ 		 * direct modifications cannot be re-evaluated, so shouldn't get here
+ 		 * during EvalPlanQual processing
+ 		 */
+-		if (estate->es_epq_active != NULL)
+-			elog(ERROR, "cannot re-evaluate a Foreign Update or Delete during EvalPlanQual");
++		Assert(estate->es_epq_active == NULL);
+ 
+ 		slot = node->fdwroutine->IterateDirectModify(node);
+ 	}
+ 	else
+ 		slot = node->fdwroutine->IterateForeignScan(node);
+@@ -119,10 +118,19 @@ ForeignRecheck(ForeignScanState *node, TupleTableSlot *slot)
+  */
+ static TupleTableSlot *
+ ExecForeignScan(PlanState *pstate)
+ {
+ 	ForeignScanState *node = castNode(ForeignScanState, pstate);
++	ForeignScan *plan = (ForeignScan *) node->ss.ps.plan;
++	EState	   *estate = node->ss.ps.state;
++
++	/*
++	 * Ignore direct modifications when EvalPlanQual is active --- they are
++	 * irrelevant for EvalPlanQual rechecking
++	 */
++	if (estate->es_epq_active != NULL && plan->operation != CMD_SELECT)
++		return NULL;
+ 
+ 	return ExecScan(&node->ss,
+ 					(ExecScanAccessMtd) ForeignNext,
+ 					(ExecScanRecheckMtd) ForeignRecheck);
+ }
+@@ -263,13 +271,16 @@ ExecInitForeignScan(ForeignScan *node, EState *estate, int eflags)
+ 	 */
+ 	if (node->operation != CMD_SELECT)
+ 	{
+ 		/*
+ 		 * Direct modifications cannot be re-evaluated by EvalPlanQual, so
+-		 * don't bother preparing the FDW.  There can be ForeignScan nodes in
+-		 * the EvalPlanQual subtree, but ExecForeignScan should never be
+-		 * called on them when EvalPlanQual is active.
++		 * don't bother preparing the FDW.
++		 *
++		 * In case of an inherited UPDATE/DELETE with foreign targets there
++		 * can be direct-modify ForeignScan nodes in the EvalPlanQual subtree,
++		 * so we need to ignore such ForeignScan nodes during EvalPlanQual
++		 * processing.  See also ExecForeignScan/ExecReScanForeignScan.
+ 		 */
+ 		if (estate->es_epq_active == NULL)
+ 			fdwroutine->BeginDirectModify(scanstate, eflags);
+ 	}
+ 	else
+@@ -319,12 +330,21 @@ ExecEndForeignScan(ForeignScanState *node)
+  * ----------------------------------------------------------------
+  */
+ void
+ ExecReScanForeignScan(ForeignScanState *node)
+ {
++	ForeignScan *plan = (ForeignScan *) node->ss.ps.plan;
++	EState	   *estate = node->ss.ps.state;
+ 	PlanState  *outerPlan = outerPlanState(node);
+ 
++	/*
++	 * Ignore direct modifications when EvalPlanQual is active --- they are
++	 * irrelevant for EvalPlanQual rechecking
++	 */
++	if (estate->es_epq_active != NULL && plan->operation != CMD_SELECT)
++		return;
++
+ 	node->fdwroutine->ReScanForeignScan(node);
+ 
+ 	/*
+ 	 * If chgParam of subnode is not null then plan will be re-scanned by
+ 	 * first ExecProcNode.  outerPlan may also be NULL, in which case there is

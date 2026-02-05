@@ -1,0 +1,105 @@
+commit 4b4663fb4a704b7a145ed6ec018b1f0c116eeb6b
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Wed Sep 7 17:33:49 2022 +0200
+
+    Message style fixes
+
+diff --git a/src/backend/replication/logical/worker.c b/src/backend/replication/logical/worker.c
+index 5f8c5417630..eaca406d301 100644
+--- a/src/backend/replication/logical/worker.c
++++ b/src/backend/replication/logical/worker.c
+@@ -3876,11 +3876,11 @@ maybe_start_skipping_changes(XLogRecPtr finish_lsn)
+ 
+ 	/* Start skipping all changes of this transaction */
+ 	skip_xact_finish_lsn = finish_lsn;
+ 
+ 	ereport(LOG,
+-			errmsg("start skipping logical replication transaction finished at %X/%X",
++			errmsg("logical replication starts skipping transaction at LSN %X/%X",
+ 				   LSN_FORMAT_ARGS(skip_xact_finish_lsn)));
+ }
+ 
+ /*
+  * Stop skipping changes by resetting skip_xact_finish_lsn if enabled.
+@@ -3890,11 +3890,11 @@ stop_skipping_changes(void)
+ {
+ 	if (!is_skipping_changes())
+ 		return;
+ 
+ 	ereport(LOG,
+-			(errmsg("done skipping logical replication transaction finished at %X/%X",
++			(errmsg("logical replication completed skipping transaction at LSN %X/%X",
+ 					LSN_FORMAT_ARGS(skip_xact_finish_lsn))));
+ 
+ 	/* Stop skipping changes */
+ 	skip_xact_finish_lsn = InvalidXLogRecPtr;
+ }
+@@ -3973,11 +3973,11 @@ clear_subscription_skip_lsn(XLogRecPtr finish_lsn)
+ 		CatalogTupleUpdate(rel, &tup->t_self, tup);
+ 
+ 		if (myskiplsn != finish_lsn)
+ 			ereport(WARNING,
+ 					errmsg("skip-LSN of logical replication subscription \"%s\" cleared", MySubscription->name),
+-					errdetail("Remote transaction's finish WAL location (LSN) %X/%X did not match skip-LSN %X/%X",
++					errdetail("Remote transaction's finish WAL location (LSN) %X/%X did not match skip-LSN %X/%X.",
+ 							  LSN_FORMAT_ARGS(finish_lsn),
+ 							  LSN_FORMAT_ARGS(myskiplsn)));
+ 	}
+ 
+ 	heap_freetuple(tup);
+diff --git a/src/backend/utils/init/postinit.c b/src/backend/utils/init/postinit.c
+index 0d557a8684b..2b65ef3deb0 100644
+--- a/src/backend/utils/init/postinit.c
++++ b/src/backend/utils/init/postinit.c
+@@ -452,13 +452,14 @@ CheckMyDatabase(const char *name, bool am_superuser, bool override_allow_connect
+ 
+ 		collversionstr = TextDatumGetCString(datum);
+ 
+ 		actual_versionstr = get_collation_actual_version(dbform->datlocprovider, dbform->datlocprovider == COLLPROVIDER_ICU ? iculocale : collate);
+ 		if (!actual_versionstr)
+-			ereport(WARNING,
+-					(errmsg("database \"%s\" has no actual collation version, but a version was recorded",
+-							name)));
++			/* should not happen */
++			elog(WARNING,
++				 "database \"%s\" has no actual collation version, but a version was recorded",
++				 name);
+ 		else if (strcmp(actual_versionstr, collversionstr) != 0)
+ 			ereport(WARNING,
+ 					(errmsg("database \"%s\" has a collation version mismatch",
+ 							name),
+ 					 errdetail("The database was created using collation version %s, "
+diff --git a/src/backend/utils/misc/guc.c b/src/backend/utils/misc/guc.c
+index c336698ad58..55bf9985112 100644
+--- a/src/backend/utils/misc/guc.c
++++ b/src/backend/utils/misc/guc.c
+@@ -2835,11 +2835,11 @@ static struct config_int ConfigureNamesInt[] =
+ 	},
+ 
+ 	{
+ 		{"wal_decode_buffer_size", PGC_POSTMASTER, WAL_RECOVERY,
+ 			gettext_noop("Maximum buffer size for reading ahead in the WAL during recovery."),
+-			gettext_noop("This controls the maximum distance we can read ahead in the WAL to prefetch referenced blocks."),
++			gettext_noop("This controls the maximum distance we can read ahead in the WAL to prefetch data blocks referenced therein."),
+ 			GUC_UNIT_BYTE
+ 		},
+ 		&wal_decode_buffer_size,
+ 		512 * 1024, 64 * 1024, MaxAllocSize,
+ 		NULL, NULL, NULL
+diff --git a/src/test/subscription/t/029_on_error.pl b/src/test/subscription/t/029_on_error.pl
+index 05daa77c58a..add8788370c 100644
+--- a/src/test/subscription/t/029_on_error.pl
++++ b/src/test/subscription/t/029_on_error.pl
+@@ -46,11 +46,11 @@ sub test_skip_lsn
+ 	);
+ 
+ 	# Check the log to ensure that the transaction is skipped, and advance the
+ 	# offset of the log file for the next test.
+ 	$offset = $node_subscriber->wait_for_log(
+-		qr/LOG: ( [A-Z0-9]+:)? done skipping logical replication transaction finished at $lsn/,
++		qr/LOG: ( [A-Z0-9]+:)? logical replication completed skipping transaction at LSN $lsn/,
+ 		$offset);
+ 
+ 	# Insert non-conflict data
+ 	$node_publisher->safe_psql('postgres',
+ 		"INSERT INTO tbl VALUES $nonconflict_data");

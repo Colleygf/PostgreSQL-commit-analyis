@@ -1,0 +1,138 @@
+commit 25f915b31e41e5c86e1905d199c7d41cc66161ed
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri May 20 09:26:21 2022 +0200
+
+    pg_waldump: Improve option parsing error messages
+    
+    I rephrased the error messages to be more in the style of
+    option_parse_int(), and also made use of the new "detail" message
+    facility.  I didn't actually use option_parse_int() (which could be
+    used for -n) because libpgfeutils wasn't used here yet and I wanted to
+    keep this just to string changes.  But it could be done in the future.
+
+diff --git a/src/bin/pg_waldump/pg_waldump.c b/src/bin/pg_waldump/pg_waldump.c
+index 3151cb5562b..5dc60109b12 100644
+--- a/src/bin/pg_waldump/pg_waldump.c
++++ b/src/bin/pg_waldump/pg_waldump.c
+@@ -792,20 +792,20 @@ main(int argc, char **argv)
+ 				break;
+ 			case 'B':
+ 				if (sscanf(optarg, "%u", &config.filter_by_relation_block) != 1 ||
+ 					!BlockNumberIsValid(config.filter_by_relation_block))
+ 				{
+-					pg_log_error("could not parse valid block number \"%s\"", optarg);
++					pg_log_error("invalid block number: \"%s\"", optarg);
+ 					goto bad_argument;
+ 				}
+ 				config.filter_by_relation_block_enabled = true;
+ 				config.filter_by_extended = true;
+ 				break;
+ 			case 'e':
+ 				if (sscanf(optarg, "%X/%X", &xlogid, &xrecoff) != 2)
+ 				{
+-					pg_log_error("could not parse end WAL location \"%s\"",
++					pg_log_error("invalid WAL location: \"%s\"",
+ 								 optarg);
+ 					goto bad_argument;
+ 				}
+ 				private.endptr = (uint64) xlogid << 32 | xrecoff;
+ 				break;
+@@ -814,19 +814,19 @@ main(int argc, char **argv)
+ 				break;
+ 			case 'F':
+ 				config.filter_by_relation_forknum = forkname_to_number(optarg);
+ 				if (config.filter_by_relation_forknum == InvalidForkNumber)
+ 				{
+-					pg_log_error("could not parse fork \"%s\"", optarg);
++					pg_log_error("invalid fork name: \"%s\"", optarg);
+ 					goto bad_argument;
+ 				}
+ 				config.filter_by_extended = true;
+ 				break;
+ 			case 'n':
+ 				if (sscanf(optarg, "%d", &config.stop_after_records) != 1)
+ 				{
+-					pg_log_error("could not parse limit \"%s\"", optarg);
++					pg_log_error("invalid value \"%s\" for option %s", optarg, "-n/--limit");
+ 					goto bad_argument;
+ 				}
+ 				break;
+ 			case 'p':
+ 				waldir = pg_strdup(optarg);
+@@ -889,42 +889,41 @@ main(int argc, char **argv)
+ 						   &config.filter_by_relation.dbNode,
+ 						   &config.filter_by_relation.relNode) != 3 ||
+ 					!OidIsValid(config.filter_by_relation.spcNode) ||
+ 					!OidIsValid(config.filter_by_relation.relNode))
+ 				{
+-					pg_log_error("could not parse valid relation from \"%s\""
+-								 " (expecting \"tablespace OID/database OID/"
+-								 "relation filenode\")", optarg);
++					pg_log_error("invalid relation specification: \"%s\"", optarg);
++					pg_log_error_detail("Expecting \"tablespace OID/database OID/relation filenode\".");
+ 					goto bad_argument;
+ 				}
+ 				config.filter_by_relation_enabled = true;
+ 				config.filter_by_extended = true;
+ 				break;
+ 			case 's':
+ 				if (sscanf(optarg, "%X/%X", &xlogid, &xrecoff) != 2)
+ 				{
+-					pg_log_error("could not parse start WAL location \"%s\"",
++					pg_log_error("invalid WAL location: \"%s\"",
+ 								 optarg);
+ 					goto bad_argument;
+ 				}
+ 				else
+ 					private.startptr = (uint64) xlogid << 32 | xrecoff;
+ 				break;
+ 			case 't':
+ 				if (sscanf(optarg, "%u", &private.timeline) != 1)
+ 				{
+-					pg_log_error("could not parse timeline \"%s\"", optarg);
++					pg_log_error("invalid timeline specification: \"%s\"", optarg);
+ 					goto bad_argument;
+ 				}
+ 				break;
+ 			case 'w':
+ 				config.filter_by_fpw = true;
+ 				break;
+ 			case 'x':
+ 				if (sscanf(optarg, "%u", &config.filter_by_xid) != 1)
+ 				{
+-					pg_log_error("could not parse \"%s\" as a transaction ID",
++					pg_log_error("invalid transaction ID specification: \"%s\"",
+ 								 optarg);
+ 					goto bad_argument;
+ 				}
+ 				config.filter_by_xid_enabled = true;
+ 				break;
+@@ -935,12 +934,12 @@ main(int argc, char **argv)
+ 				{
+ 					if (strcmp(optarg, "record") == 0)
+ 						config.stats_per_record = true;
+ 					else if (strcmp(optarg, "rmgr") != 0)
+ 					{
+-						pg_log_error("unrecognized argument to --stats: %s",
+-									 optarg);
++						pg_log_error("unrecognized value for option %s: %s",
++									 "--stats", optarg);
+ 						goto bad_argument;
+ 					}
+ 				}
+ 				break;
+ 			default:
+@@ -949,11 +948,12 @@ main(int argc, char **argv)
+ 	}
+ 
+ 	if (config.filter_by_relation_block_enabled &&
+ 		!config.filter_by_relation_enabled)
+ 	{
+-		pg_log_error("--block option requires --relation option to be specified");
++		pg_log_error("option %s requires option %s to be specified",
++					 "-B/--block", "-R/--relation");
+ 		goto bad_argument;
+ 	}
+ 
+ 	if ((optind + 2) < argc)
+ 	{

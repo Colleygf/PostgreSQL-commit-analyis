@@ -1,0 +1,60 @@
+commit 3191a593d6dea56def460d06adc779f2aca44976
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Apr 7 09:51:40 2025 +0900
+
+    Fix use-after-free in pgstat_fetch_stat_backend_by_pid()
+    
+    stats_fetch_consistency set to "snapshot" causes the backend entry
+    "beentry" retrieved by pgstat_get_beentry_by_proc_number() to be reset
+    at the beginning of pgstat_fetch_stat_backend() when fetching the
+    backend pgstats entry.  As coded, "beentry" was being accessed after
+    being freed.  This commit moves all the accesses to "beentry" to happen
+    before calling pgstat_fetch_stat_backend(), fixing the problem.
+    
+    This problem could be reached by calling the SQL functions
+    pg_stat_get_backend_io() or pg_stat_get_backend_wal().
+    
+    Issue caught by valgrind.
+    
+    Reported-by: Alexander Lakhin <exclusion@gmail.com>
+    Author: Bertrand Drouvot <bertranddrouvot.pg@gmail.com>
+    Discussion: https://postgr.es/m/f1788cc0-253a-4a3a-aee0-1b8ab9538736@gmail.com
+
+diff --git a/src/backend/utils/activity/pgstat_backend.c b/src/backend/utils/activity/pgstat_backend.c
+index 187c5c76e1e..f6aaf589866 100644
+--- a/src/backend/utils/activity/pgstat_backend.c
++++ b/src/backend/utils/activity/pgstat_backend.c
+@@ -131,21 +131,29 @@ pgstat_fetch_stat_backend_by_pid(int pid, BackendType *bktype)
+ 
+ 	/* check if the backend type tracks statistics */
+ 	if (!pgstat_tracks_backend_bktype(beentry->st_backendType))
+ 		return NULL;
+ 
+-	backend_stats = pgstat_fetch_stat_backend(procNumber);
+-	if (!backend_stats)
+-		return NULL;
+-
+ 	/* if PID does not match, leave */
+ 	if (beentry->st_procpid != pid)
+ 		return NULL;
+ 
+ 	if (bktype)
+ 		*bktype = beentry->st_backendType;
+ 
++	/*
++	 * Retrieve the entry.  Note that "beentry" may be freed depending on the
++	 * value of stats_fetch_consistency, so do not access it from this point.
++	 */
++	backend_stats = pgstat_fetch_stat_backend(procNumber);
++	if (!backend_stats)
++	{
++		if (bktype)
++			*bktype = B_INVALID;
++		return NULL;
++	}
++
+ 	return backend_stats;
+ }
+ 
+ /*
+  * Flush out locally pending backend IO statistics.  Locking is managed

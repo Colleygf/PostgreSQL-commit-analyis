@@ -1,0 +1,120 @@
+commit cd2624fd97b0c36b68da278abc5362647f69b07d
+Author: Dean Rasheed <dean.a.rasheed@gmail.com>
+Date:   Tue Jun 4 11:48:01 2024 +0100
+
+    Fix PL/pgSQL's handling of integer ranges containing underscores.
+    
+    Commit faff8f8e47 allowed integer literals to contain underscores, but
+    failed to update the lexer's "numericfail" rule. As a result, a
+    decimal integer literal containing underscores would fail to parse, if
+    used in an integer range with no whitespace after the first number,
+    such as "1_001..1_003" in a PL/pgSQL FOR loop.
+    
+    Fix and backpatch to v16, where support for underscores in integer
+    literals was added.
+    
+    Report and patch by Erik Wienhold.
+    
+    Discussion: https://postgr.es/m/808ce947-46ec-4628-85fa-3dd600b2c154%40ewie.name
+
+diff --git a/src/backend/parser/scan.l b/src/backend/parser/scan.l
+index 9b33fb8d722..3248fb51080 100644
+--- a/src/backend/parser/scan.l
++++ b/src/backend/parser/scan.l
+@@ -405,11 +405,11 @@ bininteger		0[bB](_?{bindigit})+
+ hexfail			0[xX]_?
+ octfail			0[oO]_?
+ binfail			0[bB]_?
+ 
+ numeric			(({decinteger}\.{decinteger}?)|(\.{decinteger}))
+-numericfail		{decdigit}+\.\.
++numericfail		{decinteger}\.\.
+ 
+ real			({decinteger}|{numeric})[Ee][-+]?{decinteger}
+ realfail		({decinteger}|{numeric})[Ee][-+]
+ 
+ decinteger_junk	{decinteger}{ident_start}
+diff --git a/src/fe_utils/psqlscan.l b/src/fe_utils/psqlscan.l
+index c6d02439ab2..ddc4658b925 100644
+--- a/src/fe_utils/psqlscan.l
++++ b/src/fe_utils/psqlscan.l
+@@ -341,11 +341,11 @@ bininteger		0[bB](_?{bindigit})+
+ hexfail			0[xX]_?
+ octfail			0[oO]_?
+ binfail			0[bB]_?
+ 
+ numeric			(({decinteger}\.{decinteger}?)|(\.{decinteger}))
+-numericfail		{decdigit}+\.\.
++numericfail		{decinteger}\.\.
+ 
+ real			({decinteger}|{numeric})[Ee][-+]?{decinteger}
+ realfail		({decinteger}|{numeric})[Ee][-+]
+ 
+ decinteger_junk	{decinteger}{ident_start}
+diff --git a/src/interfaces/ecpg/preproc/pgc.l b/src/interfaces/ecpg/preproc/pgc.l
+index d117cafce65..f9d68a96e79 100644
+--- a/src/interfaces/ecpg/preproc/pgc.l
++++ b/src/interfaces/ecpg/preproc/pgc.l
+@@ -374,11 +374,11 @@ bininteger		0[bB](_?{bindigit})+
+ hexfail			0[xX]_?
+ octfail			0[oO]_?
+ binfail			0[bB]_?
+ 
+ numeric			(({decinteger}\.{decinteger}?)|(\.{decinteger}))
+-numericfail		{decdigit}+\.\.
++numericfail		{decinteger}\.\.
+ 
+ real			({decinteger}|{numeric})[Ee][-+]?{decinteger}
+ realfail		({decinteger}|{numeric})[Ee][-+]
+ 
+ decinteger_junk	{decinteger}{ident_start}
+diff --git a/src/test/regress/expected/numerology.out b/src/test/regress/expected/numerology.out
+index c8196d2c85a..8d4a3ba228a 100644
+--- a/src/test/regress/expected/numerology.out
++++ b/src/test/regress/expected/numerology.out
+@@ -295,10 +295,21 @@ SELECT 1_000.5e0_1;
+  ?column? 
+ ----------
+     10005
+ (1 row)
+ 
++DO $$
++DECLARE
++  i int;
++BEGIN
++  FOR i IN 1_001..1_003 LOOP
++    RAISE NOTICE 'i = %', i;
++  END LOOP;
++END $$;
++NOTICE:  i = 1001
++NOTICE:  i = 1002
++NOTICE:  i = 1003
+ -- error cases
+ SELECT _100;
+ ERROR:  column "_100" does not exist
+ LINE 1: SELECT _100;
+                ^
+diff --git a/src/test/regress/sql/numerology.sql b/src/test/regress/sql/numerology.sql
+index 3f0ec34ecfa..372e7bf9bc8 100644
+--- a/src/test/regress/sql/numerology.sql
++++ b/src/test/regress/sql/numerology.sql
+@@ -75,10 +75,19 @@ SELECT 0b_10_0101;
+ SELECT 1_000.000_005;
+ SELECT 1_000.;
+ SELECT .000_005;
+ SELECT 1_000.5e0_1;
+ 
++DO $$
++DECLARE
++  i int;
++BEGIN
++  FOR i IN 1_001..1_003 LOOP
++    RAISE NOTICE 'i = %', i;
++  END LOOP;
++END $$;
++
+ -- error cases
+ SELECT _100;
+ SELECT 100_;
+ SELECT 100__000;
+ 

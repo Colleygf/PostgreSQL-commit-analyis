@@ -1,0 +1,113 @@
+commit 69ab44651422c49a6256d1b6cca6c20b5060ad92
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Thu Jan 9 07:33:52 2025 +0100
+
+    Fix SLRU bank selection code
+    
+    The originally submitted code (using bit masking) was correct when the
+    number of slots was restricted to be a power of two -- but that
+    limitation was removed during development that led to commit
+    53c2a97a9266, which made the bank selection code incorrect.  This led to
+    always using a smaller number of banks than available.  Change said code
+    to use integer modulo instead, which works correctly with an arbitrary
+    number of banks.
+    
+    It's likely that we could improve on this to avoid runtime use of
+    integer division.  But with this change we're, at least, not wasting
+    memory on unused banks, and more banks mean less contention, which is
+    likely to have a much higher performance impact than a single
+    instruction's latency.
+    
+    Author: Yura Sokolov <y.sokolov@postgrespro.ru>
+    Reviewed-by: Andrey Borodin <x4mmm@yandex-team.ru>
+    Discussion: https://postgr.es/m/9444dc46-ca47-43ed-9058-89c456316306@postgrespro.ru
+
+diff --git a/src/backend/access/transam/slru.c b/src/backend/access/transam/slru.c
+index 7eeaafe2cb3..9ce628e62a5 100644
+--- a/src/backend/access/transam/slru.c
++++ b/src/backend/access/transam/slru.c
+@@ -341,11 +341,11 @@ SimpleLruInit(SlruCtl ctl, const char *name, int nslots, int nlsns,
+ 	 * assume caller set PagePrecedes.
+ 	 */
+ 	ctl->shared = shared;
+ 	ctl->sync_handler = sync_handler;
+ 	ctl->long_segment_names = long_segment_names;
+-	ctl->bank_mask = (nslots / SLRU_BANK_SIZE) - 1;
++	ctl->nbanks = nbanks;
+ 	strlcpy(ctl->Dir, subdir, sizeof(ctl->Dir));
+ }
+ 
+ /*
+  * Helper function for GUC check_hook to check whether slru buffers are in
+@@ -604,11 +604,11 @@ SimpleLruReadPage(SlruCtl ctl, int64 pageno, bool write_ok,
+ int
+ SimpleLruReadPage_ReadOnly(SlruCtl ctl, int64 pageno, TransactionId xid)
+ {
+ 	SlruShared	shared = ctl->shared;
+ 	LWLock	   *banklock = SimpleLruGetBankLock(ctl, pageno);
+-	int			bankno = pageno & ctl->bank_mask;
++	int			bankno = pageno % ctl->nbanks;
+ 	int			bankstart = bankno * SLRU_BANK_SIZE;
+ 	int			bankend = bankstart + SLRU_BANK_SIZE;
+ 
+ 	/* Try to find the page while holding only shared lock */
+ 	LWLockAcquire(banklock, LW_SHARED);
+@@ -1178,11 +1178,11 @@ SlruSelectLRUPage(SlruCtl ctl, int64 pageno)
+ 		int			best_valid_delta = -1;
+ 		int64		best_valid_page_number = 0; /* keep compiler quiet */
+ 		int			bestinvalidslot = 0;	/* keep compiler quiet */
+ 		int			best_invalid_delta = -1;
+ 		int64		best_invalid_page_number = 0;	/* keep compiler quiet */
+-		int			bankno = pageno & ctl->bank_mask;
++		int			bankno = pageno % ctl->nbanks;
+ 		int			bankstart = bankno * SLRU_BANK_SIZE;
+ 		int			bankend = bankstart + SLRU_BANK_SIZE;
+ 
+ 		Assert(LWLockHeldByMe(SimpleLruGetBankLock(ctl, pageno)));
+ 
+diff --git a/src/include/access/slru.h b/src/include/access/slru.h
+index ae871b640f8..e142800aab2 100644
+--- a/src/include/access/slru.h
++++ b/src/include/access/slru.h
+@@ -126,14 +126,12 @@ typedef SlruSharedData *SlruShared;
+  */
+ typedef struct SlruCtlData
+ {
+ 	SlruShared	shared;
+ 
+-	/*
+-	 * Bitmask to determine bank number from page number.
+-	 */
+-	bits16		bank_mask;
++	/* Number of banks in this SLRU. */
++	uint16		nbanks;
+ 
+ 	/*
+ 	 * If true, use long segment file names.  Otherwise, use short file names.
+ 	 *
+ 	 * For details about the file name format, see SlruFileName().
+@@ -161,11 +159,10 @@ typedef struct SlruCtlData
+ 	/*
+ 	 * Dir is set during SimpleLruInit and does not change thereafter. Since
+ 	 * it's always the same, it doesn't need to be in shared memory.
+ 	 */
+ 	char		Dir[64];
+-
+ } SlruCtlData;
+ 
+ typedef SlruCtlData *SlruCtl;
+ 
+ /*
+@@ -177,11 +174,11 @@ typedef SlruCtlData *SlruCtl;
+ static inline LWLock *
+ SimpleLruGetBankLock(SlruCtl ctl, int64 pageno)
+ {
+ 	int			bankno;
+ 
+-	bankno = pageno & ctl->bank_mask;
++	bankno = pageno % ctl->nbanks;
+ 	return &(ctl->shared->bank_locks[bankno].lock);
+ }
+ 
+ extern Size SimpleLruShmemSize(int nslots, int nlsns);
+ extern int	SimpleLruAutotuneBuffers(int divisor, int max);

@@ -1,0 +1,96 @@
+commit 902ecd3bd4e733d273e69fd420df6fab4ffbe79b
+Author: David Rowley <drowley@postgresql.org>
+Date:   Thu Mar 30 16:37:03 2023 +1300
+
+    Fix outdated comments regarding TupleTableSlots
+    
+    The tts_flag is named TTS_FLAG_SHOULDFREE, so use that instead of
+    TTS_SHOULDFREE, which is the name of the macro that checks for that flag.
+    
+    Additionally, 4da597edf got rid of the TupleTableSlot.tts_tuple field but
+    forgot to update a comment which referenced that field.  Fix that.
+    
+    Reported-by: Zhen Mingyang <zhenmingyang@yeah.net>
+    Reported-by: Richard Guo <guofenglinux@gmail.com>
+    Discussion: https://postgr.es/m/1a96696c.9d3.187193989c3.Coremail.zhenmingyang@yeah.net
+
+diff --git a/src/backend/executor/execTuples.c b/src/backend/executor/execTuples.c
+index 9f18d460818..fda20ec3183 100644
+--- a/src/backend/executor/execTuples.c
++++ b/src/backend/executor/execTuples.c
+@@ -383,12 +383,12 @@ tts_heap_materialize(TupleTableSlot *slot)
+ 									   slot->tts_isnull);
+ 	else
+ 	{
+ 		/*
+ 		 * The tuple contained in this slot is not allocated in the memory
+-		 * context of the given slot (else it would have TTS_SHOULDFREE set).
+-		 * Copy the tuple into the given slot's memory context.
++		 * context of the given slot (else it would have TTS_FLAG_SHOULDFREE
++		 * set).  Copy the tuple into the given slot's memory context.
+ 		 */
+ 		hslot->tuple = heap_copytuple(hslot->tuple);
+ 	}
+ 
+ 	slot->tts_flags |= TTS_FLAG_SHOULDFREE;
+@@ -552,12 +552,13 @@ tts_minimal_materialize(TupleTableSlot *slot)
+ 	}
+ 	else
+ 	{
+ 		/*
+ 		 * The minimal tuple contained in this slot is not allocated in the
+-		 * memory context of the given slot (else it would have TTS_SHOULDFREE
+-		 * set).  Copy the minimal tuple into the given slot's memory context.
++		 * memory context of the given slot (else it would have
++		 * TTS_FLAG_SHOULDFREE set).  Copy the minimal tuple into the given
++		 * slot's memory context.
+ 		 */
+ 		mslot->mintuple = heap_copy_minimal_tuple(mslot->mintuple);
+ 	}
+ 
+ 	slot->tts_flags |= TTS_FLAG_SHOULDFREE;
+diff --git a/src/include/executor/tuptable.h b/src/include/executor/tuptable.h
+index c61734a15d4..2e13ecc3ffe 100644
+--- a/src/include/executor/tuptable.h
++++ b/src/include/executor/tuptable.h
+@@ -66,23 +66,23 @@
+  * repeated extraction of data from the physical tuple.
+  *
+  * A TupleTableSlot can also be "empty", indicated by flag TTS_FLAG_EMPTY set
+  * in tts_flags, holding no valid data.  This is the only valid state for a
+  * freshly-created slot that has not yet had a tuple descriptor assigned to
+- * it.  In this state, TTS_SHOULDFREE should not be set in tts_flags, tts_tuple
+- * must be NULL and tts_nvalid zero.
++ * it.  In this state, TTS_FLAG_SHOULDFREE should not be set in tts_flags and
++ * tts_nvalid should be set to zero.
+  *
+  * The tupleDescriptor is simply referenced, not copied, by the TupleTableSlot
+  * code.  The caller of ExecSetSlotDescriptor() is responsible for providing
+  * a descriptor that will live as long as the slot does.  (Typically, both
+  * slots and descriptors are in per-query memory and are freed by memory
+  * context deallocation at query end; so it's not worth providing any extra
+  * mechanism to do more.  However, the slot will increment the tupdesc
+  * reference count if a reference-counted tupdesc is supplied.)
+  *
+- * When TTS_SHOULDFREE is set in tts_flags, the physical tuple is "owned" by
+- * the slot and should be freed when the slot's reference to the tuple is
++ * When TTS_FLAG_SHOULDFREE is set in tts_flags, the physical tuple is "owned"
++ * by the slot and should be freed when the slot's reference to the tuple is
+  * dropped.
+  *
+  * tts_values/tts_isnull are allocated either when the slot is created (when
+  * the descriptor is provided), or when a descriptor is assigned to the slot;
+  * they are of length equal to the descriptor's natts.
+@@ -266,11 +266,11 @@ typedef struct BufferHeapTupleTableSlot
+ 
+ 	/*
+ 	 * If buffer is not InvalidBuffer, then the slot is holding a pin on the
+ 	 * indicated buffer page; drop the pin when we release the slot's
+ 	 * reference to that buffer.  (TTS_FLAG_SHOULDFREE should not be set in
+-	 * such a case, since presumably tts_tuple is pointing into the buffer.)
++	 * such a case, since presumably base.tuple is pointing into the buffer.)
+ 	 */
+ 	Buffer		buffer;			/* tuple's buffer, or InvalidBuffer */
+ } BufferHeapTupleTableSlot;
+ 
+ typedef struct MinimalTupleTableSlot

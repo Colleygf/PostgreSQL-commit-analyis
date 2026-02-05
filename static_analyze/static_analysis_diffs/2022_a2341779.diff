@@ -1,0 +1,159 @@
+commit a23417790631e50f54bdcf5e40bf84e2dbd1c34b
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Mon Sep 19 14:21:39 2022 +0530
+
+    Fix typos.
+    
+    Author: Hou Zhijie and Zhang Mingli
+    Discussion: https://postgr.es/m/OS0PR01MB57162559C01FE2848C12E8F7944D9@OS0PR01MB5716.jpnprd01.prod.outlook.com
+
+diff --git a/doc/src/sgml/runtime.sgml b/doc/src/sgml/runtime.sgml
+index c802c0c5f50..f268265a838 100644
+--- a/doc/src/sgml/runtime.sgml
++++ b/doc/src/sgml/runtime.sgml
+@@ -2202,11 +2202,11 @@ pg_dumpall -p 5432 | psql -d postgres -p 5433
+ 
+   <para>
+    With <acronym>SSL</acronym> support compiled in, the
+    <productname>PostgreSQL</productname> server can be started with
+    support for encrypted connections using <acronym>TLS</acronym> protocols
+-   enabled by by setting the parameter
++   enabled by setting the parameter
+    <xref linkend="guc-ssl"/> to <literal>on</literal> in
+    <filename>postgresql.conf</filename>.  The server will listen for both normal
+    and <acronym>SSL</acronym> connections on the same TCP port, and will negotiate
+    with any connecting client on whether to use <acronym>SSL</acronym>.  By
+    default, this is at the client's option; see <xref
+diff --git a/src/backend/catalog/pg_attrdef.c b/src/backend/catalog/pg_attrdef.c
+index 1a14093a9a0..a27b73811aa 100644
+--- a/src/backend/catalog/pg_attrdef.c
++++ b/src/backend/catalog/pg_attrdef.c
+@@ -329,11 +329,11 @@ RemoveAttrDefaultById(Oid attrdefId)
+ }
+ 
+ 
+ /*
+  * Get the pg_attrdef OID of the default expression for a column
+- * identified by relation OID and and column number.
++ * identified by relation OID and column number.
+  *
+  * Returns InvalidOid if there is no such pg_attrdef entry.
+  */
+ Oid
+ GetAttrDefaultOid(Oid relid, AttrNumber attnum)
+diff --git a/src/backend/replication/logical/decode.c b/src/backend/replication/logical/decode.c
+index 1667d720b11..4264da5bb00 100644
+--- a/src/backend/replication/logical/decode.c
++++ b/src/backend/replication/logical/decode.c
+@@ -124,11 +124,11 @@ LogicalDecodingProcessRecord(LogicalDecodingContext *ctx, XLogReaderState *recor
+ 								buf.origptr);
+ 	}
+ }
+ 
+ /*
+- * Handle rmgr XLOG_ID records for DecodeRecordIntoReorderBuffer().
++ * Handle rmgr XLOG_ID records for LogicalDecodingProcessRecord().
+  */
+ void
+ xlog_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
+ {
+ 	SnapBuild  *builder = ctx->snapshot_builder;
+@@ -167,11 +167,11 @@ xlog_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
+ 			elog(ERROR, "unexpected RM_XLOG_ID record type: %u", info);
+ 	}
+ }
+ 
+ /*
+- * Handle rmgr XACT_ID records for DecodeRecordIntoReorderBuffer().
++ * Handle rmgr XACT_ID records for LogicalDecodingProcessRecord().
+  */
+ void
+ xact_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
+ {
+ 	SnapBuild  *builder = ctx->snapshot_builder;
+@@ -324,11 +324,11 @@ xact_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
+ 			elog(ERROR, "unexpected RM_XACT_ID record type: %u", info);
+ 	}
+ }
+ 
+ /*
+- * Handle rmgr STANDBY_ID records for DecodeRecordIntoReorderBuffer().
++ * Handle rmgr STANDBY_ID records for LogicalDecodingProcessRecord().
+  */
+ void
+ standby_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
+ {
+ 	SnapBuild  *builder = ctx->snapshot_builder;
+@@ -370,11 +370,11 @@ standby_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
+ 			elog(ERROR, "unexpected RM_STANDBY_ID record type: %u", info);
+ 	}
+ }
+ 
+ /*
+- * Handle rmgr HEAP2_ID records for DecodeRecordIntoReorderBuffer().
++ * Handle rmgr HEAP2_ID records for LogicalDecodingProcessRecord().
+  */
+ void
+ heap2_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
+ {
+ 	uint8		info = XLogRecGetInfo(buf->record) & XLOG_HEAP_OPMASK;
+@@ -430,11 +430,11 @@ heap2_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
+ 			elog(ERROR, "unexpected RM_HEAP2_ID record type: %u", info);
+ 	}
+ }
+ 
+ /*
+- * Handle rmgr HEAP_ID records for DecodeRecordIntoReorderBuffer().
++ * Handle rmgr HEAP_ID records for LogicalDecodingProcessRecord().
+  */
+ void
+ heap_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
+ {
+ 	uint8		info = XLogRecGetInfo(buf->record) & XLOG_HEAP_OPMASK;
+@@ -552,11 +552,11 @@ FilterByOrigin(LogicalDecodingContext *ctx, RepOriginId origin_id)
+ 
+ 	return filter_by_origin_cb_wrapper(ctx, origin_id);
+ }
+ 
+ /*
+- * Handle rmgr LOGICALMSG_ID records for DecodeRecordIntoReorderBuffer().
++ * Handle rmgr LOGICALMSG_ID records for LogicalDecodingProcessRecord().
+  */
+ void
+ logicalmsg_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
+ {
+ 	SnapBuild  *builder = ctx->snapshot_builder;
+diff --git a/src/test/regress/expected/foreign_key.out b/src/test/regress/expected/foreign_key.out
+index da26f083bc2..f9092d5929f 100644
+--- a/src/test/regress/expected/foreign_key.out
++++ b/src/test/regress/expected/foreign_key.out
+@@ -2438,11 +2438,11 @@ INSERT INTO ref VALUES(1,2,3);
+ BEGIN;
+ DELETE FROM pt;
+ DELETE FROM ref;
+ ABORT;
+ DROP TABLE pt, ref;
+--- Multi-level partitioning at at referenced end
++-- Multi-level partitioning at referenced end
+ CREATE TABLE pt(f1 int, f2 int, f3 int, PRIMARY KEY(f1,f2))
+   PARTITION BY LIST(f1);
+ CREATE TABLE pt1_2 PARTITION OF pt FOR VALUES IN (1, 2) PARTITION BY LIST (f1);
+ CREATE TABLE pt1 PARTITION OF pt1_2 FOR VALUES IN (1);
+ CREATE TABLE pt2 PARTITION OF pt1_2 FOR VALUES IN (2);
+diff --git a/src/test/regress/sql/foreign_key.sql b/src/test/regress/sql/foreign_key.sql
+index 725a59a5253..6e1fddbbd21 100644
+--- a/src/test/regress/sql/foreign_key.sql
++++ b/src/test/regress/sql/foreign_key.sql
+@@ -1740,11 +1740,11 @@ INSERT INTO ref VALUES(1,2,3);
+ BEGIN;
+ DELETE FROM pt;
+ DELETE FROM ref;
+ ABORT;
+ DROP TABLE pt, ref;
+--- Multi-level partitioning at at referenced end
++-- Multi-level partitioning at referenced end
+ CREATE TABLE pt(f1 int, f2 int, f3 int, PRIMARY KEY(f1,f2))
+   PARTITION BY LIST(f1);
+ CREATE TABLE pt1_2 PARTITION OF pt FOR VALUES IN (1, 2) PARTITION BY LIST (f1);
+ CREATE TABLE pt1 PARTITION OF pt1_2 FOR VALUES IN (1);
+ CREATE TABLE pt2 PARTITION OF pt1_2 FOR VALUES IN (2);

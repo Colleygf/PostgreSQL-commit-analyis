@@ -1,0 +1,68 @@
+commit 55b4966365fa76bda275c409f3aefad43243f12c
+Author: David Rowley <drowley@postgresql.org>
+Date:   Tue Sep 20 10:03:26 2022 +1200
+
+    Fix misleading comment for get_cheapest_group_keys_order
+    
+    The header comment for get_cheapest_group_keys_order() claimed that the
+    output arguments were set to a newly allocated list which may be freed by
+    the calling function, however, this was not always true as the function
+    would simply leave these arguments untouched in some cases.
+    
+    This tripped me up when working on 1349d2790 as I mistakenly assumed I
+    could perform a list_concat with the output parameters.  That turned out
+    bad due to list_concat modifying the original input lists.
+    
+    In passing, make it more clear that the number of distinct values is
+    important to reduce tiebreaks during sorts.  Also, explain what the
+    n_preordered parameter means.
+    
+    Backpatch-through: 15, where get_cheapest_group_keys_order was introduced.
+
+diff --git a/src/backend/optimizer/path/pathkeys.c b/src/backend/optimizer/path/pathkeys.c
+index 18f88700981..e2fdcd3163c 100644
+--- a/src/backend/optimizer/path/pathkeys.c
++++ b/src/backend/optimizer/path/pathkeys.c
+@@ -585,26 +585,29 @@ pathkey_sort_cost_comparator(const void *_a, const void *_b)
+ 	return 1;
+ }
+ 
+ /*
+  * get_cheapest_group_keys_order
+- *		Reorders the group pathkeys/clauses to minimize the comparison cost.
++ *		Reorders the group pathkeys / clauses to minimize the comparison cost.
+  *
+- * Given a list of pathkeys, we try to reorder them in a way that minimizes
+- * the CPU cost of sorting. This depends mainly on the cost of comparator
+- * function (the pathkeys may use different data types) and the number of
+- * distinct values in each column (which affects the number of comparator
+- * calls for the following pathkeys).
++ * Given the list of pathkeys in '*group_pathkeys', we try to arrange these
++ * in an order that minimizes the sort costs that will be incurred by the
++ * GROUP BY.  The costs mainly depend on the cost of the sort comparator
++ * function(s) and the number of distinct values in each column of the GROUP
++ * BY clause (*group_clauses).  Sorting on subsequent columns is only required
++ * for tiebreak situations where two values sort equally.
+  *
+  * In case the input is partially sorted, only the remaining pathkeys are
+- * considered.
+- *
+- * Returns true if the keys/clauses have been reordered (or might have been),
+- * and a new list is returned through an argument. The list is a new copy
+- * and may be freed using list_free.
+- *
+- * Returns false if no reordering was possible.
++ * considered.  'n_preordered' denotes how many of the leading *group_pathkeys
++ * the input is presorted by.
++ *
++ * Returns true and sets *group_pathkeys and *group_clauses to the newly
++ * ordered versions of the lists that were passed in via these parameters.
++ * If no reordering was deemed necessary then we return false, in which case
++ * the *group_pathkeys and *group_clauses lists are left untouched. The
++ * original *group_pathkeys and *group_clauses parameter values are never
++ * destructively modified in place.
+  */
+ static bool
+ get_cheapest_group_keys_order(PlannerInfo *root, double nrows,
+ 							  List **group_pathkeys, List **group_clauses,
+ 							  int n_preordered)

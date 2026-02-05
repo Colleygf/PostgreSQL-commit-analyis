@@ -1,0 +1,87 @@
+commit b081fe4199b69dc561f7d31c6a82b3ad996f657f
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Tue Mar 14 19:17:31 2023 -0400
+
+    Fix corner case bug in numeric to_char() some more.
+    
+    The band-aid applied in commit f0bedf3e4 turns out to still need
+    some work: it made sure we didn't set Np->last_relevant too small
+    (to the left of the decimal point), but it didn't prevent setting
+    it too large (off the end of the partially-converted string).
+    This could result in fetching data beyond the end of the allocated
+    space, which with very bad luck could cause a SIGSEGV, though
+    I don't see any hazard of interesting memory disclosure.
+    
+    Per bug #17839 from Thiago Nunes.  The bug's pretty ancient,
+    so back-patch to all supported versions.
+    
+    Discussion: https://postgr.es/m/17839-aada50db24d7b0da@postgresql.org
+
+diff --git a/src/backend/utils/adt/formatting.c b/src/backend/utils/adt/formatting.c
+index f3f4db5ef60..e6246dc44bd 100644
+--- a/src/backend/utils/adt/formatting.c
++++ b/src/backend/utils/adt/formatting.c
+@@ -5693,17 +5693,24 @@ NUM_processor(FormatNode *node, NUMDesc *Num, char *inout,
+ 		{
+ 			Np->last_relevant = get_last_relevant_decnum(Np->number);
+ 
+ 			/*
+ 			 * If any '0' specifiers are present, make sure we don't strip
+-			 * those digits.
++			 * those digits.  But don't advance last_relevant beyond the last
++			 * character of the Np->number string, which is a hazard if the
++			 * number got shortened due to precision limitations.
+ 			 */
+ 			if (Np->last_relevant && Np->Num->zero_end > Np->out_pre_spaces)
+ 			{
++				int			last_zero_pos;
+ 				char	   *last_zero;
+ 
+-				last_zero = Np->number + (Np->Num->zero_end - Np->out_pre_spaces);
++				/* note that Np->number cannot be zero-length here */
++				last_zero_pos = strlen(Np->number) - 1;
++				last_zero_pos = Min(last_zero_pos,
++									Np->Num->zero_end - Np->out_pre_spaces);
++				last_zero = Np->number + last_zero_pos;
+ 				if (Np->last_relevant < last_zero)
+ 					Np->last_relevant = last_zero;
+ 			}
+ 		}
+ 
+diff --git a/src/test/regress/expected/numeric.out b/src/test/regress/expected/numeric.out
+index 2ac2c99b196..26930f4db47 100644
+--- a/src/test/regress/expected/numeric.out
++++ b/src/test/regress/expected/numeric.out
+@@ -1927,10 +1927,16 @@ SELECT to_char('100'::numeric, 'FM999');
+  to_char 
+ ---------
+  100
+ (1 row)
+ 
++SELECT to_char('12345678901'::float8, 'FM9999999999D9999900000000000000000');
++     to_char     
++-----------------
++ ##########.####
++(1 row)
++
+ -- Check parsing of literal text in a format string
+ SELECT to_char('100'::numeric, 'foo999');
+  to_char 
+ ---------
+  foo 100
+diff --git a/src/test/regress/sql/numeric.sql b/src/test/regress/sql/numeric.sql
+index 6e9e6145d03..2dddb586255 100644
+--- a/src/test/regress/sql/numeric.sql
++++ b/src/test/regress/sql/numeric.sql
+@@ -977,10 +977,11 @@ SELECT val,
+ FROM v;
+ 
+ SELECT to_char('100'::numeric, 'FM999.9');
+ SELECT to_char('100'::numeric, 'FM999.');
+ SELECT to_char('100'::numeric, 'FM999');
++SELECT to_char('12345678901'::float8, 'FM9999999999D9999900000000000000000');
+ 
+ -- Check parsing of literal text in a format string
+ SELECT to_char('100'::numeric, 'foo999');
+ SELECT to_char('100'::numeric, 'f\oo999');
+ SELECT to_char('100'::numeric, 'f\\oo999');

@@ -1,0 +1,48 @@
+commit 884d791b213d6bc55f7f9b70d951f395e3ee29bb
+Author: Amit Langote <amitlan@postgresql.org>
+Date:   Tue Jul 16 14:10:58 2024 +0900
+
+    SQL/JSON: Fix a paragraph in JSON_TABLE documentation
+    
+    Using <replaceable>text</replaceable> inside parantheses is not a
+    common or good style, so rephrase a sentence to avoid that style.
+    Also rephrase the text in that paragraph a bit while at it.
+    
+    Reported-by: Marcos Pegoraro <marcos@f10.com.br>
+    Author: Jian He <jian.universality@gmail.com>
+    Reviewed-by: Daniel Gustafsson <daniel@yesql.se>
+    Reviewed-by: Peter Eisentraut <peter@eisentraut.org>
+    Discussion: https://postgr.es/m/CAB-JLwZqH3Yec6Kz-4-+pa0ZG9QJBsxjJZwYcMZYzEDR_fXnKw@mail.gmail.com
+
+diff --git a/doc/src/sgml/func.sgml b/doc/src/sgml/func.sgml
+index 785886af714..3f93c61aa3c 100644
+--- a/doc/src/sgml/func.sgml
++++ b/doc/src/sgml/func.sgml
+@@ -19036,18 +19036,19 @@ where <replaceable class="parameter">json_table_column</replaceable> is:
+     <term>
+      <literal><replaceable>context_item</replaceable>, <replaceable>path_expression</replaceable> <optional> <literal>AS</literal> <replaceable>json_path_name</replaceable> </optional> <optional> <literal>PASSING</literal> { <replaceable>value</replaceable> <literal>AS</literal> <replaceable>varname</replaceable> } <optional>, ...</optional></optional></literal>
+     </term>
+     <listitem>
+     <para>
+-     The input data to query (<replaceable>context_item</replaceable>),
+-     the JSON path expression defining the query (<replaceable>path_expression</replaceable>)
+-     with an optional name (<replaceable>json_path_name</replaceable>), and an
+-     optional <literal>PASSING</literal> clause, which can provide data values
+-     to the <replaceable>path_expression</replaceable>.  The result of the input
+-     data evaluation using the aforementioned elements is called the
+-     <firstterm>row pattern</firstterm>, which is used as the source for row
+-     values in the constructed view.
++     The <replaceable>context_item</replaceable> specifies the input document
++     to query, the <replaceable>path_expression</replaceable> is an SQL/JSON
++     path expression defining the query, and <replaceable>json_path_name</replaceable>
++     is an optional name for the <replaceable>path_expression</replaceable>.
++     The optional <literal>PASSING</literal> clause provides data values for
++     the variables mentioned in the <replaceable>path_expression</replaceable>.
++     The result of the input data evaluation using the aforementioned elements
++     is called the <firstterm>row pattern</firstterm>, which is used as the
++     source for row values in the constructed view.
+     </para>
+     </listitem>
+    </varlistentry>
+ 
+    <varlistentry>

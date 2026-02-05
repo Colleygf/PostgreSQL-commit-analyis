@@ -1,0 +1,80 @@
+commit 0bf62460bb9e86101d24e31e915c2e8922675296
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Thu Dec 7 08:42:48 2023 +0530
+
+    Fix issues in binary_upgrade_logical_slot_has_caught_up().
+    
+    The commit 29d0a77fa6 labelled binary_upgrade_logical_slot_has_caught_up()
+    as a non-strict function to allow providing a better error message to callers
+    in case the passed slot_name is NULL. On further discussion, it seems that
+    it is not helpful to have a different error message for NULL input in this
+    function, so this patch marks the function as strict.
+    
+    This patch also removes the explicit permission check to use replication
+    slots as this function is invoked only by superusers and instead adds an
+    Assert.
+    
+    Reported-by: Masahiko Sawada
+    Author: Hayato Kuroda
+    Reviewed-by: Vignesh C
+    Discussion: https://postgr.es/m/CAD21AoDSyiBKkMXBxN_gUayZZUCOgyHnG8Ge8rcPXNP3Tf6B4g@mail.gmail.com
+
+diff --git a/src/backend/utils/adt/pg_upgrade_support.c b/src/backend/utils/adt/pg_upgrade_support.c
+index 2f6fc86c3df..92921b0239d 100644
+--- a/src/backend/utils/adt/pg_upgrade_support.c
++++ b/src/backend/utils/adt/pg_upgrade_support.c
+@@ -279,15 +279,15 @@ binary_upgrade_logical_slot_has_caught_up(PG_FUNCTION_ARGS)
+ 	XLogRecPtr	end_of_wal;
+ 	bool		found_pending_wal;
+ 
+ 	CHECK_IS_BINARY_UPGRADE;
+ 
+-	/* We must check before dereferencing the argument */
+-	if (PG_ARGISNULL(0))
+-		elog(ERROR, "null argument to binary_upgrade_validate_wal_records is not allowed");
+-
+-	CheckSlotPermissions();
++	/*
++	 * Binary upgrades only allowed super-user connections so we must have
++	 * permission to use replication slots.
++	 */
++	Assert(has_rolreplication(GetUserId()));
+ 
+ 	slot_name = PG_GETARG_NAME(0);
+ 
+ 	/* Acquire the given slot */
+ 	ReplicationSlotAcquire(NameStr(*slot_name), true);
+diff --git a/src/include/catalog/catversion.h b/src/include/catalog/catversion.h
+index c4c59bfe6f9..a06a8f0b23b 100644
+--- a/src/include/catalog/catversion.h
++++ b/src/include/catalog/catversion.h
+@@ -55,8 +55,8 @@
+  * on that day.  (Hopefully we'll never commit ten independent sets of
+  * catalog changes on the same day...)
+  */
+ 
+ /*							yyyymmddN */
+-#define CATALOG_VERSION_NO	202311271
++#define CATALOG_VERSION_NO	202312071
+ 
+ #endif
+diff --git a/src/include/catalog/pg_proc.dat b/src/include/catalog/pg_proc.dat
+index fb58dee3bcd..77e8b137649 100644
+--- a/src/include/catalog/pg_proc.dat
++++ b/src/include/catalog/pg_proc.dat
+@@ -11390,13 +11390,12 @@
+ { oid => '4548', descr => 'for use by pg_upgrade',
+   proname => 'binary_upgrade_set_next_pg_tablespace_oid', provolatile => 'v',
+   proparallel => 'u', prorettype => 'void', proargtypes => 'oid',
+   prosrc => 'binary_upgrade_set_next_pg_tablespace_oid' },
+ { oid => '8046', descr => 'for use by pg_upgrade',
+-  proname => 'binary_upgrade_logical_slot_has_caught_up', proisstrict => 'f',
+-  provolatile => 'v', proparallel => 'u', prorettype => 'bool',
+-  proargtypes => 'name',
++  proname => 'binary_upgrade_logical_slot_has_caught_up', provolatile => 'v',
++  proparallel => 'u', prorettype => 'bool', proargtypes => 'name',
+   prosrc => 'binary_upgrade_logical_slot_has_caught_up' },
+ 
+ # conversion functions
+ { oid => '4302',
+   descr => 'internal conversion function for KOI8R to MULE_INTERNAL',

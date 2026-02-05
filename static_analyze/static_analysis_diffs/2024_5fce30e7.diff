@@ -1,0 +1,57 @@
+commit 5fce30e77fe133e1404167c13caaf7e0d1369295
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Mon Feb 12 00:33:51 2024 +0200
+
+    Fix some typos in event trigger docs
+    
+    Discussion: https://postgr.es/m/CALj2ACWFUW4jX9EW7CLxbzSS%2Bb7b0Z%3DxKYrqzj2Rstc9MCEx7g%40mail.gmail.com
+    Author: Bharath Rupireddy
+
+diff --git a/doc/src/sgml/event-trigger.sgml b/doc/src/sgml/event-trigger.sgml
+index a76bd844257..23dbb804819 100644
+--- a/doc/src/sgml/event-trigger.sgml
++++ b/doc/src/sgml/event-trigger.sgml
+@@ -47,11 +47,11 @@
+      page for details about using single-user mode.
+      The <literal>login</literal> event will also fire on standby servers.
+      To prevent servers from becoming inaccessible, such triggers must avoid
+      writing anything to the database when running on a standby.
+      Also, it's recommended to avoid long-running queries in
+-     <literal>login</literal> event triggers.  Notes that, for instance,
++     <literal>login</literal> event triggers.  Note that, for instance,
+      canceling connection in <application>psql</application> wouldn't cancel
+      the in-progress <literal>login</literal> trigger.
+    </para>
+ 
+    <para>
+@@ -1142,12 +1142,13 @@ typedef struct EventTriggerData
+      <varlistentry>
+       <term><structfield>event</structfield></term>
+       <listitem>
+        <para>
+         Describes the event for which the function is called, one of
+-        <literal>"ddl_command_start"</literal>, <literal>"ddl_command_end"</literal>,
+-        <literal>"sql_drop"</literal>, <literal>"table_rewrite"</literal>.
++        <literal>"login"</literal>, <literal>"ddl_command_start"</literal>,
++        <literal>"ddl_command_end"</literal>, <literal>"sql_drop"</literal>,
++        <literal>"table_rewrite"</literal>.
+         See <xref linkend="event-trigger-definition"/> for the meaning of these
+         events.
+        </para>
+       </listitem>
+      </varlistentry>
+@@ -1201,12 +1202,13 @@ typedef struct EventTriggerData
+ 
+    <para>
+     This is the source code of the trigger function:
+ <programlisting><![CDATA[
+ #include "postgres.h"
+-#include "commands/event_trigger.h"
+ 
++#include "commands/event_trigger.h"
++#include "fmgr.h"
+ 
+ PG_MODULE_MAGIC;
+ 
+ PG_FUNCTION_INFO_V1(noddl);
+ 

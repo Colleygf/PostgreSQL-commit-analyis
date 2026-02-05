@@ -1,0 +1,64 @@
+commit fdd8937c071e85e2b7606939fb28284f008e15d1
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Sat Sep 17 15:39:55 2022 +0900
+
+    Fix huge_pages on Windows
+    
+    Since Windows 10 1703, it is additionally necessary to pass a flag
+    called FILE_MAP_LARGE_PAGES to MapViewOfFile() to enable large pages at
+    map time.  This flag is ignored on older versions of Windows, where
+    large pages should still be able to work properly without setting it.
+    Note that the flag would be set only for binaries that knew about it at
+    compile-time, which should be more or less all the Windows environments
+    these days.
+    
+    Since 495ed0e, Windows 10 is the minimum version of Windows supported by
+    Postgres, making this change easy to reason about on HEAD.  Per
+    discussion, no backpatch is done for the moment.
+    
+    Reported-by: Okano Naoki
+    Author: Thomas Munro
+    Reviewed-by: Tom Lane, Michael Paquier, Julien Rouhaud
+    Discussion: https://postgr.es/m/17448-0a96583a67edb1f7@postgresql.org
+
+diff --git a/src/backend/port/win32_shmem.c b/src/backend/port/win32_shmem.c
+index d3c9b0f0987..8e95f65e7b3 100644
+--- a/src/backend/port/win32_shmem.c
++++ b/src/backend/port/win32_shmem.c
+@@ -216,10 +216,11 @@ PGSharedMemoryCreate(Size size,
+ 	DWORD		size_high;
+ 	DWORD		size_low;
+ 	SIZE_T		largePageSize = 0;
+ 	Size		orig_size = size;
+ 	DWORD		flProtect = PAGE_READWRITE;
++	DWORD		desiredAccess;
+ 
+ 	ShmemProtectiveRegion = VirtualAlloc(NULL, PROTECTIVE_REGION_SIZE,
+ 										 MEM_RESERVE, PAGE_NOACCESS);
+ 	if (ShmemProtectiveRegion == NULL)
+ 		elog(FATAL, "could not reserve memory region: error code %lu",
+@@ -353,16 +354,23 @@ retry:
+ 	 * care.
+ 	 */
+ 	if (!CloseHandle(hmap))
+ 		elog(LOG, "could not close handle to shared memory: error code %lu", GetLastError());
+ 
++	desiredAccess = FILE_MAP_WRITE | FILE_MAP_READ;
++
++#ifdef FILE_MAP_LARGE_PAGES
++	/* Set large pages if wanted. */
++	if ((flProtect & SEC_LARGE_PAGES) != 0)
++		desiredAccess |= FILE_MAP_LARGE_PAGES;
++#endif
+ 
+ 	/*
+ 	 * Get a pointer to the new shared memory segment. Map the whole segment
+ 	 * at once, and let the system decide on the initial address.
+ 	 */
+-	memAddress = MapViewOfFileEx(hmap2, FILE_MAP_WRITE | FILE_MAP_READ, 0, 0, 0, NULL);
++	memAddress = MapViewOfFileEx(hmap2, desiredAccess, 0, 0, 0, NULL);
+ 	if (!memAddress)
+ 		ereport(FATAL,
+ 				(errmsg("could not create shared memory segment: error code %lu", GetLastError()),
+ 				 errdetail("Failed system call was MapViewOfFileEx.")));
+ 

@@ -1,0 +1,85 @@
+commit 97ff8dd02ca788020021cdafb85d77d4fd3f3125
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Fri Jul 21 12:07:52 2023 +0900
+
+    Fix worker_spi when launching workers without shared_preload_libraries
+    
+    Currently, the database name to connect is initialized only when the
+    module is loaded with shared_preload_libraries, causing any call of
+    worker_spi_launch() to fail if the library is not loaded for a dynamic
+    bgworker launch.  Rather than making the GUC defining the database to
+    connect to a PGC_POSTMASTER, this commit switches worker_spi.database to
+    PGC_SIGHUP, loaded even if the module's library is loaded dynamically
+    for a worker.
+    
+    We have been discussing about the integration of more advanced tests in
+    this module, with and without shared_preload_libraries set, so this
+    eases a bit the work planned in this area.
+    
+    No backpatch is done as, while this is a bug, it changes the definition
+    of worker_spi.database.
+    
+    Author: Masahiro Ikeda
+    Reviewed-by: Bharath Rupireddy
+    Discussion: https://postgr.es/m/d30d3ea7d21cb7c9e1e3cc47e301f1b6@oss.nttdata.com
+
+diff --git a/src/test/modules/worker_spi/worker_spi.c b/src/test/modules/worker_spi/worker_spi.c
+index 7227cfaa45c..ada0fb8ac73 100644
+--- a/src/test/modules/worker_spi/worker_spi.c
++++ b/src/test/modules/worker_spi/worker_spi.c
+@@ -281,10 +281,15 @@ void
+ _PG_init(void)
+ {
+ 	BackgroundWorker worker;
+ 
+ 	/* get the configuration */
++
++	/*
++	 * These GUCs are defined even if this library is not loaded with
++	 * shared_preload_libraries, for worker_spi_launch().
++	 */
+ 	DefineCustomIntVariable("worker_spi.naptime",
+ 							"Duration between each check (in seconds).",
+ 							NULL,
+ 							&worker_spi_naptime,
+ 							10,
+@@ -294,10 +299,19 @@ _PG_init(void)
+ 							0,
+ 							NULL,
+ 							NULL,
+ 							NULL);
+ 
++	DefineCustomStringVariable("worker_spi.database",
++							   "Database to connect to.",
++							   NULL,
++							   &worker_spi_database,
++							   "postgres",
++							   PGC_SIGHUP,
++							   0,
++							   NULL, NULL, NULL);
++
+ 	if (!process_shared_preload_libraries_in_progress)
+ 		return;
+ 
+ 	DefineCustomIntVariable("worker_spi.total_workers",
+ 							"Number of workers.",
+@@ -310,19 +324,10 @@ _PG_init(void)
+ 							0,
+ 							NULL,
+ 							NULL,
+ 							NULL);
+ 
+-	DefineCustomStringVariable("worker_spi.database",
+-							   "Database to connect to.",
+-							   NULL,
+-							   &worker_spi_database,
+-							   "postgres",
+-							   PGC_POSTMASTER,
+-							   0,
+-							   NULL, NULL, NULL);
+-
+ 	MarkGUCPrefixReserved("worker_spi");
+ 
+ 	/* set up common data for all our workers */
+ 	memset(&worker, 0, sizeof(worker));
+ 	worker.bgw_flags = BGWORKER_SHMEM_ACCESS |

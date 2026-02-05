@@ -1,0 +1,52 @@
+commit b5c517379a40fa1af84c0852aa3730a5875a6482
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Thu Jun 15 08:37:48 2023 +0530
+
+    Fix possible crash in tablesync worker.
+    
+    Commit c3afe8cf5a added a new password_required option but forgot that you
+    need database access to check whether an arbitrary role ID is a superuser.
+    
+    Commit e7e7da2f8d fixed a similar bug in apply worker, and this patch
+    fixes a similar bug in tablesync worker.
+    
+    Author: Hou Zhijie
+    Reviewed-by: Amit Kapila
+    Discussion: https://postgr.es/m/OS0PR01MB571607F5A9D723755268D36294759@OS0PR01MB5716.jpnprd01.prod.outlook.com
+
+diff --git a/src/backend/replication/logical/tablesync.c b/src/backend/replication/logical/tablesync.c
+index abae8d44dfc..db10a446b3d 100644
+--- a/src/backend/replication/logical/tablesync.c
++++ b/src/backend/replication/logical/tablesync.c
+@@ -1260,10 +1260,16 @@ LogicalRepSyncTableStart(XLogRecPtr *origin_startpos)
+ 	/* Check the state of the table synchronization. */
+ 	StartTransactionCommand();
+ 	relstate = GetSubscriptionRelState(MyLogicalRepWorker->subid,
+ 									   MyLogicalRepWorker->relid,
+ 									   &relstate_lsn);
++
++	/* Is the use of a password mandatory? */
++	must_use_password = MySubscription->passwordrequired &&
++		!superuser_arg(MySubscription->owner);
++
++	/* Note that the superuser_arg call can access the DB */
+ 	CommitTransactionCommand();
+ 
+ 	SpinLockAcquire(&MyLogicalRepWorker->relmutex);
+ 	MyLogicalRepWorker->relstate = relstate;
+ 	MyLogicalRepWorker->relstate_lsn = relstate_lsn;
+@@ -1286,14 +1292,10 @@ LogicalRepSyncTableStart(XLogRecPtr *origin_startpos)
+ 	ReplicationSlotNameForTablesync(MySubscription->oid,
+ 									MyLogicalRepWorker->relid,
+ 									slotname,
+ 									NAMEDATALEN);
+ 
+-	/* Is the use of a password mandatory? */
+-	must_use_password = MySubscription->passwordrequired &&
+-		!superuser_arg(MySubscription->owner);
+-
+ 	/*
+ 	 * Here we use the slot name instead of the subscription name as the
+ 	 * application_name, so that it is different from the leader apply worker,
+ 	 * so that synchronous replication can distinguish them.
+ 	 */

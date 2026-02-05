@@ -1,0 +1,80 @@
+commit 8e5eef50c5b41fd39ad60365c9c1b46782f881ca
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Mar 29 11:31:30 2023 -0400
+
+    Fix dereference of dangling pointer in GiST index buffering build.
+    
+    gistBuildCallback tried to fetch the size of an index tuple that
+    might have already been freed by gistProcessEmptyingQueue.
+    While this seems to usually be harmless in production builds,
+    in principle it could result in a SIGSEGV, or more likely a bogus
+    value for indtuplesSize leading to poor page-split decisions later
+    in the build.
+    
+    The memory management here is confusing and could stand to be
+    refactored, but for the moment it seems to be enough to fetch
+    the tuple size sooner.  AFAICT the indtuples[Size] totals aren't
+    used in between these places; even if they were, the updated
+    values shouldn't be any worse to use.  So just move the
+    incrementing of the totals up.
+    
+    It's not very clear why our valgrind-using buildfarm animals
+    haven't noticed this problem, because the relevant code path
+    does seem to be exercised according to the code coverage report.
+    I think the reason that we didn't fix this bug after the first
+    report is that I'd wanted to try to understand that better.
+    However, now that it's been re-discovered let's just be pragmatic
+    and fix it already.
+    
+    Original report by Alexander Lakhin (bug #16329),
+    later rediscovered by Egor Chindyaskin (bug #17874).
+    
+    Patch by Alexander Lakhin (commentary by Pavel Borisov and me).
+    Back-patch to all supported branches.
+    
+    Discussion: https://postgr.es/m/16329-7a6aa9b6fa1118a1@postgresql.org
+    Discussion: https://postgr.es/m/17874-63ca6c7ce42d2103@postgresql.org
+
+diff --git a/src/backend/access/gist/gistbuild.c b/src/backend/access/gist/gistbuild.c
+index 7a6d93bb879..57fe553a5c9 100644
+--- a/src/backend/access/gist/gistbuild.c
++++ b/src/backend/access/gist/gistbuild.c
+@@ -899,10 +899,23 @@ gistBuildCallback(Relation index,
+ 	itup = gistFormTuple(buildstate->giststate, index,
+ 						 values, isnull,
+ 						 true);
+ 	itup->t_tid = *tid;
+ 
++	/* Update tuple count and total size. */
++	buildstate->indtuples += 1;
++	buildstate->indtuplesSize += IndexTupleSize(itup);
++
++	/*
++	 * XXX In buffering builds, the tempCxt is also reset down inside
++	 * gistProcessEmptyingQueue().  This is not great because it risks
++	 * confusion and possible use of dangling pointers (for example, itup
++	 * might be already freed when control returns here).  It's generally
++	 * better that a memory context be "owned" by only one function.  However,
++	 * currently this isn't causing issues so it doesn't seem worth the amount
++	 * of refactoring that would be needed to avoid it.
++	 */
+ 	if (buildstate->buildMode == GIST_BUFFERING_ACTIVE)
+ 	{
+ 		/* We have buffers, so use them. */
+ 		gistBufferingBuildInsert(buildstate, itup);
+ 	}
+@@ -914,14 +927,10 @@ gistBuildCallback(Relation index,
+ 		 */
+ 		gistdoinsert(index, itup, buildstate->freespace,
+ 					 buildstate->giststate, buildstate->heaprel, true);
+ 	}
+ 
+-	/* Update tuple count and total size. */
+-	buildstate->indtuples += 1;
+-	buildstate->indtuplesSize += IndexTupleSize(itup);
+-
+ 	MemoryContextSwitchTo(oldCtx);
+ 	MemoryContextReset(buildstate->giststate->tempCxt);
+ 
+ 	if (buildstate->buildMode == GIST_BUFFERING_ACTIVE &&
+ 		buildstate->indtuples % BUFFERING_MODE_TUPLE_SIZE_STATS_TARGET == 0)

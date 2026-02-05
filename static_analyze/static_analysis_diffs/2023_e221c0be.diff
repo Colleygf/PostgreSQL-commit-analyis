@@ -1,0 +1,76 @@
+commit e221c0befb1b23130d87c26a1a2479019b9d565d
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Tue Sep 26 09:29:47 2023 +0900
+
+    Fix behavior of "force" in pgstat_report_wal()
+    
+    As implemented in 5891c7a8ed8f, setting "force" to true in
+    pgstat_report_wal() causes the routine to not wait for the pgstat
+    shmem lock if it cannot be acquired, in which case the WAL and I/O
+    statistics finish by not being flushed.  The origin of the confusion
+    comes from pgstat_flush_wal() and pgstat_flush_io(), that use "nowait"
+    as sole argument.  The I/O stats are new in v16.
+    
+    This is the opposite behavior of what has been used in
+    pgstat_report_stat(), where "force" is the opposite of "nowait".  In
+    this case, when "force" is true, the routine sets "nowait" to false,
+    which would cause the routine to wait for the pgstat shmem lock,
+    ensuring that the stats are always flushed.  When "force" is false,
+    "nowait" is set to true, and the stats would only not be flushed if the
+    pgstat shmem lock can be acquired, returning immediately without
+    flushing the stats if the lock cannot be acquired.
+    
+    This commit changes pgstat_report_wal() so as "force" has the same
+    behavior as in pgstat_report_stat().  There are currently three callers
+    of pgstat_report_wal():
+    - Two in the checkpointer where force=true during a shutdown and the
+    main checkpointer loop.  Now the code behaves so as the stats are always
+    flushed.
+    - One in the main loop of the bgwriter, where force=false.  Now the code
+    behaves so as the stats would not be flushed if the pgstat shmem lock
+    could not be acquired.
+    
+    Before this commit, some stats on WAL and I/O could have been lost after
+    a shutdown, for example.
+    
+    Reported-by: Ryoga Yoshida
+    Author: Ryoga Yoshida, Michael Paquier
+    Discussion: https://postgr.es/m/f87a4d7be70530606b864fd1df91718c@oss.nttdata.com
+    Backpatch-through: 15
+
+diff --git a/src/backend/utils/activity/pgstat_wal.c b/src/backend/utils/activity/pgstat_wal.c
+index bcaed14d02e..6a81b781357 100644
+--- a/src/backend/utils/activity/pgstat_wal.c
++++ b/src/backend/utils/activity/pgstat_wal.c
+@@ -36,17 +36,29 @@ static WalUsage prevWalUsage;
+  * Calculate how much WAL usage counters have increased and update
+  * shared WAL and IO statistics.
+  *
+  * Must be called by processes that generate WAL, that do not call
+  * pgstat_report_stat(), like walwriter.
++ *
++ * "force" set to true ensures that the statistics are flushed; note that
++ * this needs to acquire the pgstat shmem LWLock, waiting on it.  When
++ * set to false, the statistics may not be flushed if the lock could not
++ * be acquired.
+  */
+ void
+ pgstat_report_wal(bool force)
+ {
+-	pgstat_flush_wal(force);
++	bool		nowait;
++
++	/* like in pgstat.c, don't wait for lock acquisition when !force */
++	nowait = !force;
++
++	/* flush wal stats */
++	pgstat_flush_wal(nowait);
+ 
+-	pgstat_flush_io(force);
++	/* flush IO stats */
++	pgstat_flush_io(nowait);
+ }
+ 
+ /*
+  * Support function for the SQL-callable pgstat* functions. Returns
+  * a pointer to the WAL statistics struct.

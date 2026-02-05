@@ -1,0 +1,193 @@
+commit 915de706d28c433283e9dc63701e8f978488a2b9
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Tue Jun 11 17:57:46 2024 -0400
+
+    Fix infer_arbiter_indexes() to not assume resultRelation is 1.
+    
+    infer_arbiter_indexes failed to renumber varnos in index expressions
+    or predicates that it got from the catalogs.  This escaped detection
+    up to now because the stored varnos in such trees will be 1, and an
+    INSERT's result relation is usually the first rangetable entry,
+    so that that was fine.  However, in cases such as inserting through
+    an updatable view, it's not fine, leading to failure to match the
+    expressions to the query with ensuing "there is no unique or exclusion
+    constraint matching the ON CONFLICT specification" errors.
+    
+    Fix by copy-and-paste from get_relation_info().
+    
+    Per bug #18502 from Michael Wang.  Back-patch to all supported
+    versions.
+    
+    Discussion: https://postgr.es/m/18502-545b53f5b81e54e0@postgresql.org
+
+diff --git a/src/backend/optimizer/util/plancat.c b/src/backend/optimizer/util/plancat.c
+index a51fc34e6e0..775955363ef 100644
+--- a/src/backend/optimizer/util/plancat.c
++++ b/src/backend/optimizer/util/plancat.c
+@@ -693,10 +693,11 @@ List *
+ infer_arbiter_indexes(PlannerInfo *root)
+ {
+ 	OnConflictExpr *onconflict = root->parse->onConflict;
+ 
+ 	/* Iteration state */
++	Index		varno;
+ 	RangeTblEntry *rte;
+ 	Relation	relation;
+ 	Oid			indexOidFromConstraint = InvalidOid;
+ 	List	   *indexList;
+ 	ListCell   *l;
+@@ -721,11 +722,12 @@ infer_arbiter_indexes(PlannerInfo *root)
+ 	/*
+ 	 * We need not lock the relation since it was already locked, either by
+ 	 * the rewriter or when expand_inherited_rtentry() added it to the query's
+ 	 * rangetable.
+ 	 */
+-	rte = rt_fetch(root->parse->resultRelation, root->parse->rtable);
++	varno = root->parse->resultRelation;
++	rte = rt_fetch(varno, root->parse->rtable);
+ 
+ 	relation = table_open(rte->relid, NoLock);
+ 
+ 	/*
+ 	 * Build normalized/BMS representation of plain indexed attributes, as
+@@ -855,10 +857,13 @@ infer_arbiter_indexes(PlannerInfo *root)
+ 		if (!bms_equal(indexedAttrs, inferAttrs))
+ 			goto next;
+ 
+ 		/* Expression attributes (if any) must match */
+ 		idxExprs = RelationGetIndexExpressions(idxRel);
++		if (idxExprs && varno != 1)
++			ChangeVarNodes((Node *) idxExprs, 1, varno, 0);
++
+ 		foreach(el, onconflict->arbiterElems)
+ 		{
+ 			InferenceElem *elem = (InferenceElem *) lfirst(el);
+ 
+ 			/*
+@@ -906,10 +911,12 @@ infer_arbiter_indexes(PlannerInfo *root)
+ 		/*
+ 		 * If it's a partial index, its predicate must be implied by the ON
+ 		 * CONFLICT's WHERE clause.
+ 		 */
+ 		predExprs = RelationGetIndexPredicate(idxRel);
++		if (predExprs && varno != 1)
++			ChangeVarNodes((Node *) predExprs, 1, varno, 0);
+ 
+ 		if (!predicate_implied_by(predExprs, (List *) onconflict->arbiterWhere, false))
+ 			goto next;
+ 
+ 		results = lappend_oid(results, idxForm->indexrelid);
+diff --git a/src/test/regress/expected/insert_conflict.out b/src/test/regress/expected/insert_conflict.out
+index 701217ddbca..5cb9cde0305 100644
+--- a/src/test/regress/expected/insert_conflict.out
++++ b/src/test/regress/expected/insert_conflict.out
+@@ -1,9 +1,11 @@
+ --
+ -- insert...on conflict do unique index inference
+ --
+ create table insertconflicttest(key int4, fruit text);
++-- These things should work through a view, as well
++create view insertconflictview as select * from insertconflicttest;
+ --
+ -- Test unique index inference with operator class specifications and
+ -- named collations
+ --
+ create unique index op_index_key on insertconflicttest(key, fruit text_pattern_ops);
+@@ -41,10 +43,19 @@ explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on con
+    Conflict Resolution: NOTHING
+    Conflict Arbiter Indexes: both_index_expr_key
+    ->  Result
+ (4 rows)
+ 
++explain (costs off) insert into insertconflictview values(0, 'Crowberry') on conflict (lower(fruit), key, lower(fruit), key) do nothing;
++                   QUERY PLAN                    
++-------------------------------------------------
++ Insert on insertconflicttest
++   Conflict Resolution: NOTHING
++   Conflict Arbiter Indexes: both_index_expr_key
++   ->  Result
++(4 rows)
++
+ explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (key, fruit) do update set fruit = excluded.fruit
+   where exists (select 1 from insertconflicttest ii where ii.key = excluded.key);
+                                   QUERY PLAN                                   
+ -------------------------------------------------------------------------------
+  Insert on insertconflicttest
+@@ -378,10 +389,11 @@ drop index fruit_index;
+ --
+ create unique index partial_key_index on insertconflicttest(key) where fruit like '%berry';
+ -- Succeeds
+ insert into insertconflicttest values (23, 'Blackberry') on conflict (key) where fruit like '%berry' do update set fruit = excluded.fruit;
+ insert into insertconflicttest as t values (23, 'Blackberry') on conflict (key) where fruit like '%berry' and t.fruit = 'inconsequential' do nothing;
++insert into insertconflictview as t values (23, 'Blackberry') on conflict (key) where fruit like '%berry' and t.fruit = 'inconsequential' do nothing;
+ -- fails
+ insert into insertconflicttest values (23, 'Blackberry') on conflict (key) do update set fruit = excluded.fruit;
+ ERROR:  there is no unique or exclusion constraint matching the ON CONFLICT specification
+ insert into insertconflicttest values (23, 'Blackberry') on conflict (key) where fruit like '%berry' or fruit = 'consequential' do nothing;
+ ERROR:  there is no unique or exclusion constraint matching the ON CONFLICT specification
+@@ -443,10 +455,11 @@ explain (costs off) insert into insertconflicttest as i values (23, 'Avocado') o
+    ->  Result
+ (4 rows)
+ 
+ drop index plain;
+ -- Cleanup
++drop view insertconflictview;
+ drop table insertconflicttest;
+ --
+ -- Verify that EXCLUDED does not allow system column references. These
+ -- do not make sense because EXCLUDED isn't an already stored tuple
+ -- (and thus doesn't have a ctid etc).
+diff --git a/src/test/regress/sql/insert_conflict.sql b/src/test/regress/sql/insert_conflict.sql
+index 653f9baf98e..549c46452ec 100644
+--- a/src/test/regress/sql/insert_conflict.sql
++++ b/src/test/regress/sql/insert_conflict.sql
+@@ -1,10 +1,13 @@
+ --
+ -- insert...on conflict do unique index inference
+ --
+ create table insertconflicttest(key int4, fruit text);
+ 
++-- These things should work through a view, as well
++create view insertconflictview as select * from insertconflicttest;
++
+ --
+ -- Test unique index inference with operator class specifications and
+ -- named collations
+ --
+ create unique index op_index_key on insertconflicttest(key, fruit text_pattern_ops);
+@@ -18,10 +21,11 @@ explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on con
+ 
+ -- succeeds
+ explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (key, fruit) do nothing;
+ explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (fruit, key, fruit, key) do nothing;
+ explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (lower(fruit), key, lower(fruit), key) do nothing;
++explain (costs off) insert into insertconflictview values(0, 'Crowberry') on conflict (lower(fruit), key, lower(fruit), key) do nothing;
+ explain (costs off) insert into insertconflicttest values(0, 'Crowberry') on conflict (key, fruit) do update set fruit = excluded.fruit
+   where exists (select 1 from insertconflicttest ii where ii.key = excluded.key);
+ -- Neither collation nor operator class specifications are required --
+ -- supplying them merely *limits* matches to indexes with matching opclasses
+ -- used for relevant indexes
+@@ -216,10 +220,11 @@ drop index fruit_index;
+ create unique index partial_key_index on insertconflicttest(key) where fruit like '%berry';
+ 
+ -- Succeeds
+ insert into insertconflicttest values (23, 'Blackberry') on conflict (key) where fruit like '%berry' do update set fruit = excluded.fruit;
+ insert into insertconflicttest as t values (23, 'Blackberry') on conflict (key) where fruit like '%berry' and t.fruit = 'inconsequential' do nothing;
++insert into insertconflictview as t values (23, 'Blackberry') on conflict (key) where fruit like '%berry' and t.fruit = 'inconsequential' do nothing;
+ 
+ -- fails
+ insert into insertconflicttest values (23, 'Blackberry') on conflict (key) do update set fruit = excluded.fruit;
+ insert into insertconflicttest values (23, 'Blackberry') on conflict (key) where fruit like '%berry' or fruit = 'consequential' do nothing;
+ insert into insertconflicttest values (23, 'Blackberry') on conflict (fruit) where fruit like '%berry' do update set fruit = excluded.fruit;
+@@ -248,10 +253,11 @@ explain (costs off) insert into insertconflicttest as i values (23, 'Avocado') o
+ explain (costs off) insert into insertconflicttest as i values (23, 'Avocado') on conflict (key) do update set fruit = excluded.*::text;
+ 
+ drop index plain;
+ 
+ -- Cleanup
++drop view insertconflictview;
+ drop table insertconflicttest;
+ 
+ 
+ --
+ -- Verify that EXCLUDED does not allow system column references. These

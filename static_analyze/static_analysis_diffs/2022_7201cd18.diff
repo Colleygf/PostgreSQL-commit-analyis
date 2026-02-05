@@ -1,0 +1,150 @@
+commit 7201cd18627afc64850537806da7f22150d1a83b
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Mon Jun 27 10:30:15 2022 +1200
+
+    Fix relptr's encoding of the base address.
+    
+    Previously, we encoded both NULL and the first byte at the base address
+    as 0.  That confusion led to the assertion in commit e07d4ddc, which
+    failed when min_dynamic_shared_memory was used.  Give them distinct
+    encodings, by switching to 1-based offsets for non-NULL pointers.  Also
+    improve macro hygiene in passing (missing/misplaced parentheses), and
+    remove open-coded access to the raw offset value from freepage.c/h.
+    
+    Although e07d4ddc was back-patched to 10, the only code that actually
+    makes use of relptr at the base address arrived in 84b1c63a, so no need
+    to back-patch further than 14 for now.
+    
+    Reported-by: Justin Pryzby <pryzby@telsasoft.com>
+    Reviewed-by: Robert Haas <robertmhaas@gmail.com>
+    Discussion: https://postgr.es/m/20220519193839.GT19626%40telsasoft.com
+
+diff --git a/src/backend/utils/mmgr/freepage.c b/src/backend/utils/mmgr/freepage.c
+index b26a295a4ea..dcf246faf11 100644
+--- a/src/backend/utils/mmgr/freepage.c
++++ b/src/backend/utils/mmgr/freepage.c
+@@ -432,11 +432,11 @@ FreePageManagerDump(FreePageManager *fpm)
+ 	/* Initialize output buffer. */
+ 	initStringInfo(&buf);
+ 
+ 	/* Dump general stuff. */
+ 	appendStringInfo(&buf, "metadata: self %zu max contiguous pages = %zu\n",
+-					 fpm->self.relptr_off, fpm->contiguous_pages);
++					 relptr_offset(fpm->self), fpm->contiguous_pages);
+ 
+ 	/* Dump btree. */
+ 	if (fpm->btree_depth > 0)
+ 	{
+ 		FreePageBtree *root;
+@@ -1267,11 +1267,11 @@ FreePageManagerDumpBtree(FreePageManager *fpm, FreePageBtree *btp,
+ 	for (index = 0; index < btp->hdr.nused; ++index)
+ 	{
+ 		if (btp->hdr.magic == FREE_PAGE_INTERNAL_MAGIC)
+ 			appendStringInfo(buf, " %zu->%zu",
+ 							 btp->u.internal_key[index].first_page,
+-							 btp->u.internal_key[index].child.relptr_off / FPM_PAGE_SIZE);
++							 relptr_offset(btp->u.internal_key[index].child) / FPM_PAGE_SIZE);
+ 		else
+ 			appendStringInfo(buf, " %zu(%zu)",
+ 							 btp->u.leaf_key[index].first_page,
+ 							 btp->u.leaf_key[index].npages);
+ 	}
+@@ -1857,11 +1857,11 @@ FreePagePopSpanLeader(FreePageManager *fpm, Size pageno)
+ 		relptr_copy(prev->next, span->next);
+ 	else
+ 	{
+ 		Size		f = Min(span->npages, FPM_NUM_FREELISTS) - 1;
+ 
+-		Assert(fpm->freelist[f].relptr_off == pageno * FPM_PAGE_SIZE);
++		Assert(relptr_offset(fpm->freelist[f]) == pageno * FPM_PAGE_SIZE);
+ 		relptr_copy(fpm->freelist[f], span->next);
+ 	}
+ }
+ 
+ /*
+diff --git a/src/include/utils/freepage.h b/src/include/utils/freepage.h
+index 08064b10f97..e69b2804ec1 100644
+--- a/src/include/utils/freepage.h
++++ b/src/include/utils/freepage.h
+@@ -76,15 +76,15 @@ struct FreePageManager
+ 
+ /* Macros to check alignment of absolute and relative pointers. */
+ #define fpm_pointer_is_page_aligned(base, ptr)		\
+ 	(((Size) (((char *) (ptr)) - (base))) % FPM_PAGE_SIZE == 0)
+ #define fpm_relptr_is_page_aligned(base, relptr)		\
+-	((relptr).relptr_off % FPM_PAGE_SIZE == 0)
++	(relptr_offset(relptr) % FPM_PAGE_SIZE == 0)
+ 
+ /* Macro to find base address of the segment containing a FreePageManager. */
+ #define fpm_segment_base(fpm)	\
+-	(((char *) fpm) - fpm->self.relptr_off)
++	(((char *) fpm) - relptr_offset(fpm->self))
+ 
+ /* Macro to access a FreePageManager's largest consecutive run of pages. */
+ #define fpm_largest(fpm) \
+ 	(fpm->contiguous_pages)
+ 
+diff --git a/src/include/utils/relptr.h b/src/include/utils/relptr.h
+index cc80a7200de..9364dd66948 100644
+--- a/src/include/utils/relptr.h
++++ b/src/include/utils/relptr.h
+@@ -40,50 +40,53 @@
+ 
+ #ifdef HAVE__BUILTIN_TYPES_COMPATIBLE_P
+ #define relptr_access(base, rp) \
+ 	(AssertVariableIsOfTypeMacro(base, char *), \
+ 	 (__typeof__((rp).relptr_type)) ((rp).relptr_off == 0 ? NULL : \
+-		(base + (rp).relptr_off)))
++		(base) + (rp).relptr_off - 1))
+ #else
+ /*
+  * If we don't have __builtin_types_compatible_p, assume we might not have
+  * __typeof__ either.
+  */
+ #define relptr_access(base, rp) \
+ 	(AssertVariableIsOfTypeMacro(base, char *), \
+-	 (void *) ((rp).relptr_off == 0 ? NULL : (base + (rp).relptr_off)))
++	 (void *) ((rp).relptr_off == 0 ? NULL : (base) + (rp).relptr_off - 1))
+ #endif
+ 
+ #define relptr_is_null(rp) \
+ 	((rp).relptr_off == 0)
+ 
++#define relptr_offset(rp) \
++	((rp).relptr_off - 1)
++
+ /* We use this inline to avoid double eval of "val" in relptr_store */
+ static inline Size
+ relptr_store_eval(char *base, char *val)
+ {
+ 	if (val == NULL)
+ 		return 0;
+ 	else
+ 	{
+-		Assert(val > base);
+-		return val - base;
++		Assert(val >= base);
++		return val - base + 1;
+ 	}
+ }
+ 
+ #ifdef HAVE__BUILTIN_TYPES_COMPATIBLE_P
+ #define relptr_store(base, rp, val) \
+ 	(AssertVariableIsOfTypeMacro(base, char *), \
+ 	 AssertVariableIsOfTypeMacro(val, __typeof__((rp).relptr_type)), \
+-	 (rp).relptr_off = relptr_store_eval(base, (char *) (val)))
++	 (rp).relptr_off = relptr_store_eval((base), (char *) (val)))
+ #else
+ /*
+  * If we don't have __builtin_types_compatible_p, assume we might not have
+  * __typeof__ either.
+  */
+ #define relptr_store(base, rp, val) \
+ 	(AssertVariableIsOfTypeMacro(base, char *), \
+-	 (rp).relptr_off = relptr_store_eval(base, (char *) (val)))
++	 (rp).relptr_off = relptr_store_eval((base), (char *) (val)))
+ #endif
+ 
+ #define relptr_copy(rp1, rp2) \
+ 	((rp1).relptr_off = (rp2).relptr_off)
+ 

@@ -1,0 +1,130 @@
+commit de63f8dadee4afa152ce177fd3c562d47373a728
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Wed May 3 10:13:13 2023 +0530
+
+    Fix assertion failure in apply worker.
+    
+    During exit, the logical replication apply worker tries to release session
+    level locks, if any. However, if the apply worker exits due to an error
+    before its connection is initialized, trying to release locks can lead to
+    assertion failure. The locks will be acquired once the worker is
+    initialized, so we don't need to release them till the worker
+    initialization is complete.
+    
+    Reported-by: Alexander Lakhin
+    Author: Hou Zhijie based on inputs from Sawada Masahiko and Amit Kapila
+    Reviewed-by: Amit Kapila
+    Discussion: https://postgr.es/m/2185d65f-5aae-3efa-c48f-fb42b173ef5c@gmail.com
+
+diff --git a/src/backend/replication/logical/applyparallelworker.c b/src/backend/replication/logical/applyparallelworker.c
+index 45186837795..ee7a18137fc 100644
+--- a/src/backend/replication/logical/applyparallelworker.c
++++ b/src/backend/replication/logical/applyparallelworker.c
+@@ -871,10 +871,12 @@ ParallelApplyWorkerMain(Datum main_arg)
+ 	shm_mq_handle *error_mqh;
+ 	RepOriginId originid;
+ 	int			worker_slot = DatumGetInt32(main_arg);
+ 	char		originname[NAMEDATALEN];
+ 
++	InitializingApplyWorker = true;
++
+ 	/* Setup signal handling. */
+ 	pqsignal(SIGHUP, SignalHandlerForConfigReload);
+ 	pqsignal(SIGINT, SignalHandlerForShutdownRequest);
+ 	pqsignal(SIGTERM, die);
+ 	BackgroundWorkerUnblockSignals();
+@@ -938,10 +940,12 @@ ParallelApplyWorkerMain(Datum main_arg)
+ 	MyLogicalRepWorker->last_send_time = MyLogicalRepWorker->last_recv_time =
+ 		MyLogicalRepWorker->reply_time = 0;
+ 
+ 	InitializeApplyWorker();
+ 
++	InitializingApplyWorker = false;
++
+ 	/* Setup replication origin tracking. */
+ 	StartTransactionCommand();
+ 	ReplicationOriginNameForLogicalRep(MySubscription->oid, InvalidOid,
+ 									   originname, sizeof(originname));
+ 	originid = replorigin_by_name(originname, false);
+diff --git a/src/backend/replication/logical/launcher.c b/src/backend/replication/logical/launcher.c
+index 970d170e73a..ceea1262315 100644
+--- a/src/backend/replication/logical/launcher.c
++++ b/src/backend/replication/logical/launcher.c
+@@ -795,12 +795,15 @@ logicalrep_worker_onexit(int code, Datum arg)
+ 
+ 	/*
+ 	 * Session level locks may be acquired outside of a transaction in
+ 	 * parallel apply mode and will not be released when the worker
+ 	 * terminates, so manually release all locks before the worker exits.
++	 *
++	 * The locks will be acquired once the worker is initialized.
+ 	 */
+-	LockReleaseAll(DEFAULT_LOCKMETHOD, true);
++	if (!InitializingApplyWorker)
++		LockReleaseAll(DEFAULT_LOCKMETHOD, true);
+ 
+ 	ApplyLauncherWakeup();
+ }
+ 
+ /*
+diff --git a/src/backend/replication/logical/worker.c b/src/backend/replication/logical/worker.c
+index dbf88c95531..879309b316c 100644
+--- a/src/backend/replication/logical/worker.c
++++ b/src/backend/replication/logical/worker.c
+@@ -329,10 +329,13 @@ static TransactionId stream_xid = InvalidTransactionId;
+  * The number of changes applied by parallel apply worker during one streaming
+  * block.
+  */
+ static uint32 parallel_stream_nchanges = 0;
+ 
++/* Are we initializing a apply worker? */
++bool		InitializingApplyWorker = false;
++
+ /*
+  * We enable skipping all data modification changes (INSERT, UPDATE, etc.) for
+  * the subscription if the remote transaction's finish LSN matches the subskiplsn.
+  * Once we start skipping changes, we don't stop it until we skip all changes of
+  * the transaction even if pg_subscription is updated and MySubscription->skiplsn
+@@ -4524,10 +4527,12 @@ ApplyWorkerMain(Datum main_arg)
+ 	XLogRecPtr	origin_startpos = InvalidXLogRecPtr;
+ 	char	   *myslotname = NULL;
+ 	WalRcvStreamOptions options;
+ 	int			server_version;
+ 
++	InitializingApplyWorker = true;
++
+ 	/* Attach to slot */
+ 	logicalrep_worker_attach(worker_slot);
+ 
+ 	/* Setup signal handling */
+ 	pqsignal(SIGHUP, SignalHandlerForConfigReload);
+@@ -4546,10 +4551,12 @@ ApplyWorkerMain(Datum main_arg)
+ 	/* Load the libpq-specific functions */
+ 	load_file("libpqwalreceiver", false);
+ 
+ 	InitializeApplyWorker();
+ 
++	InitializingApplyWorker = false;
++
+ 	/* Connect to the origin and start the replication. */
+ 	elog(DEBUG1, "connecting to publisher using connection string \"%s\"",
+ 		 MySubscription->conninfo);
+ 
+ 	if (am_tablesync_worker())
+diff --git a/src/include/replication/worker_internal.h b/src/include/replication/worker_internal.h
+index dce71d2c501..b57eed052f6 100644
+--- a/src/include/replication/worker_internal.h
++++ b/src/include/replication/worker_internal.h
+@@ -223,10 +223,12 @@ extern PGDLLIMPORT struct WalReceiverConn *LogRepWorkerWalRcvConn;
+ extern PGDLLIMPORT Subscription *MySubscription;
+ extern PGDLLIMPORT LogicalRepWorker *MyLogicalRepWorker;
+ 
+ extern PGDLLIMPORT bool in_remote_transaction;
+ 
++extern PGDLLIMPORT bool InitializingApplyWorker;
++
+ extern void logicalrep_worker_attach(int slot);
+ extern LogicalRepWorker *logicalrep_worker_find(Oid subid, Oid relid,
+ 												bool only_running);
+ extern List *logicalrep_workers_find(Oid subid, bool only_running);
+ extern bool logicalrep_worker_launch(Oid dbid, Oid subid, const char *subname,

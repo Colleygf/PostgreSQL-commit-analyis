@@ -1,0 +1,87 @@
+commit ff8aba65d463b144db7c081181b5ccf6eaaf1af4
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sat Nov 1 13:25:42 2025 -0400
+
+    Fix contrib/ltree's subpath() with negative offset.
+    
+    subpath(ltree,offset,len) now correctly errors when given an offset
+    less than -n, where n is the number of labels in the given ltree.
+    There was a duplicate block of code that allowed an offset as low
+    as -2n.  The documentation says no such thing, so this must have
+    been a copy-and-paste error in the original ltree patch.
+    
+    While here, avoid redundant calculation of "end" and write
+    LTREE_MAX_LEVELS rather than its hard-coded value.
+    
+    Author: Marcus Gartner <m.a.gartner@gmail.com>
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/CAAUGV_SvBO9gWYbaejb9nhe-mS9FkNP4QADNTdM3wdRhvLobwA@mail.gmail.com
+
+diff --git a/contrib/ltree/expected/ltree.out b/contrib/ltree/expected/ltree.out
+index c8eac3f6b21..d2a56628475 100644
+--- a/contrib/ltree/expected/ltree.out
++++ b/contrib/ltree/expected/ltree.out
+@@ -126,10 +126,12 @@ SELECT subpath('Top.Child1.Child2',1);
+     subpath    
+ ---------------
+  Child1.Child2
+ (1 row)
+ 
++SELECT subpath('Top.Child1.Child2',-4);  -- error
++ERROR:  invalid positions
+ SELECT index('1.2.3.4.5.6','1.2');
+  index 
+ -------
+      0
+ (1 row)
+diff --git a/contrib/ltree/ltree_op.c b/contrib/ltree/ltree_op.c
+index ce9f4caad4f..e3a84db37ff 100644
+--- a/contrib/ltree/ltree_op.c
++++ b/contrib/ltree/ltree_op.c
+@@ -314,27 +314,19 @@ subpath(PG_FUNCTION_ARGS)
+ 	int32		start = PG_GETARG_INT32(1);
+ 	int32		len = (fcinfo->nargs == 3) ? PG_GETARG_INT32(2) : 0;
+ 	int32		end;
+ 	ltree	   *res;
+ 
+-	end = start + len;
+-
+-	if (start < 0)
+-	{
+-		start = t->numlevel + start;
+-		end = start + len;
+-	}
+ 	if (start < 0)
+-	{							/* start > t->numlevel */
+ 		start = t->numlevel + start;
+-		end = start + len;
+-	}
+ 
+ 	if (len < 0)
+ 		end = t->numlevel + len;
+ 	else if (len == 0)
+-		end = (fcinfo->nargs == 3) ? start : 0xffff;
++		end = (fcinfo->nargs == 3) ? start : LTREE_MAX_LEVELS;
++	else
++		end = start + len;
+ 
+ 	res = inner_subltree(t, start, end);
+ 
+ 	PG_FREE_IF_COPY(t, 0);
+ 	PG_RETURN_POINTER(res);
+diff --git a/contrib/ltree/sql/ltree.sql b/contrib/ltree/sql/ltree.sql
+index dd705d9d7ca..77e6958c62a 100644
+--- a/contrib/ltree/sql/ltree.sql
++++ b/contrib/ltree/sql/ltree.sql
+@@ -32,10 +32,11 @@ SELECT subpath('Top.Child1.Child2',0,-2);
+ SELECT subpath('Top.Child1.Child2',0,-1);
+ SELECT subpath('Top.Child1.Child2',0,0);
+ SELECT subpath('Top.Child1.Child2',1,0);
+ SELECT subpath('Top.Child1.Child2',0);
+ SELECT subpath('Top.Child1.Child2',1);
++SELECT subpath('Top.Child1.Child2',-4);  -- error
+ 
+ 
+ SELECT index('1.2.3.4.5.6','1.2');
+ SELECT index('a.1.2.3.4.5.6','1.2');
+ SELECT index('a.1.2.3.4.5.6','1.2.3');

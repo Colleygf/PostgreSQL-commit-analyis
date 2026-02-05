@@ -1,0 +1,59 @@
+commit 0fc33b00536cf395b44260b6fc76b6b1d6fc0bcb
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Wed Nov 19 08:46:31 2025 +0100
+
+    Fix NLS for incorrect GUC enum value hint message
+    
+    The translation markers were applied at the wrong place, so no string
+    was extracted for translation.
+    
+    Also add translator comments here and in a similar place.
+    
+    Reviewed-by: Álvaro Herrera <alvherre@kurilemu.de>
+    Discussion: https://www.postgresql.org/message-id/2c961fa1-14f6-44a2-985c-e30b95654e8d%40eisentraut.org
+
+diff --git a/src/backend/replication/logical/relation.c b/src/backend/replication/logical/relation.c
+index 745fd3bab64..10b3d0d9b82 100644
+--- a/src/backend/replication/logical/relation.c
++++ b/src/backend/replication/logical/relation.c
+@@ -247,10 +247,11 @@ logicalrep_get_attrs_str(LogicalRepRelation *remoterel, Bitmapset *atts)
+ 
+ 	while ((i = bms_next_member(atts, i)) >= 0)
+ 	{
+ 		attcnt++;
+ 		if (attcnt > 1)
++			/* translator: This is a separator in a list of entity names. */
+ 			appendStringInfoString(&attsbuf, _(", "));
+ 
+ 		appendStringInfo(&attsbuf, _("\"%s\""), remoterel->attnames[i]);
+ 	}
+ 
+diff --git a/src/backend/utils/misc/guc.c b/src/backend/utils/misc/guc.c
+index 7e2b17cc04e..526a57a16f8 100644
+--- a/src/backend/utils/misc/guc.c
++++ b/src/backend/utils/misc/guc.c
+@@ -3133,18 +3133,21 @@ parse_and_validate_value(const struct config_generic *record,
+ 				if (!config_enum_lookup_by_name(conf, value, &newval->enumval))
+ 				{
+ 					char	   *hintmsg;
+ 
+ 					hintmsg = config_enum_get_options(conf,
+-													  "Available values: ",
+-													  ".", ", ");
++													  _("Available values: "),
++													  /* translator: This is the terminator of a list of entity names. */
++													  _("."),
++													  /* translator: This is a separator in a list of entity names. */
++													  _(", "));
+ 
+ 					ereport(elevel,
+ 							(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+ 							 errmsg("invalid value for parameter \"%s\": \"%s\"",
+ 									record->name, value),
+-							 hintmsg ? errhint("%s", _(hintmsg)) : 0));
++							 hintmsg ? errhint("%s", hintmsg) : 0));
+ 
+ 					if (hintmsg)
+ 						pfree(hintmsg);
+ 					return false;
+ 				}

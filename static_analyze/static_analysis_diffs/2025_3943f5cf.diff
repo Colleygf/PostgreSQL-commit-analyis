@@ -1,0 +1,191 @@
+commit 3943f5cff6a66639d295a6f1922e54b79d2ab16f
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Mar 17 14:07:12 2025 +0900
+
+    Fix inconsistent quoting for some options in TAP tests
+    
+    This commit addresses some inconsistencies with how the options of some
+    routines from PostgreSQL/Test/ are written, mainly for init() and
+    init_from_backup() in Cluster.pm.  These are written as unquoted, except
+    in the locations updated here.
+    
+    Changes extracted from a larger patch by the same author.
+    
+    Author: Dagfinn Ilmari Mannsåker <ilmari@ilmari.org>
+    Discussion: https://postgr.es/m/87jz8rzf3h.fsf@wibble.ilmari.org
+
+diff --git a/contrib/auto_explain/t/001_auto_explain.pl b/contrib/auto_explain/t/001_auto_explain.pl
+index 80c0c19af58..25252604b7d 100644
+--- a/contrib/auto_explain/t/001_auto_explain.pl
++++ b/contrib/auto_explain/t/001_auto_explain.pl
+@@ -26,11 +26,11 @@ sub query_log
+ 
+ 	return slurp_file($log, $offset);
+ }
+ 
+ my $node = PostgreSQL::Test::Cluster->new('main');
+-$node->init('auth_extra' => [ '--create-role' => 'regress_user1' ]);
++$node->init(auth_extra => [ '--create-role' => 'regress_user1' ]);
+ $node->append_conf('postgresql.conf',
+ 	"session_preload_libraries = 'auto_explain'");
+ $node->append_conf('postgresql.conf', "auto_explain.log_min_duration = 0");
+ $node->append_conf('postgresql.conf', "auto_explain.log_analyze = on");
+ $node->start;
+diff --git a/contrib/basebackup_to_shell/t/001_basic.pl b/contrib/basebackup_to_shell/t/001_basic.pl
+index 3ee4603bd3a..4d540147a6d 100644
+--- a/contrib/basebackup_to_shell/t/001_basic.pl
++++ b/contrib/basebackup_to_shell/t/001_basic.pl
+@@ -22,12 +22,12 @@ $gzip =~ s{\\}{/}g if ($PostgreSQL::Test::Utils::windows_os);
+ my $node = PostgreSQL::Test::Cluster->new('primary');
+ 
+ # Make sure pg_hba.conf is set up to allow connections from backupuser.
+ # This is only needed on Windows machines that don't use UNIX sockets.
+ $node->init(
+-	'allows_streaming' => 1,
+-	'auth_extra' => [ '--create-role' => 'backupuser' ]);
++	allows_streaming => 1,
++	auth_extra => [ '--create-role' => 'backupuser' ]);
+ 
+ $node->append_conf('postgresql.conf',
+ 	"shared_preload_libraries = 'basebackup_to_shell'");
+ $node->start;
+ $node->safe_psql('postgres', 'CREATE USER backupuser REPLICATION');
+diff --git a/src/bin/pg_basebackup/t/010_pg_basebackup.pl b/src/bin/pg_basebackup/t/010_pg_basebackup.pl
+index 89ff26b6314..7cdd4442755 100644
+--- a/src/bin/pg_basebackup/t/010_pg_basebackup.pl
++++ b/src/bin/pg_basebackup/t/010_pg_basebackup.pl
+@@ -468,11 +468,11 @@ SKIP:
+ 	my $tblspcoid = $1;
+ 	my $realRepTsDir = "$real_sys_tempdir/tblspc1replica";
+ 	$node2->init_from_backup(
+ 		$node, 'tarbackup2',
+ 		tar_program => $tar,
+-		'tablespace_map' => { $tblspcoid => $realRepTsDir });
++		tablespace_map => { $tblspcoid => $realRepTsDir });
+ 
+ 	$node2->start;
+ 	my $result = $node2->safe_psql('postgres', 'SELECT * FROM test1');
+ 	is($result, '1234', "tablespace data restored from tar-format backup");
+ 	$node2->stop;
+diff --git a/src/bin/pg_basebackup/t/011_in_place_tablespace.pl b/src/bin/pg_basebackup/t/011_in_place_tablespace.pl
+index 9e53dada4fa..ec942e54eee 100644
+--- a/src/bin/pg_basebackup/t/011_in_place_tablespace.pl
++++ b/src/bin/pg_basebackup/t/011_in_place_tablespace.pl
+@@ -15,11 +15,11 @@ my $tempdir = PostgreSQL::Test::Utils::tempdir;
+ my @pg_basebackup_defs =
+   ('pg_basebackup', '--no-sync', '--checkpoint' => 'fast');
+ 
+ # Set up an instance.
+ my $node = PostgreSQL::Test::Cluster->new('main');
+-$node->init('allows_streaming' => 1);
++$node->init(allows_streaming => 1);
+ $node->start();
+ 
+ # Create an in-place tablespace.
+ $node->safe_psql('postgres', <<EOM);
+ SET allow_in_place_tablespaces = on;
+diff --git a/src/bin/pg_combinebackup/t/008_promote.pl b/src/bin/pg_combinebackup/t/008_promote.pl
+index 732f6397103..3a15983f4a1 100644
+--- a/src/bin/pg_combinebackup/t/008_promote.pl
++++ b/src/bin/pg_combinebackup/t/008_promote.pl
+@@ -50,11 +50,11 @@ EOM
+ 
+ # Now create a second node. We want this to stream from the first node and
+ # then stop recovery at some arbitrary LSN, not just when it hits the end of
+ # WAL, so use a recovery target.
+ my $node2 = PostgreSQL::Test::Cluster->new('node2');
+-$node2->init_from_backup($node1, 'backup1', 'has_streaming' => 1);
++$node2->init_from_backup($node1, 'backup1', has_streaming => 1);
+ $node2->append_conf('postgresql.conf', <<EOM);
+ recovery_target_lsn = '$lsn'
+ recovery_target_action = 'pause'
+ EOM
+ $node2->start();
+diff --git a/src/test/modules/test_pg_dump/t/001_base.pl b/src/test/modules/test_pg_dump/t/001_base.pl
+index 7116e5b8df6..a9bcac4169d 100644
+--- a/src/test/modules/test_pg_dump/t/001_base.pl
++++ b/src/test/modules/test_pg_dump/t/001_base.pl
+@@ -867,11 +867,11 @@ my %tests = (
+ 
+ #########################################
+ # Create a PG instance to test actually dumping from
+ 
+ my $node = PostgreSQL::Test::Cluster->new('main');
+-$node->init('auth_extra' => [ '--create-role' => 'regress_dump_login_role' ]);
++$node->init(auth_extra => [ '--create-role' => 'regress_dump_login_role' ]);
+ $node->start;
+ 
+ my $port = $node->port;
+ 
+ my $supports_gzip = check_pg_config("#define HAVE_LIBZ 1");
+diff --git a/src/test/perl/PostgreSQL/Test/Cluster.pm b/src/test/perl/PostgreSQL/Test/Cluster.pm
+index 0750915a9a8..bab3f3d2dbe 100644
+--- a/src/test/perl/PostgreSQL/Test/Cluster.pm
++++ b/src/test/perl/PostgreSQL/Test/Cluster.pm
+@@ -1017,11 +1017,11 @@ sub init_from_backup
+ 		# Copy the main backup. If we see a tablespace directory for which we
+ 		# have a tablespace mapping, skip it, but remember that we saw it.
+ 		PostgreSQL::Test::RecursiveCopy::copypath(
+ 			$backup_path,
+ 			$data_path,
+-			'filterfn' => sub {
++			filterfn => sub {
+ 				my ($path) = @_;
+ 				if ($path =~ /^pg_tblspc\/(\d+)$/
+ 					&& exists $params{tablespace_map}{$1})
+ 				{
+ 					push @tsoids, $1;
+diff --git a/src/test/postmaster/t/002_connection_limits.pl b/src/test/postmaster/t/002_connection_limits.pl
+index 85f5ef03dec..325a00efd47 100644
+--- a/src/test/postmaster/t/002_connection_limits.pl
++++ b/src/test/postmaster/t/002_connection_limits.pl
+@@ -11,11 +11,11 @@ use PostgreSQL::Test::Utils;
+ use Test::More;
+ 
+ # Initialize the server with specific low connection limits
+ my $node = PostgreSQL::Test::Cluster->new('primary');
+ $node->init(
+-	'auth_extra' => [
++	auth_extra => [
+ 		'--create-role' =>
+ 		  'regress_regular,regress_reserved,regress_superuser',
+ 	]);
+ $node->append_conf('postgresql.conf', "max_connections = 6");
+ $node->append_conf('postgresql.conf', "reserved_connections = 2");
+diff --git a/src/test/ssl/t/002_scram.pl b/src/test/ssl/t/002_scram.pl
+index fffc51f4047..9e4947f4e3c 100644
+--- a/src/test/ssl/t/002_scram.pl
++++ b/src/test/ssl/t/002_scram.pl
+@@ -69,12 +69,12 @@ my $md5_works = ($node->psql('postgres', "select md5('')") == 0);
+ 
+ # Configure server for SSL connections, with password handling.
+ $ssl_server->configure_test_server_for_ssl(
+ 	$node, $SERVERHOSTADDR, $SERVERHOSTCIDR,
+ 	"scram-sha-256",
+-	'password' => "pass",
+-	'password_enc' => "scram-sha-256");
++	password => "pass",
++	password_enc => "scram-sha-256");
+ switch_server_cert($node, certfile => 'server-cn-only');
+ $ENV{PGPASSWORD} = "pass";
+ $common_connstr =
+   "dbname=trustdb sslmode=require sslcert=invalid sslrootcert=invalid hostaddr=$SERVERHOSTADDR host=localhost";
+ 
+diff --git a/src/test/ssl/t/003_sslinfo.pl b/src/test/ssl/t/003_sslinfo.pl
+index b9eae8d641b..3c756489cdf 100644
+--- a/src/test/ssl/t/003_sslinfo.pl
++++ b/src/test/ssl/t/003_sslinfo.pl
+@@ -184,11 +184,10 @@ if ($supports_sslcertmode_require)
+ foreach my $c (@cases)
+ {
+ 	$result = $node->safe_psql(
+ 		"trustdb",
+ 		"SELECT ssl_client_cert_present();",
+-		connstr => "$common_connstr dbname=trustdb $c->{'opts'}");
+-	is($result, $c->{'present'},
+-		"ssl_client_cert_present() for $c->{'opts'}");
++		connstr => "$common_connstr dbname=trustdb $c->{opts}");
++	is($result, $c->{present}, "ssl_client_cert_present() for $c->{opts}");
+ }
+ 
+ done_testing();

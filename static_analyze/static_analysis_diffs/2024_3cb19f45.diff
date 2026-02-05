@@ -1,0 +1,38 @@
+commit 3cb19f45a3f58fb482999be5fae6ecad74f7fa27
+Author: Richard Guo <rguo@postgresql.org>
+Date:   Mon Jun 10 13:05:20 2024 +0900
+
+    Fix comment about cross-checking the varnullingrels
+    
+    The nullingrels match checks are not limited to debugging builds.
+    Oversight in commit 867be9c07.
+    
+    Author: Richard Guo
+    Reviewed-by: Alvaro Herrera, Tom Lane, Robert Haas
+    Discussion: https://postgr.es/m/CAMbWs4_SDsdYD7DdQw7RXc3jv3axbg+RGZ7aSi9GaqX=F8hNVw@mail.gmail.com
+
+diff --git a/src/backend/optimizer/plan/setrefs.c b/src/backend/optimizer/plan/setrefs.c
+index 37abcb4701f..7aed84584c6 100644
+--- a/src/backend/optimizer/plan/setrefs.c
++++ b/src/backend/optimizer/plan/setrefs.c
+@@ -2773,15 +2773,15 @@ build_tlist_index_other_vars(List *tlist, int ignore_rel)
+  * If a match is found, return a copy of the given Var with suitably
+  * modified varno/varattno (to wit, newvarno and the resno of the TLE entry).
+  * Also ensure that varnosyn is incremented by rtoffset.
+  * If no match, return NULL.
+  *
+- * In debugging builds, we cross-check the varnullingrels of the subplan
+- * output Var based on nrm_match.  Most call sites should pass NRM_EQUAL
+- * indicating we expect an exact match.  However, there are places where
+- * we haven't cleaned things up completely, and we have to settle for
+- * allowing subset or superset matches.
++ * We cross-check the varnullingrels of the subplan output Var based on
++ * nrm_match.  Most call sites should pass NRM_EQUAL indicating we expect
++ * an exact match.  However, there are places where we haven't cleaned
++ * things up completely, and we have to settle for allowing subset or
++ * superset matches.
+  */
+ static Var *
+ search_indexed_tlist_for_var(Var *var, indexed_tlist *itlist,
+ 							 int newvarno, int rtoffset,
+ 							 NullingRelsMatch nrm_match)

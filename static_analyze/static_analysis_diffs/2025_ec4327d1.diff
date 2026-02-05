@@ -1,0 +1,48 @@
+commit ec4327d106be745534592e8aff14effb716f4dc9
+Author: Tomas Vondra <tomas.vondra@postgresql.org>
+Date:   Sat Mar 29 16:42:13 2025 +0100
+
+    amcheck: Fix indentation in verify_gin.c
+    
+    I forgot to reindent the code after a couple last-minute adjustments
+    just before committing 14ffaece0fb53fed8ddbc46d2b353e1c4834863a.
+    
+    Discussion: https://postgr.es/m/45AC9B0A-2B45-40EE-B08F-BDCF5739D1E1%40yandex-team.ru
+
+diff --git a/contrib/amcheck/verify_gin.c b/contrib/amcheck/verify_gin.c
+index 670f53637d4..b752448e798 100644
+--- a/contrib/amcheck/verify_gin.c
++++ b/contrib/amcheck/verify_gin.c
+@@ -279,13 +279,14 @@ gin_check_posting_tree_parent_keys_consistency(Relation rel, BlockNumber posting
+ 			 * 'lower' part that stores the page's high key.
+ 			 */
+ 			bound = *GinDataPageGetRightBound(page);
+ 
+ 			/*
+-			 * Gin page right bound has a sane value only when not a highkey on
+-			 * the rightmost page (at a given level). For the rightmost page does
+-			 * not store the highkey explicitly, and the value is infinity.
++			 * Gin page right bound has a sane value only when not a highkey
++			 * on the rightmost page (at a given level). For the rightmost
++			 * page does not store the highkey explicitly, and the value is
++			 * infinity.
+ 			 */
+ 			if (ItemPointerIsValid(&stack->parentkey) &&
+ 				rightlink != InvalidBlockNumber &&
+ 				!ItemPointerEquals(&stack->parentkey, &bound))
+ 				ereport(ERROR,
+@@ -529,12 +530,12 @@ gin_check_parent_keys_consistency(Relation rel,
+ 			/*
+ 			 * First block is metadata, skip order check. Also, never check
+ 			 * for high key on rightmost page, as this key is not really
+ 			 * stored explicitly.
+ 			 *
+-			 * Also make sure to not compare entries for different attnums, which
+-			 * may be stored on the same page.
++			 * Also make sure to not compare entries for different attnums,
++			 * which may be stored on the same page.
+ 			 */
+ 			if (i != FirstOffsetNumber && attnum == prev_attnum && stack->blkno != GIN_ROOT_BLKNO &&
+ 				!(i == maxoff && rightlink == InvalidBlockNumber))
+ 			{
+ 				prev_key = gintuple_get_key(&state, prev_tuple, &prev_key_category);

@@ -1,0 +1,107 @@
+commit fb5a7d84d23fa2e1f26334453948a01e8e59eee3
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Wed Jun 7 17:54:53 2023 +0200
+
+    doc: Fix confusing positioning of notes in connection settings
+    
+    Reported-by: Jonathan S. Katz <jkatz@postgresql.org>
+    Reviewed-by: Daniel Gustafsson <daniel@yesql.se>
+    Discussion: https://www.postgresql.org/message-id/flat/6f825d42-a1ce-492a-2ea7-c83e6e65fa8b%40postgresql.org
+
+diff --git a/doc/src/sgml/config.sgml b/doc/src/sgml/config.sgml
+index 19c133b02d0..6262cb7bb2f 100644
+--- a/doc/src/sgml/config.sgml
++++ b/doc/src/sgml/config.sgml
+@@ -948,22 +948,18 @@ include_dir 'conf.d'
+        <para>
+         Specifies the amount of time with no network activity after which
+         the operating system should send a TCP keepalive message to the client.
+         If this value is specified without units, it is taken as seconds.
+         A value of 0 (the default) selects the operating system's default.
++        On Windows, setting a value of 0 will set this parameter to 2 hours,
++        since Windows does not provide a way to read the system default value.
+         This parameter is supported only on systems that support
+         <symbol>TCP_KEEPIDLE</symbol> or an equivalent socket option, and on
+         Windows; on other systems, it must be zero.
+         In sessions connected via a Unix-domain socket, this parameter is
+         ignored and always reads as zero.
+        </para>
+-       <note>
+-        <para>
+-         On Windows, setting a value of 0 will set this parameter to 2 hours,
+-         since Windows does not provide a way to read the system default value.
+-        </para>
+-       </note>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry id="guc-tcp-keepalives-interval" xreflabel="tcp_keepalives_interval">
+       <term><varname>tcp_keepalives_interval</varname> (<type>integer</type>)
+@@ -975,22 +971,18 @@ include_dir 'conf.d'
+        <para>
+         Specifies the amount of time after which a TCP keepalive message
+         that has not been acknowledged by the client should be retransmitted.
+         If this value is specified without units, it is taken as seconds.
+         A value of 0 (the default) selects the operating system's default.
++        On Windows, setting a value of 0 will set this parameter to 1 second,
++        since Windows does not provide a way to read the system default value.
+         This parameter is supported only on systems that support
+         <symbol>TCP_KEEPINTVL</symbol> or an equivalent socket option, and on
+         Windows; on other systems, it must be zero.
+         In sessions connected via a Unix-domain socket, this parameter is
+         ignored and always reads as zero.
+        </para>
+-       <note>
+-        <para>
+-         On Windows, setting a value of 0 will set this parameter to 1 second,
+-         since Windows does not provide a way to read the system default value.
+-        </para>
+-       </note>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry id="guc-tcp-keepalives-count" xreflabel="tcp_keepalives_count">
+       <term><varname>tcp_keepalives_count</varname> (<type>integer</type>)
+@@ -1002,20 +994,15 @@ include_dir 'conf.d'
+        <para>
+         Specifies the number of TCP keepalive messages that can be lost before
+         the server's connection to the client is considered dead.
+         A value of 0 (the default) selects the operating system's default.
+         This parameter is supported only on systems that support
+-        <symbol>TCP_KEEPCNT</symbol> or an equivalent socket option;
++        <symbol>TCP_KEEPCNT</symbol> or an equivalent socket option (which does not include Windows);
+         on other systems, it must be zero.
+         In sessions connected via a Unix-domain socket, this parameter is
+         ignored and always reads as zero.
+        </para>
+-       <note>
+-        <para>
+-         This parameter is not supported on Windows, and must be zero.
+-        </para>
+-       </note>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry id="guc-tcp-user-timeout" xreflabel="tcp_user_timeout">
+       <term><varname>tcp_user_timeout</varname> (<type>integer</type>)
+@@ -1028,19 +1015,14 @@ include_dir 'conf.d'
+         Specifies the amount of time that transmitted data may
+         remain unacknowledged before the TCP connection is forcibly closed.
+         If this value is specified without units, it is taken as milliseconds.
+         A value of 0 (the default) selects the operating system's default.
+         This parameter is supported only on systems that support
+-        <symbol>TCP_USER_TIMEOUT</symbol>; on other systems, it must be zero.
++        <symbol>TCP_USER_TIMEOUT</symbol> (which does not include Windows); on other systems, it must be zero.
+         In sessions connected via a Unix-domain socket, this parameter is
+         ignored and always reads as zero.
+        </para>
+-       <note>
+-        <para>
+-         This parameter is not supported on Windows, and must be zero.
+-        </para>
+-       </note>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry id="guc-client-connection-check-interval" xreflabel="client_connection_check_interval">
+       <term><varname>client_connection_check_interval</varname> (<type>integer</type>)

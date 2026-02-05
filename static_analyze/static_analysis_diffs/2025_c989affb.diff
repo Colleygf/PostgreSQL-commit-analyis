@@ -1,0 +1,95 @@
+commit c989affb527d330898e92e6223e2218e702176ed
+Author: Álvaro Herrera <alvherre@kurilemu.de>
+Date:   Wed Jul 2 17:02:27 2025 +0200
+
+    Fix error message for ALTER CONSTRAINT ... NOT VALID
+    
+    Trying to alter a constraint so that it becomes NOT VALID results in an
+    error that assumes the constraint is a foreign key.  This is potentially
+    wrong, so give a more generic error message.
+    
+    While at it, give CREATE CONSTRAINT TRIGGER a better error message as
+    well.
+    
+    Co-authored-by: jian he <jian.universality@gmail.com>
+    Co-authored-by: Fujii Masao <masao.fujii@oss.nttdata.com>
+    Co-authored-by: Álvaro Herrera <alvherre@kurilemu.de>
+    Co-authored-by: Amul Sul <sulamul@gmail.com>
+    Discussion: https://postgr.es/m/CACJufxHSp2puxP=q8ZtUGL1F+heapnzqFBZy5ZNGUjUgwjBqTQ@mail.gmail.com
+
+diff --git a/src/backend/parser/gram.y b/src/backend/parser/gram.y
+index 1c11b235aa6..a2e084b8f64 100644
+--- a/src/backend/parser/gram.y
++++ b/src/backend/parser/gram.y
+@@ -2666,10 +2666,16 @@ alter_table_cmd:
+ 					if ($4 & (CAS_DEFERRABLE | CAS_NOT_DEFERRABLE |
+ 							  CAS_INITIALLY_DEFERRED | CAS_INITIALLY_IMMEDIATE))
+ 						c->alterDeferrability = true;
+ 					if ($4 & CAS_NO_INHERIT)
+ 						c->alterInheritability = true;
++					/* handle unsupported case with specific error message */
++					if ($4 & CAS_NOT_VALID)
++						ereport(ERROR,
++								errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
++								errmsg("constraints cannot be altered to be NOT VALID"),
++								parser_errposition(@4));
+ 					processCASbits($4, @4, "FOREIGN KEY",
+ 									&c->deferrable,
+ 									&c->initdeferred,
+ 									&c->is_enforced,
+ 									NULL,
+diff --git a/src/test/regress/expected/constraints.out b/src/test/regress/expected/constraints.out
+index b5592617d97..ccea883cffd 100644
+--- a/src/test/regress/expected/constraints.out
++++ b/src/test/regress/expected/constraints.out
+@@ -746,10 +746,15 @@ LINE 1: CREATE TABLE UNIQUE_NOTEN_TBL(i int UNIQUE NOT ENFORCED);
+                                                    ^
+ ALTER TABLE unique_tbl ALTER CONSTRAINT unique_tbl_i_key ENFORCED;
+ ERROR:  cannot alter enforceability of constraint "unique_tbl_i_key" of relation "unique_tbl"
+ ALTER TABLE unique_tbl ALTER CONSTRAINT unique_tbl_i_key NOT ENFORCED;
+ ERROR:  cannot alter enforceability of constraint "unique_tbl_i_key" of relation "unique_tbl"
++-- can't make an existing constraint NOT VALID
++ALTER TABLE unique_tbl ALTER CONSTRAINT unique_tbl_i_key NOT VALID;
++ERROR:  constraints cannot be altered to be NOT VALID
++LINE 1: ...ABLE unique_tbl ALTER CONSTRAINT unique_tbl_i_key NOT VALID;
++                                                             ^
+ DROP TABLE unique_tbl;
+ --
+ -- EXCLUDE constraints
+ --
+ CREATE TABLE circles (
+diff --git a/src/test/regress/expected/foreign_key.out b/src/test/regress/expected/foreign_key.out
+index 6a8f3959345..f9bd252444f 100644
+--- a/src/test/regress/expected/foreign_key.out
++++ b/src/test/regress/expected/foreign_key.out
+@@ -1357,11 +1357,11 @@ ERROR:  constraint declared INITIALLY DEFERRED must be DEFERRABLE
+ LINE 1: ...e ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE INITIALLY ...
+                                                              ^
+ ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NO INHERIT;
+ ERROR:  constraint "fktable_fk_fkey" of relation "fktable" is not a not-null constraint
+ ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT VALID;
+-ERROR:  FOREIGN KEY constraints cannot be marked NOT VALID
++ERROR:  constraints cannot be altered to be NOT VALID
+ LINE 1: ...ER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT VALID;
+                                                              ^
+ ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey ENFORCED NOT ENFORCED;
+ ERROR:  conflicting constraint properties
+ LINE 1: ...fktable ALTER CONSTRAINT fktable_fk_fkey ENFORCED NOT ENFORC...
+diff --git a/src/test/regress/sql/constraints.sql b/src/test/regress/sql/constraints.sql
+index 12668f0e0ce..7487723ab84 100644
+--- a/src/test/regress/sql/constraints.sql
++++ b/src/test/regress/sql/constraints.sql
+@@ -535,10 +535,13 @@ SELECT * FROM unique_tbl;
+ CREATE TABLE UNIQUE_EN_TBL(i int UNIQUE ENFORCED);
+ CREATE TABLE UNIQUE_NOTEN_TBL(i int UNIQUE NOT ENFORCED);
+ ALTER TABLE unique_tbl ALTER CONSTRAINT unique_tbl_i_key ENFORCED;
+ ALTER TABLE unique_tbl ALTER CONSTRAINT unique_tbl_i_key NOT ENFORCED;
+ 
++-- can't make an existing constraint NOT VALID
++ALTER TABLE unique_tbl ALTER CONSTRAINT unique_tbl_i_key NOT VALID;
++
+ DROP TABLE unique_tbl;
+ 
+ --
+ -- EXCLUDE constraints
+ --

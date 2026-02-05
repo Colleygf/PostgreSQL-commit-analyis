@@ -1,0 +1,92 @@
+commit f56a9def71bb1d2ccf4fa01a4d1e082c1063d921
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu Apr 11 09:20:51 2024 +0900
+
+    Fix inconsistency with replay of hash squeeze record for clean buffers
+    
+    aa5edbe379d6 has tweaked _hash_freeovflpage() so as the write buffer's
+    LSN is updated only when necessary, when REGBUF_NO_CHANGE is not used.
+    
+    The replay code was not consistent with that, causing the write buffer's
+    LSN to be updated and its page to be marked as dirty even if the buffer
+    was registered in a "clean" state.  This was possible for the case of a
+    squeeze record when there are no tuples to add to the write buffer, for
+    (is_prim_bucket_same_wrt && !is_prev_bucket_same_wrt).
+    
+    I have performed some validation of this commit with
+    wal_consistency_checking and a change in WAL that logs REGBUF_NO_CHANGE
+    to a new BKPIMAGE_*.  Thanks to that, it is possible to know at replay
+    if a buffer was clean when it was registered, then cross-checked the LSN
+    of the "clean" page copy coming from WAL with the LSN of the block once
+    the record has been replayed.  This eats one bit in bimg_info, which is
+    not acceptable to be integrated as-is, but it could become handy in the
+    future.  I didn't spot other areas than the one fixed by this commit at
+    the extent of what the main regression test suite covers.
+    
+    As this is an oversight in aa5edbe379d6, no backpatch is required.
+    
+    Reported-by: Zubeyr Eryilmaz
+    Author: Hayato Kuroda
+    Reviewed-by: Amit Kapila, Michael Paquier
+    Discussion: https://postgr.es/m/ZbyVVG_7eW3YD5-A@paquier.xyz
+
+diff --git a/src/backend/access/hash/hash_xlog.c b/src/backend/access/hash/hash_xlog.c
+index cb1a63cfeec..4e1ec468569 100644
+--- a/src/backend/access/hash/hash_xlog.c
++++ b/src/backend/access/hash/hash_xlog.c
+@@ -664,10 +664,11 @@ hash_xlog_squeeze_page(XLogReaderState *record)
+ 		Page		writepage;
+ 		char	   *begin;
+ 		char	   *data;
+ 		Size		datalen;
+ 		uint16		ninserted = 0;
++		bool		mod_wbuf = false;
+ 
+ 		data = begin = XLogRecGetBlockData(record, 1, &datalen);
+ 
+ 		writepage = (Page) BufferGetPage(writebuf);
+ 
+@@ -693,10 +694,21 @@ hash_xlog_squeeze_page(XLogReaderState *record)
+ 					elog(ERROR, "hash_xlog_squeeze_page: failed to add item to hash index page, size %d bytes",
+ 						 (int) itemsz);
+ 
+ 				ninserted++;
+ 			}
++
++			mod_wbuf = true;
++		}
++		else
++		{
++			/*
++			 * Ensure that the required flags are set when there are no
++			 * tuples.  See _hash_freeovflpage().
++			 */
++			Assert(xldata->is_prim_bucket_same_wrt ||
++				   xldata->is_prev_bucket_same_wrt);
+ 		}
+ 
+ 		/*
+ 		 * number of tuples inserted must be same as requested in REDO record.
+ 		 */
+@@ -709,14 +721,19 @@ hash_xlog_squeeze_page(XLogReaderState *record)
+ 		if (xldata->is_prev_bucket_same_wrt)
+ 		{
+ 			HashPageOpaque writeopaque = HashPageGetOpaque(writepage);
+ 
+ 			writeopaque->hasho_nextblkno = xldata->nextblkno;
++			mod_wbuf = true;
+ 		}
+ 
+-		PageSetLSN(writepage, lsn);
+-		MarkBufferDirty(writebuf);
++		/* Set LSN and mark writebuf dirty iff it is modified */
++		if (mod_wbuf)
++		{
++			PageSetLSN(writepage, lsn);
++			MarkBufferDirty(writebuf);
++		}
+ 	}
+ 
+ 	/* replay the record for initializing overflow buffer */
+ 	if (XLogReadBufferForRedo(record, 2, &ovflbuf) == BLK_NEEDS_REDO)
+ 	{

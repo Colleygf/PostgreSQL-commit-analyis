@@ -1,0 +1,69 @@
+commit 07daca53bfcad59618a9c6fad304e380cc9d2bc1
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Sat Feb 19 14:58:51 2022 +0900
+
+    Fix inconsistencies in SRF checks of pg_config() and string_to_table()
+    
+    The execution paths of those functions have been using a set of checks
+    inconsistent with any other SRF function:
+    - string_to_table() missed a check on expectedDesc, the tuple descriptor
+    expected by the caller, that should never be NULL.  Introduced in
+    66f1630.
+    - pg_config() should check for a ReturnSetInfo, and expectedDesc cannot
+    be NULL.  Its error messages were also inconsistent.  Introduced in
+    a5c43b8.
+    
+    Extracted from a larger patch by the same author, in preparation for a
+    larger patch set aimed at refactoring the way tuplestores are created
+    and checked in SRF functions.
+    
+    Author: Melanie Plageman
+    Reviewed-by: Justin Pryzby
+    Discussion: https://postgr.es/m/CAAKRu_azyd1Z3W_r7Ou4sorTjRCs+PxeHw1CWJeXKofkE6TuZg@mail.gmail.com
+
+diff --git a/src/backend/utils/adt/varlena.c b/src/backend/utils/adt/varlena.c
+index eda9c1e42c0..b2003f5672e 100644
+--- a/src/backend/utils/adt/varlena.c
++++ b/src/backend/utils/adt/varlena.c
+@@ -4837,11 +4837,12 @@ text_to_table(PG_FUNCTION_ARGS)
+ 	/* check to see if caller supports us returning a tuplestore */
+ 	if (rsi == NULL || !IsA(rsi, ReturnSetInfo))
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+ 				 errmsg("set-valued function called in context that cannot accept a set")));
+-	if (!(rsi->allowedModes & SFRM_Materialize))
++	if (!(rsi->allowedModes & SFRM_Materialize) ||
++		rsi->expectedDesc == NULL)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+ 				 errmsg("materialize mode required, but it is not allowed in this context")));
+ 
+ 	/* OK, prepare tuplestore in per-query memory */
+diff --git a/src/backend/utils/misc/pg_config.c b/src/backend/utils/misc/pg_config.c
+index d916d7b2c47..2dc875ebfbb 100644
+--- a/src/backend/utils/misc/pg_config.c
++++ b/src/backend/utils/misc/pg_config.c
+@@ -35,15 +35,19 @@ pg_config(PG_FUNCTION_ARGS)
+ 	size_t		configdata_len;
+ 	char	   *values[2];
+ 	int			i = 0;
+ 
+ 	/* check to see if caller supports us returning a tuplestore */
+-	if (!rsinfo || !(rsinfo->allowedModes & SFRM_Materialize))
++	if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
+ 		ereport(ERROR,
+-				(errcode(ERRCODE_SYNTAX_ERROR),
+-				 errmsg("materialize mode required, but it is not "
+-						"allowed in this context")));
++				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
++				 errmsg("set-valued function called in context that cannot accept a set")));
++	if (!(rsinfo->allowedModes & SFRM_Materialize) ||
++		rsinfo->expectedDesc == NULL)
++		ereport(ERROR,
++				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
++				 errmsg("materialize mode required, but it is not allowed in this context")));
+ 
+ 	per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
+ 	oldcontext = MemoryContextSwitchTo(per_query_ctx);
+ 
+ 	/* get the requested return tuple description */

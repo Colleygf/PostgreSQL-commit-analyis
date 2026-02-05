@@ -1,0 +1,72 @@
+commit b102c8c4733cf76ff0635dc440ee8dd11487ed95
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sat Aug 2 19:44:10 2025 -0400
+
+    Silence complaints about leaks in PlanCacheComputeResultDesc.
+    
+    CompleteCachedPlan intentionally doesn't worry about small
+    leaks from PlanCacheComputeResultDesc.  However, Valgrind
+    knows nothing of engineering tradeoffs and complains anyway.
+    Silence it by doing things the hard way if USE_VALGRIND.
+    
+    I don't really love this patch, because it makes the handling
+    of plansource->resultDesc different from the handling of query
+    dependencies and search_path just above, which likewise are willing
+    to accept small leaks into the cached plan's context.  However,
+    those cases aren't provoking Valgrind complaints.  (Perhaps in a
+    CLOBBER_CACHE_ALWAYS build, they would?)  For the moment, this
+    makes the src/pl/plpgsql tests leak-free according to Valgrind.
+    
+    Author: Tom Lane <tgl@sss.pgh.pa.us>
+    Reviewed-by: Andres Freund <andres@anarazel.de>
+    Discussion: https://postgr.es/m/285483.1746756246@sss.pgh.pa.us
+
+diff --git a/src/backend/utils/cache/plancache.c b/src/backend/utils/cache/plancache.c
+index 0c506d320b1..6661d2c6b73 100644
+--- a/src/backend/utils/cache/plancache.c
++++ b/src/backend/utils/cache/plancache.c
+@@ -461,12 +461,11 @@ CompleteCachedPlan(CachedPlanSource *plansource,
+ 		plansource->search_path = GetSearchPathMatcher(querytree_context);
+ 	}
+ 
+ 	/*
+ 	 * Save the final parameter types (or other parameter specification data)
+-	 * into the source_context, as well as our other parameters.  Also save
+-	 * the result tuple descriptor.
++	 * into the source_context, as well as our other parameters.
+ 	 */
+ 	MemoryContextSwitchTo(source_context);
+ 
+ 	if (num_params > 0)
+ 	{
+@@ -478,13 +477,29 @@ CompleteCachedPlan(CachedPlanSource *plansource,
+ 	plansource->num_params = num_params;
+ 	plansource->parserSetup = parserSetup;
+ 	plansource->parserSetupArg = parserSetupArg;
+ 	plansource->cursor_options = cursor_options;
+ 	plansource->fixed_result = fixed_result;
+-	plansource->resultDesc = PlanCacheComputeResultDesc(querytree_list);
+ 
++	/*
++	 * Also save the result tuple descriptor.  PlanCacheComputeResultDesc may
++	 * leak some cruft; normally we just accept that to save a copy step, but
++	 * in USE_VALGRIND mode be tidy by running it in the caller's context.
++	 */
++#ifdef USE_VALGRIND
++	MemoryContextSwitchTo(oldcxt);
++	plansource->resultDesc = PlanCacheComputeResultDesc(querytree_list);
++	if (plansource->resultDesc)
++	{
++		MemoryContextSwitchTo(source_context);
++		plansource->resultDesc = CreateTupleDescCopy(plansource->resultDesc);
++		MemoryContextSwitchTo(oldcxt);
++	}
++#else
++	plansource->resultDesc = PlanCacheComputeResultDesc(querytree_list);
+ 	MemoryContextSwitchTo(oldcxt);
++#endif
+ 
+ 	plansource->is_complete = true;
+ 	plansource->is_valid = true;
+ }
+ 

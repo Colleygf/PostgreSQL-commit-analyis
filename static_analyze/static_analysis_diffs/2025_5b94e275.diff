@@ -1,0 +1,137 @@
+commit 5b94e2753439b699b78aacbb53e89bf0e814becc
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Feb 12 17:11:43 2025 +0900
+
+    Fix some inconsistencies with memory freeing in pg_createsubscriber
+    
+    The correct function documented to free the memory allocated for the
+    result returned by PQescapeIdentifier() and PQescapeLiteral() is
+    PQfreemem().  pg_createsubscriber.c relied on pg_free() instead, which
+    is not incorrect as both do a free() internally, but inconsistent with
+    the documentation.
+    
+    While on it, this commit fixes a small memory leak introduced by
+    4867f8a555ce, as the code of pg_createsubscriber makes this effort.
+    
+    Author: Ranier Vilela
+    Reviewed-by: Euler Taveira
+    Discussion: https://postgr.es/m/CAEudQAp=AW5dJXrGLbC_aZg_9nOo=42W7uLDRONFQE-gcgnkgQ@mail.gmail.com
+    Backpatch-through: 17
+
+diff --git a/src/bin/pg_basebackup/pg_createsubscriber.c b/src/bin/pg_basebackup/pg_createsubscriber.c
+index faf18ccf131..2d881d54f5b 100644
+--- a/src/bin/pg_basebackup/pg_createsubscriber.c
++++ b/src/bin/pg_basebackup/pg_createsubscriber.c
+@@ -1128,10 +1128,11 @@ check_and_drop_existing_subscriptions(PGconn *conn,
+ 		drop_existing_subscriptions(conn, PQgetvalue(res, i, 0),
+ 									dbinfo->dbname);
+ 
+ 	PQclear(res);
+ 	destroyPQExpBuffer(query);
++	PQfreemem(dbname);
+ }
+ 
+ /*
+  * Create the subscriptions, adjust the initial location for logical
+  * replication and enable the subscriptions. That's the last step for logical
+@@ -1327,11 +1328,11 @@ create_logical_replication_slot(PGconn *conn, struct LogicalRepInfo *dbinfo)
+ 
+ 	appendPQExpBuffer(str,
+ 					  "SELECT lsn FROM pg_catalog.pg_create_logical_replication_slot(%s, 'pgoutput', false, false, false)",
+ 					  slot_name_esc);
+ 
+-	pg_free(slot_name_esc);
++	PQfreemem(slot_name_esc);
+ 
+ 	pg_log_debug("command is: %s", str->data);
+ 
+ 	if (!dry_run)
+ 	{
+@@ -1373,11 +1374,11 @@ drop_replication_slot(PGconn *conn, struct LogicalRepInfo *dbinfo,
+ 
+ 	slot_name_esc = PQescapeLiteral(conn, slot_name, strlen(slot_name));
+ 
+ 	appendPQExpBuffer(str, "SELECT pg_catalog.pg_drop_replication_slot(%s)", slot_name_esc);
+ 
+-	pg_free(slot_name_esc);
++	PQfreemem(slot_name_esc);
+ 
+ 	pg_log_debug("command is: %s", str->data);
+ 
+ 	if (!dry_run)
+ 	{
+@@ -1612,12 +1613,12 @@ create_publication(PGconn *conn, struct LogicalRepInfo *dbinfo)
+ 	}
+ 
+ 	/* For cleanup purposes */
+ 	dbinfo->made_publication = true;
+ 
+-	pg_free(ipubname_esc);
+-	pg_free(spubname_esc);
++	PQfreemem(ipubname_esc);
++	PQfreemem(spubname_esc);
+ 	destroyPQExpBuffer(str);
+ }
+ 
+ /*
+  * Remove publication if it couldn't finish all steps.
+@@ -1636,11 +1637,11 @@ drop_publication(PGconn *conn, struct LogicalRepInfo *dbinfo)
+ 	pg_log_info("dropping publication \"%s\" in database \"%s\"",
+ 				dbinfo->pubname, dbinfo->dbname);
+ 
+ 	appendPQExpBuffer(str, "DROP PUBLICATION %s", pubname_esc);
+ 
+-	pg_free(pubname_esc);
++	PQfreemem(pubname_esc);
+ 
+ 	pg_log_debug("command is: %s", str->data);
+ 
+ 	if (!dry_run)
+ 	{
+@@ -1700,14 +1701,14 @@ create_subscription(PGconn *conn, const struct LogicalRepInfo *dbinfo)
+ 					  "CREATE SUBSCRIPTION %s CONNECTION %s PUBLICATION %s "
+ 					  "WITH (create_slot = false, enabled = false, "
+ 					  "slot_name = %s, copy_data = false)",
+ 					  subname_esc, pubconninfo_esc, pubname_esc, replslotname_esc);
+ 
+-	pg_free(pubname_esc);
+-	pg_free(subname_esc);
+-	pg_free(pubconninfo_esc);
+-	pg_free(replslotname_esc);
++	PQfreemem(pubname_esc);
++	PQfreemem(subname_esc);
++	PQfreemem(pubconninfo_esc);
++	PQfreemem(replslotname_esc);
+ 
+ 	pg_log_debug("command is: %s", str->data);
+ 
+ 	if (!dry_run)
+ 	{
+@@ -1810,12 +1811,12 @@ set_replication_progress(PGconn *conn, const struct LogicalRepInfo *dbinfo, cons
+ 			disconnect_database(conn, true);
+ 		}
+ 		PQclear(res);
+ 	}
+ 
+-	pg_free(subname);
+-	pg_free(dbname);
++	PQfreemem(subname);
++	PQfreemem(dbname);
+ 	pg_free(originname);
+ 	pg_free(lsnstr);
+ 	destroyPQExpBuffer(str);
+ }
+ 
+@@ -1854,11 +1855,11 @@ enable_subscription(PGconn *conn, const struct LogicalRepInfo *dbinfo)
+ 		}
+ 
+ 		PQclear(res);
+ 	}
+ 
+-	pg_free(subname);
++	PQfreemem(subname);
+ 	destroyPQExpBuffer(str);
+ }
+ 
+ int
+ main(int argc, char **argv)

@@ -1,0 +1,134 @@
+commit 89d57c1fb35522590ec1f70b123c853cf5a9acb2
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu Oct 9 15:37:42 2025 -0400
+
+    Clean up memory leakage that occurs in context callback functions.
+    
+    An error context callback function might leak some memory into
+    ErrorContext, since those functions are run with ErrorContext as
+    current context.  In the case where the elevel is ERROR, this is
+    no problem since the code level that catches the error should do
+    FlushErrorState to clean up, and that will reset ErrorContext.
+    However, if the elevel is less than ERROR then no such cleanup occurs.
+    In principle, repeated leaks while emitting log messages or client
+    notices could accumulate arbitrarily much leaked data, if no ERROR
+    occurs in the session.
+    
+    To fix, let errfinish() perform an ErrorContext reset if it is
+    at the outermost error nesting level.  (If it isn't, we'll delay
+    cleanup until the outermost nesting level is exited.)
+    
+    The only actual leakage of this sort that I've been able to observe
+    within our regression tests was recently introduced by commit
+    f727b63e8.  While it seems plausible that there are other such
+    leaks not reached in the regression tests, the lack of field
+    reports suggests that they're not a big problem.  Accordingly,
+    I won't take the risk of back-patching this now.  We can always
+    back-patch later if we get field reports of leaks.
+    
+    Reported-by: Andres Freund <andres@anarazel.de>
+    Author: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/jngsjonyfscoont4tnwi2qoikatpd5hifsg373vmmjvugwiu6g@m6opxh7uisgd
+
+diff --git a/src/backend/utils/error/elog.c b/src/backend/utils/error/elog.c
+index b7b9692f8c8..648d2d2e70c 100644
+--- a/src/backend/utils/error/elog.c
++++ b/src/backend/utils/error/elog.c
+@@ -540,15 +540,24 @@ errfinish(const char *filename, int lineno, const char *funcname)
+ 	}
+ 
+ 	/* Emit the message to the right places */
+ 	EmitErrorReport();
+ 
+-	/* Now free up subsidiary data attached to stack entry, and release it */
+-	FreeErrorDataContents(edata);
+-	errordata_stack_depth--;
++	/*
++	 * If this is the outermost recursion level, we can clean up by resetting
++	 * ErrorContext altogether (compare FlushErrorState), which is good
++	 * because it cleans up any random leakages that might have occurred in
++	 * places such as context callback functions.  If we're nested, we can
++	 * only safely remove the subsidiary data of the current stack entry.
++	 */
++	if (errordata_stack_depth == 0 && recursion_depth == 1)
++		MemoryContextReset(ErrorContext);
++	else
++		FreeErrorDataContents(edata);
+ 
+-	/* Exit error-handling context */
++	/* Release stack entry and exit error-handling context */
++	errordata_stack_depth--;
+ 	MemoryContextSwitchTo(oldcontext);
+ 	recursion_depth--;
+ 
+ 	/*
+ 	 * Perform error recovery action as specified by elevel.
+diff --git a/src/backend/utils/misc/guc.c b/src/backend/utils/misc/guc.c
+index 107b5a273a2..8794e26ef1d 100644
+--- a/src/backend/utils/misc/guc.c
++++ b/src/backend/utils/misc/guc.c
+@@ -6847,11 +6847,11 @@ call_bool_check_hook(struct config_bool *conf, bool *newval, void **extra,
+ 						conf->gen.name, (int) *newval),
+ 				 GUC_check_errdetail_string ?
+ 				 errdetail_internal("%s", GUC_check_errdetail_string) : 0,
+ 				 GUC_check_errhint_string ?
+ 				 errhint("%s", GUC_check_errhint_string) : 0));
+-		/* Flush any strings created in ErrorContext */
++		/* Flush strings created in ErrorContext (ereport might not have) */
+ 		FlushErrorState();
+ 		return false;
+ 	}
+ 
+ 	return true;
+@@ -6881,11 +6881,11 @@ call_int_check_hook(struct config_int *conf, int *newval, void **extra,
+ 						conf->gen.name, *newval),
+ 				 GUC_check_errdetail_string ?
+ 				 errdetail_internal("%s", GUC_check_errdetail_string) : 0,
+ 				 GUC_check_errhint_string ?
+ 				 errhint("%s", GUC_check_errhint_string) : 0));
+-		/* Flush any strings created in ErrorContext */
++		/* Flush strings created in ErrorContext (ereport might not have) */
+ 		FlushErrorState();
+ 		return false;
+ 	}
+ 
+ 	return true;
+@@ -6915,11 +6915,11 @@ call_real_check_hook(struct config_real *conf, double *newval, void **extra,
+ 						conf->gen.name, *newval),
+ 				 GUC_check_errdetail_string ?
+ 				 errdetail_internal("%s", GUC_check_errdetail_string) : 0,
+ 				 GUC_check_errhint_string ?
+ 				 errhint("%s", GUC_check_errhint_string) : 0));
+-		/* Flush any strings created in ErrorContext */
++		/* Flush strings created in ErrorContext (ereport might not have) */
+ 		FlushErrorState();
+ 		return false;
+ 	}
+ 
+ 	return true;
+@@ -6958,11 +6958,11 @@ call_string_check_hook(struct config_string *conf, char **newval, void **extra,
+ 							conf->gen.name, *newval ? *newval : ""),
+ 					 GUC_check_errdetail_string ?
+ 					 errdetail_internal("%s", GUC_check_errdetail_string) : 0,
+ 					 GUC_check_errhint_string ?
+ 					 errhint("%s", GUC_check_errhint_string) : 0));
+-			/* Flush any strings created in ErrorContext */
++			/* Flush strings created in ErrorContext (ereport might not have) */
+ 			FlushErrorState();
+ 			result = false;
+ 		}
+ 	}
+ 	PG_CATCH();
+@@ -7000,11 +7000,11 @@ call_enum_check_hook(struct config_enum *conf, int *newval, void **extra,
+ 						config_enum_lookup_by_value(conf, *newval)),
+ 				 GUC_check_errdetail_string ?
+ 				 errdetail_internal("%s", GUC_check_errdetail_string) : 0,
+ 				 GUC_check_errhint_string ?
+ 				 errhint("%s", GUC_check_errhint_string) : 0));
+-		/* Flush any strings created in ErrorContext */
++		/* Flush strings created in ErrorContext (ereport might not have) */
+ 		FlushErrorState();
+ 		return false;
+ 	}
+ 
+ 	return true;

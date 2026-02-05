@@ -1,0 +1,77 @@
+commit 3ef18a90bdeaeb7895b16431b0bb0023265c1df4
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Fri Sep 29 10:34:04 2023 +0900
+
+    doc: Fix descriptions related to the handling of non-ASCII characters
+    
+    Since 45b1a67a0fcb, non-printable ASCII characters do not show up in
+    various configuration paths as question marks, but as hexadecimal
+    escapes.  The documentation was not updated to reflect that.
+    
+    Author: Hayato Kuroda
+    Reviewed-by: Jian He, Tom Lane, Karl O. Pinc, Peter Smith
+    Discussion: https://postgr.es/m/TYAPR01MB586631D0961BF9C44893FAB1F523A@TYAPR01MB5866.jpnprd01.prod.outlook.com
+    Backpatch-through: 16
+
+diff --git a/doc/src/sgml/config.sgml b/doc/src/sgml/config.sgml
+index 38684af5b18..924309af26d 100644
+--- a/doc/src/sgml/config.sgml
++++ b/doc/src/sgml/config.sgml
+@@ -6891,12 +6891,13 @@ local0.*    /var/log/postgresql
+         It is typically set by an application upon connection to the server.
+         The name will be displayed in the <structname>pg_stat_activity</structname> view
+         and included in CSV log entries.  It can also be included in regular
+         log entries via the <xref linkend="guc-log-line-prefix"/> parameter.
+         Only printable ASCII characters may be used in the
+-        <varname>application_name</varname> value. Other characters will be
+-        replaced with question marks (<literal>?</literal>).
++        <varname>application_name</varname> value.
++        Other characters are replaced with <link
++        linkend="sql-syntax-strings-escape">C-style hexadecimal escapes</link>.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry id="guc-debug-print-parse">
+@@ -7888,14 +7889,16 @@ COPY postgres_log FROM '/full/path/to/logfile.csv' WITH csv;
+ 
+        <para>
+         The name can be any string of less
+         than <symbol>NAMEDATALEN</symbol> characters (64 characters in a standard
+         build). Only printable ASCII characters may be used in the
+-        <varname>cluster_name</varname> value. Other characters will be
+-        replaced with question marks (<literal>?</literal>).  No name is shown
+-        if this parameter is set to the empty string <literal>''</literal> (which is
+-        the default). This parameter can only be set at server start.
++        <varname>cluster_name</varname> value.
++        Other characters are replaced with <link
++        linkend="sql-syntax-strings-escape">C-style hexadecimal escapes</link>.
++        No name is shown if this parameter is set to the empty string
++        <literal>''</literal> (which is the default).
++        This parameter can only be set at server start.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry id="guc-update-process-title" xreflabel="update_process_title">
+diff --git a/doc/src/sgml/postgres-fdw.sgml b/doc/src/sgml/postgres-fdw.sgml
+index 5062d712e74..c177fd41bcb 100644
+--- a/doc/src/sgml/postgres-fdw.sgml
++++ b/doc/src/sgml/postgres-fdw.sgml
+@@ -1065,13 +1065,13 @@ postgres=# SELECT postgres_fdw_disconnect_all();
+      <para>
+       <varname>postgres_fdw.application_name</varname> can be any string
+       of any length and contain even non-ASCII characters.  However when
+       it's passed to and used as <varname>application_name</varname>
+       in a foreign server, note that it will be truncated to less than
+-      <symbol>NAMEDATALEN</symbol> characters and anything other than
+-      printable ASCII characters will be replaced with question
+-      marks (<literal>?</literal>).
++      <symbol>NAMEDATALEN</symbol> characters.
++      Anything other than printable ASCII characters are replaced with <link
++      linkend="sql-syntax-strings-escape">C-style hexadecimal escapes</link>.
+       See <xref linkend="guc-application-name"/> for details.
+      </para>
+ 
+      <para>
+       <literal>%</literal> characters begin <quote>escape sequences</quote>

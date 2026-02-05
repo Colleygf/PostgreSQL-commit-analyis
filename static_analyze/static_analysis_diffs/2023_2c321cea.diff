@@ -1,0 +1,60 @@
+commit 2c321ceaa904eb2722050abd35bf4eaea434c8b5
+Author: Jeff Davis <jdavis@postgresql.org>
+Date:   Fri Dec 29 11:26:10 2023 -0800
+
+    Fix collate.windows.win1252 test.
+    
+    Do not rely on the OS recognizing a particular locale; find the right
+    locale by querying the "en_US" collation.
+    
+    Author: Alexander Lakhin
+    Reported-by: Alexander Lakhin
+    Discussion: https://postgr.es/m/ae73f6f5-8221-c112-4640-5cda812a69de@gmail.com
+
+diff --git a/src/test/regress/expected/collate.windows.win1252.out b/src/test/regress/expected/collate.windows.win1252.out
+index b7b93959de9..d99ba22431d 100644
+--- a/src/test/regress/expected/collate.windows.win1252.out
++++ b/src/test/regress/expected/collate.windows.win1252.out
+@@ -990,11 +990,17 @@ select textrange_en_us('A','Z') @> 'b'::text;
+ 
+ drop type textrange_c;
+ drop type textrange_en_us;
+ -- nondeterministic collations
+ -- (not supported with libc provider)
+-CREATE COLLATION ctest_det (locale = 'en_US', deterministic = true);
++do $$
++BEGIN
++  EXECUTE 'CREATE COLLATION ctest_det (locale = ' ||
++          quote_literal((SELECT collcollate FROM pg_collation WHERE
++          collname = 'en_US')) || ', deterministic = true);';
++  END
++$$;
+ CREATE COLLATION ctest_nondet (locale = 'en_US', deterministic = false);
+ ERROR:  nondeterministic collations not supported with this provider
+ -- cleanup
+ SET client_min_messages TO warning;
+ DROP SCHEMA collate_tests CASCADE;
+diff --git a/src/test/regress/sql/collate.windows.win1252.sql b/src/test/regress/sql/collate.windows.win1252.sql
+index 353d769a5bd..c7d6c97db16 100644
+--- a/src/test/regress/sql/collate.windows.win1252.sql
++++ b/src/test/regress/sql/collate.windows.win1252.sql
+@@ -398,12 +398,17 @@ drop type textrange_c;
+ drop type textrange_en_us;
+ 
+ 
+ -- nondeterministic collations
+ -- (not supported with libc provider)
+-
+-CREATE COLLATION ctest_det (locale = 'en_US', deterministic = true);
++do $$
++BEGIN
++  EXECUTE 'CREATE COLLATION ctest_det (locale = ' ||
++          quote_literal((SELECT collcollate FROM pg_collation WHERE
++          collname = 'en_US')) || ', deterministic = true);';
++  END
++$$;
+ CREATE COLLATION ctest_nondet (locale = 'en_US', deterministic = false);
+ 
+ 
+ -- cleanup
+ SET client_min_messages TO warning;

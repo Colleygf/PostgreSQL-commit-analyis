@@ -1,0 +1,87 @@
+commit 2ef57908067ab29c22ae13f7775fe2afc330e8f6
+Author: Andrew Dunstan <andrew@dunslane.net>
+Date:   Fri Apr 4 17:02:02 2025 -0400
+
+    Fix a couple of error messages and tests for them
+    
+    oversights in 1495eff7bdb and 289f74d0cb2. Mea culpa.
+
+diff --git a/src/bin/pg_dump/pg_restore.c b/src/bin/pg_dump/pg_restore.c
+index ce0c05e4b73..aa2de8b516a 100644
+--- a/src/bin/pg_dump/pg_restore.c
++++ b/src/bin/pg_dump/pg_restore.c
+@@ -503,21 +503,21 @@ main(int argc, char **argv)
+ 		/*
+ 		 * Can only use --list or --use-list options with a single database
+ 		 * dump.
+ 		 */
+ 		if (opts->tocSummary)
+-			pg_fatal("option -l/--list cannot be used when restoring an archive created with pg_dumpall");
++			pg_fatal("option -l/--list cannot be used when restoring an archive created by pg_dumpall");
+ 		else if (opts->tocFile)
+-			pg_fatal("option -L/--use-list cannot be used when restoring an archive created with pg_dumpall");
++			pg_fatal("option -L/--use-list cannot be used when restoring an archive created by pg_dumpall");
+ 
+ 		/*
+ 		 * To restore from a pg_dumpall archive, -C (create database) option
+ 		 * must be specified unless we are only restoring globals.
+ 		 */
+ 		if (!globals_only && opts->createDB != 1)
+ 		{
+-			pg_log_error("-C/--create option should be specified when restoring from an archive of created by pg_dumpall");
++			pg_log_error("-C/--create option should be specified when restoring an archive created by pg_dumpall");
+ 			pg_log_error_hint("Try \"%s --help\" for more information.", progname);
+ 			pg_log_error_hint("Individual databases can be restored using their specific archives.");
+ 			exit_nicely(1);
+ 		}
+ 
+diff --git a/src/bin/pg_dump/t/001_basic.pl b/src/bin/pg_dump/t/001_basic.pl
+index 113a915bfbf..84ca25e17d6 100644
+--- a/src/bin/pg_dump/t/001_basic.pl
++++ b/src/bin/pg_dump/t/001_basic.pl
+@@ -242,16 +242,16 @@ command_fails_like(
+ 	qr/\Qpg_restore: error: option --exclude-database cannot be used together with -g\/--globals-only\E/,
+ 	'pg_restore: option --exclude-database cannot be used together with -g/--globals-only');
+ 
+ command_fails_like(
+ 	[ 'pg_restore', '--exclude-database=foo', '-d', 'xxx', 'dumpdir' ],
+-	qr/\Qpg_restore: error: option --exclude-database can be used only when restoring multiple databases by archive of pg_dumpall\E/,
++	qr/\Qpg_restore: error: option --exclude-database can be used only when restoring an archive created by pg_dumpall\E/,
+ 	'When option --exclude-database is used in pg_restore with dump of pg_dump');
+ 
+ command_fails_like(
+ 	[ 'pg_restore', '--globals-only', '-d', 'xxx', 'dumpdir' ],
+-	qr/\Qpg_restore: error: option -g\/--globals-only can be used only when restoring multiple databases by archive of pg_dumpall\E/,
++	qr/\Qpg_restore: error: option -g\/--globals-only can be used only when restoring an archive created by pg_dumpall\E/,
+ 	'When option --globals-only is not used in pg_restore with dump of pg_dump');
+ 
+ # also fails for -r and -t, but it seems pointless to add more tests for those.
+ command_fails_like(
+ 	[ 'pg_dumpall', '--exclude-database=foo', '--globals-only' ],
+diff --git a/src/bin/pg_dump/t/006_pg_dumpall.pl b/src/bin/pg_dump/t/006_pg_dumpall.pl
+index 44afdf525ff..d6821c5615f 100644
+--- a/src/bin/pg_dump/t/006_pg_dumpall.pl
++++ b/src/bin/pg_dump/t/006_pg_dumpall.pl
+@@ -363,20 +363,20 @@ foreach my $run (sort keys %pgdumpall_runs)
+ $node->command_fails_like(
+     [ 'pg_restore',
+     "$tempdir/format_custom",
+     '--format' => 'custom',
+     '--file' => "$tempdir/error_test.sql", ],
+-    qr/\Qpg_restore: error: -C\/--create option should be specified when restoring multiple databases by archive of pg_dumpall\E/,
++    qr/\Qpg_restore: error: -C\/--create option should be specified when restoring an archive created by pg_dumpall\E/,
+     'When -C is not used in pg_restore with dump of pg_dumpall');
+ 
+ # test case 2: When --list option is used with dump of pg_dumpall
+ $node->command_fails_like(
+ 	[ 'pg_restore',
+ 		"$tempdir/format_custom", '-C',
+ 		'--format' => 'custom', '--list',
+ 		'--file' => "$tempdir/error_test.sql", ],
+-	qr/\Qpg_restore: error: option -l\/--list cannot be used when restoring multiple databases by archive of pg_dumpall\E/,
++	qr/\Qpg_restore: error: option -l\/--list cannot be used when restoring an archive created by pg_dumpall\E/,
+ 	'When --list is used in pg_restore with dump of pg_dumpall');
+ 
+ # test case 3: When non-exist database is given with -d option
+ $node->command_fails_like(
+ 	[ 'pg_restore',

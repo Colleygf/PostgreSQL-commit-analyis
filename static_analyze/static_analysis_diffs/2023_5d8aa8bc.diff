@@ -1,0 +1,85 @@
+commit 5d8aa8bcedae7376bd97e79052d606db4e4f8dd4
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Oct 11 12:51:38 2023 -0400
+
+    Fix missed optimization in relation_excluded_by_constraints().
+    
+    In commit 3fc6e2d7f, I (tgl) argued that we only need to check for
+    a constant-FALSE restriction clause when there's exactly one
+    restriction clause, on the grounds that const-folding would have
+    thrown away anything ANDed with a Const FALSE.  That's true just after
+    const-folding has been applied, but subsequent processing such as
+    equivalence class expansion could result in cases where a Const FALSE
+    is ANDed with some other stuff.  (Compare for instance joinrels.c's
+    restriction_is_constant_false.)  Hence, tweak this logic to check all
+    the elements of the baserestrictinfo list, not just one; that's cheap
+    enough to not be worth worrying about.
+    
+    There is one existing test case where this visibly improves the plan.
+    There would not be any savings in runtime, but the planner effort and
+    executor startup effort will be reduced, and anyway it's odd that
+    we can detect related cases but not this one.
+    
+    Richard Guo (independently discovered by David Rowley)
+    
+    Discussion: https://postgr.es/m/CAMbWs4_x3-CnVVrCboS1LkEhB5V+W7sLSCabsRiG+n7+5_kqbg@mail.gmail.com
+
+diff --git a/src/backend/optimizer/util/plancat.c b/src/backend/optimizer/util/plancat.c
+index 243c8fb1e42..7159c775fbd 100644
+--- a/src/backend/optimizer/util/plancat.c
++++ b/src/backend/optimizer/util/plancat.c
+@@ -1547,20 +1547,21 @@ relation_excluded_by_constraints(PlannerInfo *root,
+ 	if (rel->baserestrictinfo == NIL)
+ 		return false;
+ 
+ 	/*
+ 	 * Regardless of the setting of constraint_exclusion, detect
+-	 * constant-FALSE-or-NULL restriction clauses.  Because const-folding will
+-	 * reduce "anything AND FALSE" to just "FALSE", any such case should
+-	 * result in exactly one baserestrictinfo entry.  This doesn't fire very
+-	 * often, but it seems cheap enough to be worth doing anyway.  (Without
+-	 * this, we'd miss some optimizations that 9.5 and earlier found via much
+-	 * more roundabout methods.)
++	 * constant-FALSE-or-NULL restriction clauses.  Although const-folding
++	 * will reduce "anything AND FALSE" to just "FALSE", the baserestrictinfo
++	 * list can still have other members besides the FALSE constant, due to
++	 * qual pushdown and other mechanisms; so check them all.  This doesn't
++	 * fire very often, but it seems cheap enough to be worth doing anyway.
++	 * (Without this, we'd miss some optimizations that 9.5 and earlier found
++	 * via much more roundabout methods.)
+ 	 */
+-	if (list_length(rel->baserestrictinfo) == 1)
++	foreach(lc, rel->baserestrictinfo)
+ 	{
+-		RestrictInfo *rinfo = (RestrictInfo *) linitial(rel->baserestrictinfo);
++		RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
+ 		Expr	   *clause = rinfo->clause;
+ 
+ 		if (clause && IsA(clause, Const) &&
+ 			(((Const *) clause)->constisnull ||
+ 			 !DatumGetBool(((Const *) clause)->constvalue)))
+diff --git a/src/test/regress/expected/join.out b/src/test/regress/expected/join.out
+index 9b8638f286a..b95d30f6586 100644
+--- a/src/test/regress/expected/join.out
++++ b/src/test/regress/expected/join.out
+@@ -5786,17 +5786,15 @@ select p.* from
+ 
+ explain (costs off)
+ select p.* from
+   parent p left join child c on (p.k = c.k)
+   where p.k = 1 and p.k = 2;
+-                   QUERY PLAN                   
+-------------------------------------------------
++        QUERY PLAN        
++--------------------------
+  Result
+    One-Time Filter: false
+-   ->  Index Scan using parent_pkey on parent p
+-         Index Cond: (k = 1)
+-(4 rows)
++(2 rows)
+ 
+ select p.* from
+   (parent p left join child c on (p.k = c.k)) join parent x on p.k = x.k
+   where p.k = 1 and p.k = 2;
+  k | pd 

@@ -1,0 +1,58 @@
+commit 727400994d5a27f2859361f82d0ec9ac2b23385c
+Author: Andres Freund <andres@anarazel.de>
+Date:   Mon Mar 13 14:44:43 2023 -0700
+
+    meson: fix openssl detection issues in 6a30027
+    
+    When not detecting openssl via pkg-config, we'd error out if the headers
+    weren't found, even if -Dssl=auto. When detecting via pkg-config, but the
+    headers could not be found, we'd error out because the ssl_int variable would
+    not exist.
+    
+    Reported-by: Nathan Bossart <nathandbossart@gmail.com>
+    Discussion: https://postgr.es/m/20230313180432.GA246741@nathanxps13
+
+diff --git a/meson.build b/meson.build
+index 8208815c96c..2ebdf914c1b 100644
+--- a/meson.build
++++ b/meson.build
+@@ -1187,27 +1187,33 @@ if sslopt in ['auto', 'openssl']
+   # (e.g. because it's provided as part of the OS, like on FreeBSD), look for
+   # the library names that we know about.
+ 
+   # via pkg-config et al
+   ssl = dependency('openssl', required: false)
++  # only meson >= 0.57 supports declare_dependency() in cc.has_function(), so
++  # we pass cc.find_library() results if necessary
++  ssl_int = []
+ 
+   # via library + headers
+   if not ssl.found()
+     ssl_lib = cc.find_library('ssl',
+       dirs: test_lib_d,
+       header_include_directories: postgres_inc,
+-      has_headers: ['openssl/ssl.h', 'openssl/err.h'])
++      has_headers: ['openssl/ssl.h', 'openssl/err.h'],
++      required: openssl_required)
+     crypto_lib = cc.find_library('crypto',
+       dirs: test_lib_d,
+-      header_include_directories: postgres_inc)
+-    ssl_int = [ssl_lib, crypto_lib]
+-
+-    ssl = declare_dependency(dependencies: ssl_int,
+-                             include_directories: postgres_inc)
++      required: openssl_required)
++    if ssl_lib.found() and crypto_lib.found()
++      ssl_int = [ssl_lib, crypto_lib]
++      ssl = declare_dependency(dependencies: ssl_int, include_directories: postgres_inc)
++    endif
+   elif cc.has_header('openssl/ssl.h', args: test_c_args, dependencies: ssl, required: openssl_required) and \
+        cc.has_header('openssl/err.h', args: test_c_args, dependencies: ssl, required: openssl_required)
+     ssl_int = [ssl]
++  else
++    ssl = not_found_dep
+   endif
+ 
+   if ssl.found()
+     check_funcs = [
+       ['CRYPTO_new_ex_data', {'required': true}],

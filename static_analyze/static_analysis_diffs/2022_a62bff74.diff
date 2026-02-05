@@ -1,0 +1,82 @@
+commit a62bff74b135b191de0417d1cc8ec52f144c8fe7
+Author: Tatsuo Ishii <ishii@postgresql.org>
+Date:   Tue Apr 19 17:04:27 2022 +0900
+
+    Fix aggregate logging of pgbench.
+    
+    Remove meaningless "failures" column from the aggregate logging. It
+    was just a sum of "serialization failures" and "deadlock failures".
+    Pointed out by Tom Lane. Patch reviewed by Fabien COELHO.
+    
+    Discussion: https://postgr.es/m/4183048.1649536705%40sss.pgh.pa.us
+
+diff --git a/doc/src/sgml/ref/pgbench.sgml b/doc/src/sgml/ref/pgbench.sgml
+index 387a8362870..dbae4e2321a 100644
+--- a/doc/src/sgml/ref/pgbench.sgml
++++ b/doc/src/sgml/ref/pgbench.sgml
+@@ -2589,19 +2589,10 @@ END;
+        (zero unless <option>--max-tries</option> is not equal to one)
+       </para>
+      </listitem>
+     </varlistentry>
+ 
+-    <varlistentry>
+-     <term><replaceable>failures</replaceable></term>
+-     <listitem>
+-      <para>
+-       number of transactions that ended with a failed SQL command
+-      </para>
+-     </listitem>
+-    </varlistentry>
+-
+     <varlistentry>
+      <term><replaceable>serialization_failures</replaceable></term>
+      <listitem>
+       <para>
+        number of transactions that got a serialization error and were not
+@@ -2627,12 +2618,12 @@ END;
+   <para>
+    Here is some example output generated with these options:
+ <screen>
+ <userinput>pgbench --aggregate-interval=10 --time=20 --client=10 --log --rate=1000 --latency-limit=10 --failures-detailed --max-tries=10 test</userinput>
+ 
+-1649114136 5815 27552565 177846919143 1078 21716 2756787 7264696105 0 9661 0 7854 31472 4022 4022 0
+-1649114146 5958 28460110 182785513108 1083 20391 2539395 6411761497 0 7268 0 8127 32595 4101 4101 0
++1650260552 5178 26171317 177284491527 1136 44462 2647617 7321113867 0 9866 64 7564 28340 4148 0
++1650260562 4808 25573984 220121792172 1171 62083 3037380 9666800914 0 9998 598 7392 26621 4527 0
+ </screen>
+   </para>
+ 
+   <para>
+    Notice that while the plain (unaggregated) log format shows which script
+diff --git a/src/bin/pgbench/pgbench.c b/src/bin/pgbench/pgbench.c
+index e63cea56a1c..f8bcb1ab6de 100644
+--- a/src/bin/pgbench/pgbench.c
++++ b/src/bin/pgbench/pgbench.c
+@@ -4496,11 +4496,10 @@ doLog(TState *thread, CState *st,
+ 			double		lag_min = 0.0;
+ 			double		lag_max = 0.0;
+ 			int64		skipped = 0;
+ 			int64		serialization_failures = 0;
+ 			int64		deadlock_failures = 0;
+-			int64		serialization_or_deadlock_failures = 0;
+ 			int64		retried = 0;
+ 			int64		retries = 0;
+ 
+ 			/* print aggregated report to logfile */
+ 			fprintf(logfile, INT64_FORMAT " " INT64_FORMAT " %.0f %.0f %.0f %.0f",
+@@ -4538,13 +4537,11 @@ doLog(TState *thread, CState *st,
+ 			if (failures_detailed)
+ 			{
+ 				serialization_failures = agg->serialization_failures;
+ 				deadlock_failures = agg->deadlock_failures;
+ 			}
+-			serialization_or_deadlock_failures = serialization_failures + deadlock_failures;
+-			fprintf(logfile, " " INT64_FORMAT " " INT64_FORMAT " " INT64_FORMAT,
+-					serialization_or_deadlock_failures,
++			fprintf(logfile, " " INT64_FORMAT " " INT64_FORMAT,
+ 					serialization_failures,
+ 					deadlock_failures);
+ 
+ 			fputc('\n', logfile);
+ 

@@ -1,0 +1,44 @@
+commit 7b64e4b3fa04769b725306a75bf3dd26e5a854fa
+Author: Andres Freund <andres@anarazel.de>
+Date:   Wed Jul 6 08:53:25 2022 -0700
+
+    pgstat: drop subscription stats without slot as well, fix comment
+    
+    There's no reason anymore to only drop subscription stats if associated with a
+    slot, now that stats drops are transactional. And since there's now no other
+    cleanup of stats, this would lead to stats for slot-less subscriptions to get
+    leaked (however most slot-less subs won't have stats).
+    
+    Additionally, the comment referring to autovacuum cleaning up stats was
+    clearly outdated.
+    
+    Author: Masahiko Sawada <sawada.mshk@gmail.com>
+    Discussion: https://postgr.es/m/CAD21AoAwiby3HeJE7vJe16Gr75RFfJ640dyHqvsiUhyKJTXPtw@mail.gmail.com
+    Backpatch: 15-
+
+diff --git a/src/backend/commands/subscriptioncmds.c b/src/backend/commands/subscriptioncmds.c
+index e2852286a7d..bdc12087241 100644
+--- a/src/backend/commands/subscriptioncmds.c
++++ b/src/backend/commands/subscriptioncmds.c
+@@ -1576,19 +1576,13 @@ DropSubscription(DropSubscriptionStmt *stmt, bool isTopLevel)
+ 	}
+ 	PG_END_TRY();
+ 
+ 	/*
+ 	 * Tell the cumulative stats system that the subscription is getting
+-	 * dropped. We can safely report dropping the subscription statistics here
+-	 * if the subscription is associated with a replication slot since we
+-	 * cannot run DROP SUBSCRIPTION inside a transaction block.  Subscription
+-	 * statistics will be removed later by (auto)vacuum either if it's not
+-	 * associated with a replication slot or if the message for dropping the
+-	 * subscription gets lost.
++	 * dropped.
+ 	 */
+-	if (slotname)
+-		pgstat_drop_subscription(subid);
++	pgstat_drop_subscription(subid);
+ 
+ 	table_close(rel, NoLock);
+ }
+ 
+ /*

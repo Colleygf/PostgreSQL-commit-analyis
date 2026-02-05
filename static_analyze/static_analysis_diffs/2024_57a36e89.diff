@@ -1,0 +1,34 @@
+commit 57a36e890d3d60e6408bf6805e91c82f7b370873
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Oct 21 11:25:29 2024 +0900
+
+    Fix grammar of a comment in bufmgr.c
+    
+    Author: Junwang Zhao
+    Discussion: https://postgr.es/m/CAEG8a3L5YjxXCjx0LhkwHdDGsNgpFGEqH7SqtXRPNP+dwFMVZQ@mail.gmail.com
+
+diff --git a/src/backend/storage/buffer/bufmgr.c b/src/backend/storage/buffer/bufmgr.c
+index a19595865af..0f02bf62fa3 100644
+--- a/src/backend/storage/buffer/bufmgr.c
++++ b/src/backend/storage/buffer/bufmgr.c
+@@ -1493,15 +1493,15 @@ WaitReadBuffers(ReadBuffersOperation *operation)
+ 		io_pages[0] = BufferGetBlock(buffers[i]);
+ 		io_first_block = blocknum + i;
+ 		io_buffers_len = 1;
+ 
+ 		/*
+-		 * How many neighboring-on-disk blocks can we can scatter-read into
+-		 * other buffers at the same time?  In this case we don't wait if we
+-		 * see an I/O already in progress.  We already hold BM_IO_IN_PROGRESS
+-		 * for the head block, so we should get on with that I/O as soon as
+-		 * possible.  We'll come back to this block again, above.
++		 * How many neighboring-on-disk blocks can we scatter-read into other
++		 * buffers at the same time?  In this case we don't wait if we see an
++		 * I/O already in progress.  We already hold BM_IO_IN_PROGRESS for the
++		 * head block, so we should get on with that I/O as soon as possible.
++		 * We'll come back to this block again, above.
+ 		 */
+ 		while ((i + 1) < nblocks &&
+ 			   WaitReadBuffersCanStartIO(buffers[i + 1], true))
+ 		{
+ 			/* Must be consecutive block numbers. */

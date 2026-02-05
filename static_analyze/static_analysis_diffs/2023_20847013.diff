@@ -1,0 +1,132 @@
+commit 20847013642127e75ee4fe3ddb8228a1fb4b652f
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Tue Dec 19 18:19:05 2023 +0900
+
+    pageinspect: Fix failure with hash_bitmap_info() for partitioned indexes
+    
+    This function reads directly a page from a relation, relying on
+    index_open() to open the index to read from.  Unfortunately, this would
+    crash when using partitioned indexes, as these can be opened with
+    index_open() but they have no physical pages.
+    
+    Alexander has fixed the module, while I have written the test.
+    
+    Author: Alexander Lakhin, Michael Paquier
+    Discussion: https://postgr.es/m/18246-f4d9ff7cb3af77e6@postgresql.org
+    Backpatch-through: 12
+
+diff --git a/contrib/pageinspect/expected/hash.out b/contrib/pageinspect/expected/hash.out
+index 5d6a5188345..ea387a68143 100644
+--- a/contrib/pageinspect/expected/hash.out
++++ b/contrib/pageinspect/expected/hash.out
+@@ -1,8 +1,10 @@
+ CREATE TABLE test_hash (a int, b text);
+ INSERT INTO test_hash VALUES (1, 'one');
+ CREATE INDEX test_hash_a_idx ON test_hash USING hash (a);
++CREATE TABLE test_hash_part (a int, b int) PARTITION BY RANGE (a);
++CREATE INDEX test_hash_part_idx ON test_hash_part USING hash(b);
+ \x
+ SELECT hash_page_type(get_raw_page('test_hash_a_idx', 0));
+ -[ RECORD 1 ]--+---------
+ hash_page_type | metapage
+ 
+@@ -42,10 +44,12 @@ SELECT * FROM hash_bitmap_info('test_hash_a_idx', 4);
+ ERROR:  invalid overflow block number 4
+ SELECT * FROM hash_bitmap_info('test_hash_a_idx', 5);
+ ERROR:  invalid overflow block number 5
+ SELECT * FROM hash_bitmap_info('test_hash_a_idx', 6);
+ ERROR:  block number 6 is out of range for relation "test_hash_a_idx"
++SELECT * FROM hash_bitmap_info('test_hash_part_idx', 1); -- error
++ERROR:  "test_hash_part_idx" is not a hash index
+ SELECT magic, version, ntuples, bsize, bmsize, bmshift, maxbucket, highmask,
+ lowmask, ovflpoint, firstfree, nmaps, procid, spares, mapp FROM
+ hash_metapage_info(get_raw_page('test_hash_a_idx', 0));
+ -[ RECORD 1 ]--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ magic     | 105121344
+@@ -201,5 +205,6 @@ ERROR:  page is not a hash bucket or overflow page
+ SELECT hash_page_type(decode(repeat('00', :block_size), 'hex'));
+ -[ RECORD 1 ]--+-------
+ hash_page_type | unused
+ 
+ DROP TABLE test_hash;
++DROP TABLE test_hash_part;
+diff --git a/contrib/pageinspect/hashfuncs.c b/contrib/pageinspect/hashfuncs.c
+index f43f0928b11..5c38ec10952 100644
+--- a/contrib/pageinspect/hashfuncs.c
++++ b/contrib/pageinspect/hashfuncs.c
+@@ -10,10 +10,11 @@
+ 
+ #include "postgres.h"
+ 
+ #include "access/hash.h"
+ #include "access/htup_details.h"
++#include "access/relation.h"
+ #include "catalog/pg_am.h"
+ #include "catalog/pg_type.h"
+ #include "funcapi.h"
+ #include "miscadmin.h"
+ #include "pageinspect.h"
+@@ -25,10 +26,11 @@ PG_FUNCTION_INFO_V1(hash_page_type);
+ PG_FUNCTION_INFO_V1(hash_page_stats);
+ PG_FUNCTION_INFO_V1(hash_page_items);
+ PG_FUNCTION_INFO_V1(hash_bitmap_info);
+ PG_FUNCTION_INFO_V1(hash_metapage_info);
+ 
++#define IS_INDEX(r) ((r)->rd_rel->relkind == RELKIND_INDEX)
+ #define IS_HASH(r) ((r)->rd_rel->relam == HASH_AM_OID)
+ 
+ /* ------------------------------------------------
+  * structure for single hash page statistics
+  * ------------------------------------------------
+@@ -411,13 +413,13 @@ hash_bitmap_info(PG_FUNCTION_ARGS)
+ 	if (!superuser())
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+ 				 errmsg("must be superuser to use raw page functions")));
+ 
+-	indexRel = index_open(indexRelid, AccessShareLock);
++	indexRel = relation_open(indexRelid, AccessShareLock);
+ 
+-	if (!IS_HASH(indexRel))
++	if (!IS_INDEX(indexRel) || !IS_HASH(indexRel))
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+ 				 errmsg("\"%s\" is not a %s index",
+ 						RelationGetRelationName(indexRel), "hash")));
+ 
+diff --git a/contrib/pageinspect/sql/hash.sql b/contrib/pageinspect/sql/hash.sql
+index 320fb9fa9f1..e4b9e975f8a 100644
+--- a/contrib/pageinspect/sql/hash.sql
++++ b/contrib/pageinspect/sql/hash.sql
+@@ -1,9 +1,12 @@
+ CREATE TABLE test_hash (a int, b text);
+ INSERT INTO test_hash VALUES (1, 'one');
+ CREATE INDEX test_hash_a_idx ON test_hash USING hash (a);
+ 
++CREATE TABLE test_hash_part (a int, b int) PARTITION BY RANGE (a);
++CREATE INDEX test_hash_part_idx ON test_hash_part USING hash(b);
++
+ \x
+ 
+ SELECT hash_page_type(get_raw_page('test_hash_a_idx', 0));
+ SELECT hash_page_type(get_raw_page('test_hash_a_idx', 1));
+ SELECT hash_page_type(get_raw_page('test_hash_a_idx', 2));
+@@ -19,10 +22,11 @@ SELECT * FROM hash_bitmap_info('test_hash_a_idx', 1);
+ SELECT * FROM hash_bitmap_info('test_hash_a_idx', 2);
+ SELECT * FROM hash_bitmap_info('test_hash_a_idx', 3);
+ SELECT * FROM hash_bitmap_info('test_hash_a_idx', 4);
+ SELECT * FROM hash_bitmap_info('test_hash_a_idx', 5);
+ SELECT * FROM hash_bitmap_info('test_hash_a_idx', 6);
++SELECT * FROM hash_bitmap_info('test_hash_part_idx', 1); -- error
+ 
+ 
+ SELECT magic, version, ntuples, bsize, bmsize, bmshift, maxbucket, highmask,
+ lowmask, ovflpoint, firstfree, nmaps, procid, spares, mapp FROM
+ hash_metapage_info(get_raw_page('test_hash_a_idx', 0));
+@@ -104,5 +108,6 @@ SELECT hash_metapage_info(decode(repeat('00', :block_size), 'hex'));
+ SELECT hash_page_items(decode(repeat('00', :block_size), 'hex'));
+ SELECT hash_page_stats(decode(repeat('00', :block_size), 'hex'));
+ SELECT hash_page_type(decode(repeat('00', :block_size), 'hex'));
+ 
+ DROP TABLE test_hash;
++DROP TABLE test_hash_part;

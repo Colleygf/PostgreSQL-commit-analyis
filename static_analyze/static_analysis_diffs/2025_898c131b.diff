@@ -1,0 +1,146 @@
+commit 898c131b58a0b62833e10f3556f993d0d385f941
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Fri Apr 4 10:58:59 2025 +0530
+
+    pg_createsubscriber: Improve error messages.
+    
+    Consistently, an option name is used in the error messages where
+    applicable. Also, change the code to use pg_fatal() instead of a
+    combination of pg_log_error() and exit().
+    
+    Author: vignesh C <vignesh21@gmail.com>
+    Reviewed-by: Hayato Kuroda <kuroda.hayato@fujitsu.com>
+    Reviewed-by: Amit Kapila <amit.kapila16@gmail.com>
+    Discussion: https://postgr.es/m/CALDaNm0HxF1RH27LP7VisLzNsSJbssy8a64M5p6UduDaBq6-ag@mail.gmail.com
+
+diff --git a/src/bin/pg_basebackup/pg_createsubscriber.c b/src/bin/pg_basebackup/pg_createsubscriber.c
+index eed3793c816..1d2f39e3926 100644
+--- a/src/bin/pg_basebackup/pg_createsubscriber.c
++++ b/src/bin/pg_basebackup/pg_createsubscriber.c
+@@ -2122,14 +2122,11 @@ main(int argc, char **argv)
+ 				{
+ 					simple_string_list_append(&opt.database_names, optarg);
+ 					num_dbs++;
+ 				}
+ 				else
+-				{
+-					pg_log_error("database \"%s\" specified more than once", optarg);
+-					exit(1);
+-				}
++					pg_fatal("database \"%s\" specified more than once for -d/--database", optarg);
+ 				break;
+ 			case 'D':
+ 				subscriber_dir = pg_strdup(optarg);
+ 				canonicalize_path(subscriber_dir);
+ 				break;
+@@ -2144,11 +2141,11 @@ main(int argc, char **argv)
+ 				break;
+ 			case 'R':
+ 				if (!simple_string_list_member(&opt.objecttypes_to_remove, optarg))
+ 					simple_string_list_append(&opt.objecttypes_to_remove, optarg);
+ 				else
+-					pg_fatal("object type \"%s\" is specified more than once for --remove", optarg);
++					pg_fatal("object type \"%s\" is specified more than once for -R/--remove", optarg);
+ 				break;
+ 			case 's':
+ 				opt.socket_dir = pg_strdup(optarg);
+ 				canonicalize_path(opt.socket_dir);
+ 				break;
+@@ -2172,38 +2169,29 @@ main(int argc, char **argv)
+ 				{
+ 					simple_string_list_append(&opt.pub_names, optarg);
+ 					num_pubs++;
+ 				}
+ 				else
+-				{
+-					pg_log_error("publication \"%s\" specified more than once", optarg);
+-					exit(1);
+-				}
++					pg_fatal("publication \"%s\" specified more than once for --publication", optarg);
+ 				break;
+ 			case 3:
+ 				if (!simple_string_list_member(&opt.replslot_names, optarg))
+ 				{
+ 					simple_string_list_append(&opt.replslot_names, optarg);
+ 					num_replslots++;
+ 				}
+ 				else
+-				{
+-					pg_log_error("replication slot \"%s\" specified more than once", optarg);
+-					exit(1);
+-				}
++					pg_fatal("replication slot \"%s\" specified more than once for --replication-slot", optarg);
+ 				break;
+ 			case 4:
+ 				if (!simple_string_list_member(&opt.sub_names, optarg))
+ 				{
+ 					simple_string_list_append(&opt.sub_names, optarg);
+ 					num_subs++;
+ 				}
+ 				else
+-				{
+-					pg_log_error("subscription \"%s\" specified more than once", optarg);
+-					exit(1);
+-				}
++					pg_fatal("subscription \"%s\" specified more than once for --subscription", optarg);
+ 				break;
+ 			default:
+ 				/* getopt_long already emitted a complaint */
+ 				pg_log_error_hint("Try \"%s --help\" for more information.", progname);
+ 				exit(1);
+@@ -2224,11 +2212,11 @@ main(int argc, char **argv)
+ 		else if (num_subs > 0)
+ 			bad_switch = "--subscription";
+ 
+ 		if (bad_switch)
+ 		{
+-			pg_log_error("%s cannot be used with --all", bad_switch);
++			pg_log_error("%s cannot be used with -a/--all", bad_switch);
+ 			pg_log_error_hint("Try \"%s --help\" for more information.", progname);
+ 			exit(1);
+ 		}
+ 	}
+ 
+@@ -2350,11 +2338,11 @@ main(int argc, char **argv)
+ 	{
+ 		if (pg_strcasecmp(cell->val, "publications") == 0)
+ 			dbinfos.objecttypes_to_remove |= OBJECTTYPE_PUBLICATIONS;
+ 		else
+ 		{
+-			pg_log_error("invalid object type \"%s\" specified for --remove", cell->val);
++			pg_log_error("invalid object type \"%s\" specified for -R/--remove", cell->val);
+ 			pg_log_error_hint("The valid option is: \"publications\"");
+ 			exit(1);
+ 		}
+ 	}
+ 
+diff --git a/src/bin/pg_basebackup/t/040_pg_createsubscriber.pl b/src/bin/pg_basebackup/t/040_pg_createsubscriber.pl
+index 80153f7d77e..2d532fee567 100644
+--- a/src/bin/pg_basebackup/t/040_pg_createsubscriber.pl
++++ b/src/bin/pg_basebackup/t/040_pg_createsubscriber.pl
+@@ -397,11 +397,11 @@ command_fails_like(
+ 		'--socketdir' => $node_s->host,
+ 		'--subscriber-port' => $node_s->port,
+ 		'--database' => $db1,
+ 		'--all',
+ 	],
+-	qr/--database cannot be used with --all/,
++	qr/--database cannot be used with -a\/--all/,
+ 	'fail if --database is used with --all');
+ 
+ # run pg_createsubscriber with '--publication' and '--all' and verify
+ # the failure
+ command_fails_like(
+@@ -414,11 +414,11 @@ command_fails_like(
+ 		'--socketdir' => $node_s->host,
+ 		'--subscriber-port' => $node_s->port,
+ 		'--all',
+ 		'--publication' => 'pub1',
+ 	],
+-	qr/--publication cannot be used with --all/,
++	qr/--publication cannot be used with -a\/--all/,
+ 	'fail if --publication is used with --all');
+ 
+ # run pg_createsubscriber with '--all' option
+ my ($stdout, $stderr) = run_command(
+ 	[

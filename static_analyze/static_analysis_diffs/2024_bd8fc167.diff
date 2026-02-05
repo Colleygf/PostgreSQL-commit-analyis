@@ -1,0 +1,63 @@
+commit bd8fc1677b88ed80e4e00e0e46401ec537952482
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Wed Feb 14 16:16:08 2024 +0530
+
+    Fix BF introduced in commit ddd5f4f54a.
+    
+    The failure is that the remote slot is not synchronized after the same
+    slot on standby gets invalidated. The reason was that remote_slot's
+    restart_lsn was lagged behind the standby's oldest WAL segment. The test
+    didn't ensure that remote_slot's LSN was advanced to the latest position
+    before we tried to sync the slots via new the function
+    pg_sync_replication_slots().
+    
+    Discussion: https://postgr.es/m/CAA4eK1JLBi3HzenB6do3_hd78kN0UDD1mz-vumWE52XHHEq5Bw@mail.gmail.com
+
+diff --git a/src/test/recovery/t/040_standby_failover_slots_sync.pl b/src/test/recovery/t/040_standby_failover_slots_sync.pl
+index c96515d178b..9634a50b3ec 100644
+--- a/src/test/recovery/t/040_standby_failover_slots_sync.pl
++++ b/src/test/recovery/t/040_standby_failover_slots_sync.pl
+@@ -169,11 +169,11 @@ $standby1->safe_psql('postgres', "SELECT pg_sync_replication_slots();");
+ 
+ # Confirm that the logical failover slots are created on the standby and are
+ # flagged as 'synced'
+ is( $standby1->safe_psql(
+ 		'postgres',
+-		q{SELECT count(*) = 2 FROM pg_replication_slots WHERE slot_name IN ('lsub1_slot', 'lsub2_slot') AND synced;}
++		q{SELECT count(*) = 2 FROM pg_replication_slots WHERE slot_name IN ('lsub1_slot', 'lsub2_slot') AND synced AND NOT temporary;}
+ 	),
+ 	"t",
+ 	'logical slots have synced as true on standby');
+ 
+ ##################################################
+@@ -225,10 +225,17 @@ $standby1->reload;
+ 
+ # Enable the subscription to let it catch up to the latest wal position
+ $subscriber1->safe_psql('postgres',
+ 	"ALTER SUBSCRIPTION regress_mysub1 ENABLE");
+ 
++# This wait ensures that confirmed_flush_lsn has been moved to latest
++# position.
++$primary->wait_for_catchup('regress_mysub1');
++
++# To ensure that restart_lsn has moved to a recent WAL position, we need
++# to log XLOG_RUNNING_XACTS and make sure the same is processed as well
++$primary->psql('postgres', "CHECKPOINT");
+ $primary->wait_for_catchup('regress_mysub1');
+ 
+ # Do not allow any further advancement of the restart_lsn for the lsub1_slot.
+ $subscriber1->safe_psql('postgres',
+ 	"ALTER SUBSCRIPTION regress_mysub1 DISABLE");
+@@ -254,11 +261,11 @@ $standby1->wait_for_log(qr/dropped replication slot "lsub1_slot" of dbid [0-9]+/
+ 
+ # Confirm that the logical slot has been re-created on the standby and is
+ # flagged as 'synced'
+ is( $standby1->safe_psql(
+ 		'postgres',
+-		q{SELECT conflict_reason IS NULL AND synced FROM pg_replication_slots WHERE slot_name = 'lsub1_slot';}
++		q{SELECT conflict_reason IS NULL AND synced AND NOT temporary FROM pg_replication_slots WHERE slot_name = 'lsub1_slot';}
+ 	),
+ 	"t",
+ 	'logical slot is re-synced');
+ 
+ ##################################################

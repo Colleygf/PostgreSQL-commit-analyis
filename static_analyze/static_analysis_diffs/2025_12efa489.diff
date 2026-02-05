@@ -1,0 +1,71 @@
+commit 12efa48978c6dba5eca1b95758127181783fb217
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Sun Aug 3 10:49:03 2025 +0900
+
+    Fix assertion failure in pgbench when handling multiple pipeline sync messages.
+    
+    Previously, when running pgbench in pipeline mode with a custom script
+    that triggered retriable errors (e.g., serialization errors),
+    an assertion failure could occur:
+    
+        Assertion failed: (res == ((void*)0)), function discardUntilSync, file pgbench.c, line 3515.
+    
+    The root cause was that pgbench incorrectly assumed only a single
+    pipeline sync message would be received at the end. In reality,
+    multiple pipeline sync messages can be sent and must be handled properly.
+    
+    This commit fixes the issue by updating pgbench to correctly process
+    multiple pipeline sync messages, preventing the assertion failure.
+    
+    Back-patch to v15, where the bug was introduced.
+    
+    Author: Fujii Masao <masao.fujii@gmail.com>
+    Reviewed-by: Tatsuo Ishii <ishii@postgresql.org>
+    Discussion: https://postgr.es/m/CAHGQGwFAX56Tfx+1ppo431OSWiLLuW72HaGzZ39NkLkop6bMzQ@mail.gmail.com
+    Backpatch-through: 15
+
+diff --git a/src/bin/pgbench/pgbench.c b/src/bin/pgbench/pgbench.c
+index 497a936c141..125f3c7bbbe 100644
+--- a/src/bin/pgbench/pgbench.c
++++ b/src/bin/pgbench/pgbench.c
+@@ -3493,10 +3493,12 @@ doRetry(CState *st, pg_time_usec_t *now)
+  * Read results and discard it until a sync point.
+  */
+ static int
+ discardUntilSync(CState *st)
+ {
++	bool		received_sync = false;
++
+ 	/* send a sync */
+ 	if (!PQpipelineSync(st->con))
+ 	{
+ 		pg_log_error("client %d aborted: failed to send a pipeline sync",
+ 					 st->id);
+@@ -3507,14 +3509,25 @@ discardUntilSync(CState *st)
+ 	for (;;)
+ 	{
+ 		PGresult   *res = PQgetResult(st->con);
+ 
+ 		if (PQresultStatus(res) == PGRES_PIPELINE_SYNC)
++			received_sync = true;
++		else if (received_sync)
+ 		{
+-			PQclear(res);
+-			res = PQgetResult(st->con);
++			/*
++			 * PGRES_PIPELINE_SYNC must be followed by another
++			 * PGRES_PIPELINE_SYNC or NULL; otherwise, assert failure.
++			 */
+ 			Assert(res == NULL);
++
++			/*
++			 * Reset ongoing sync count to 0 since all PGRES_PIPELINE_SYNC
++			 * results have been discarded.
++			 */
++			st->num_syncs = 0;
++			PQclear(res);
+ 			break;
+ 		}
+ 		PQclear(res);
+ 	}
+ 

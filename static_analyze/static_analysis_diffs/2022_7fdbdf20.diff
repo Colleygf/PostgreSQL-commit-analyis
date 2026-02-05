@@ -1,0 +1,112 @@
+commit 7fdbdf204920ac279f280d0a8e96946fdaf41aef
+Author: Andres Freund <andres@anarazel.de>
+Date:   Sun May 22 15:09:50 2022 -0700
+
+    pgstat: fix stats.spec instability on slow machines.
+    
+    On slow machines the modified test could end up switching the order in which
+    transactional stats are reported in one session and non-transactional stats in
+    another session. As stats handling of truncate is implemented as setting
+    live/dead rows 0, the order in which a truncate's stats changes are applied,
+    relative to normal stats updates, matters. The handling of stats for truncate
+    hasn't changed due to shared memory stats, this is longstanding behavior.
+    
+    We might want to improve truncate's stats handling in the future, but for now
+    just change the order of forced flushed to make the test stable.
+    
+    Reported-By: Christoph Berg <myon@debian.org>
+    Discussion: https://postgr.es/m/YoZf7U/WmfmFYFEx@msg.df7cb.de
+
+diff --git a/src/test/isolation/expected/stats.out b/src/test/isolation/expected/stats.out
+index 8bf6e57d0bf..61b5a710ec8 100644
+--- a/src/test/isolation/expected/stats.out
++++ b/src/test/isolation/expected/stats.out
+@@ -2810,11 +2810,11 @@ seq_scan|seq_tup_read|n_tup_ins|n_tup_upd|n_tup_del|n_live_tup|n_dead_tup|vacuum
+ --------+------------+---------+---------+---------+----------+----------+------------
+        3|           9|        5|        1|        0|         1|         1|           0
+ (1 row)
+ 
+ 
+-starting permutation: s1_table_insert s1_begin s1_table_update_k1 s1_table_update_k1 s1_table_truncate s1_table_insert_k1 s1_table_update_k1 s1_prepare_a s2_commit_prepared_a s1_ff s2_ff s1_table_stats
++starting permutation: s1_table_insert s1_begin s1_table_update_k1 s1_table_update_k1 s1_table_truncate s1_table_insert_k1 s1_table_update_k1 s1_prepare_a s1_ff s2_commit_prepared_a s2_ff s1_table_stats
+ pg_stat_force_next_flush
+ ------------------------
+                         
+ (1 row)
+ 
+@@ -2824,17 +2824,17 @@ step s1_table_update_k1: UPDATE test_stat_tab SET value = value + 1 WHERE key =
+ step s1_table_update_k1: UPDATE test_stat_tab SET value = value + 1 WHERE key = 'k1';
+ step s1_table_truncate: TRUNCATE test_stat_tab;
+ step s1_table_insert_k1: INSERT INTO test_stat_tab(key, value) VALUES('k1', 1);
+ step s1_table_update_k1: UPDATE test_stat_tab SET value = value + 1 WHERE key = 'k1';
+ step s1_prepare_a: PREPARE TRANSACTION 'a';
+-step s2_commit_prepared_a: COMMIT PREPARED 'a';
+ step s1_ff: SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush
+ ------------------------
+                         
+ (1 row)
+ 
++step s2_commit_prepared_a: COMMIT PREPARED 'a';
+ step s2_ff: SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush
+ ------------------------
+                         
+ (1 row)
+diff --git a/src/test/isolation/expected/stats_1.out b/src/test/isolation/expected/stats_1.out
+index 61fda0b5028..3854320106a 100644
+--- a/src/test/isolation/expected/stats_1.out
++++ b/src/test/isolation/expected/stats_1.out
+@@ -2824,11 +2824,11 @@ seq_scan|seq_tup_read|n_tup_ins|n_tup_upd|n_tup_del|n_live_tup|n_dead_tup|vacuum
+ --------+------------+---------+---------+---------+----------+----------+------------
+        3|           9|        4|        2|        0|         4|         2|           0
+ (1 row)
+ 
+ 
+-starting permutation: s1_table_insert s1_begin s1_table_update_k1 s1_table_update_k1 s1_table_truncate s1_table_insert_k1 s1_table_update_k1 s1_prepare_a s2_commit_prepared_a s1_ff s2_ff s1_table_stats
++starting permutation: s1_table_insert s1_begin s1_table_update_k1 s1_table_update_k1 s1_table_truncate s1_table_insert_k1 s1_table_update_k1 s1_prepare_a s1_ff s2_commit_prepared_a s2_ff s1_table_stats
+ pg_stat_force_next_flush
+ ------------------------
+                         
+ (1 row)
+ 
+@@ -2839,18 +2839,18 @@ step s1_table_update_k1: UPDATE test_stat_tab SET value = value + 1 WHERE key =
+ step s1_table_truncate: TRUNCATE test_stat_tab;
+ step s1_table_insert_k1: INSERT INTO test_stat_tab(key, value) VALUES('k1', 1);
+ step s1_table_update_k1: UPDATE test_stat_tab SET value = value + 1 WHERE key = 'k1';
+ step s1_prepare_a: PREPARE TRANSACTION 'a';
+ ERROR:  prepared transactions are disabled
+-step s2_commit_prepared_a: COMMIT PREPARED 'a';
+-ERROR:  prepared transaction with identifier "a" does not exist
+ step s1_ff: SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush
+ ------------------------
+                         
+ (1 row)
+ 
++step s2_commit_prepared_a: COMMIT PREPARED 'a';
++ERROR:  prepared transaction with identifier "a" does not exist
+ step s2_ff: SELECT pg_stat_force_next_flush();
+ pg_stat_force_next_flush
+ ------------------------
+                         
+ (1 row)
+diff --git a/src/test/isolation/specs/stats.spec b/src/test/isolation/specs/stats.spec
+index be4ae1f4ff0..5b922d788cc 100644
+--- a/src/test/isolation/specs/stats.spec
++++ b/src/test/isolation/specs/stats.spec
+@@ -560,12 +560,13 @@ permutation
+   s1_table_update_k1 # dito
+   s1_table_truncate
+   s1_table_insert_k1 # should be counted
+   s1_table_update_k1 # dito
+   s1_prepare_a
++  s1_ff # flush out non-transactional stats, might happen anyway
+   s2_commit_prepared_a
+-  s1_ff s2_ff
++  s2_ff
+   s1_table_stats
+ 
+ # S1 prepares, S1 aborts prepared
+ permutation
+   s1_table_insert

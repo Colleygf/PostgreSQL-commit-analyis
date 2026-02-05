@@ -1,0 +1,65 @@
+commit 7e85d1c75f299b0772fbeb145706e019629530bd
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Wed Apr 10 08:44:17 2024 +0530
+
+    Fix a test in failover slots regression test.
+    
+    Wait for the standby to catch up before syncing the slots with
+    pg_sync_replication_slots(), otherwise, the logical slot could be ahead
+    and the sync would fail.
+    
+    The other way to fix the test is to change it to use slotsync worker and
+    poll for the sync to get finished but the current approach is better as
+    this is a predictable way to write the test.
+    
+    Per buildfarm
+    
+    Author: Hou Zhijie
+    Reviewed-by: Amit Kapila
+    Discussion: https://postgr.es/m/OS0PR01MB571665359F2F5DCD3ADABC9F94002@OS0PR01MB5716.jpnprd01.prod.outlook.com
+
+diff --git a/src/test/recovery/t/040_standby_failover_slots_sync.pl b/src/test/recovery/t/040_standby_failover_slots_sync.pl
+index 048aef10176..76545e3c74a 100644
+--- a/src/test/recovery/t/040_standby_failover_slots_sync.pl
++++ b/src/test/recovery/t/040_standby_failover_slots_sync.pl
+@@ -398,10 +398,14 @@ $cascading_standby->stop;
+ 
+ $primary->safe_psql('postgres',
+ 	"SELECT pg_create_logical_replication_slot('snap_test_slot', 'test_decoding', false, false, true);"
+ );
+ 
++# Wait for the standby to catch up so that the standby is not lagging behind
++# the failover slots.
++$primary->wait_for_replay_catchup($standby1);
++
+ $standby1->safe_psql('postgres', "SELECT pg_sync_replication_slots();");
+ 
+ # Two xl_running_xacts logs are generated here. When decoding the first log, it
+ # only serializes the snapshot, without advancing the restart_lsn to the latest
+ # position. This is because if a transaction is running, the restart_lsn can
+@@ -418,21 +422,23 @@ $primary->safe_psql(
+ 		SELECT txid_current();
+ 		SELECT pg_log_standby_snapshot();
+ 		COMMIT;
+ ));
+ 
+-$primary->wait_for_replay_catchup($standby1);
+-
+ # Advance the restart_lsn to the position of the first xl_running_xacts log
+ # generated above. Note that there might be concurrent xl_running_xacts logs
+ # written by the bgwriter, which could cause the position to be advanced to an
+ # unexpected point, but that would be a rare scenario and doesn't affect the
+ # test results.
+ $primary->safe_psql('postgres',
+ 	"SELECT pg_replication_slot_advance('snap_test_slot', pg_current_wal_lsn());"
+ );
+ 
++# Wait for the standby to catch up so that the standby is not lagging behind
++# the failover slots.
++$primary->wait_for_replay_catchup($standby1);
++
+ # Log a message that will be consumed on the standby after promotion using the
+ # synced slot. See the test where we promote standby (Promote the standby1 to
+ # primary.)
+ $primary->safe_psql('postgres',
+ 	"SELECT pg_logical_emit_message(false, 'test', 'test');"

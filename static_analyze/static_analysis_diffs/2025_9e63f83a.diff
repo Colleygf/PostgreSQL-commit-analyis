@@ -1,0 +1,107 @@
+commit 9e63f83a7e7f8211581bfe9e9d05b72695261f4f
+Author: Etsuro Fujita <efujita@postgresql.org>
+Date:   Fri Aug 8 17:35:00 2025 +0900
+
+    Fix oversight in FindTriggerIncompatibleWithInheritance.
+    
+    This function is called from ATExecAttachPartition/ATExecAddInherit,
+    which prevent tables with row-level triggers with transition tables from
+    becoming partitions or inheritance children, to check if there is such a
+    trigger on the given table, but failed to check if a found trigger is
+    row-level, causing the caller functions to needlessly prevent a table
+    with only a statement-level trigger with transition tables from becoming
+    a partition or inheritance child.  Repair.
+    
+    Oversight in commit 501ed02cf.
+    
+    Author: Etsuro Fujita <etsuro.fujita@gmail.com>
+    Discussion: https://postgr.es/m/CAPmGK167mXzwzzmJ_0YZ3EZrbwiCxtM1vogH_8drqsE6PtxRYw%40mail.gmail.com
+    Backpatch-through: 13
+
+diff --git a/src/backend/commands/trigger.c b/src/backend/commands/trigger.c
+index 93b7ac1a442..71014c65b49 100644
+--- a/src/backend/commands/trigger.c
++++ b/src/backend/commands/trigger.c
+@@ -2283,10 +2283,12 @@ FindTriggerIncompatibleWithInheritance(TriggerDesc *trigdesc)
+ 
+ 		for (i = 0; i < trigdesc->numtriggers; ++i)
+ 		{
+ 			Trigger    *trigger = &trigdesc->triggers[i];
+ 
++			if (!TRIGGER_FOR_ROW(trigger->tgtype))
++				continue;
+ 			if (trigger->tgoldtable != NULL || trigger->tgnewtable != NULL)
+ 				return trigger->tgname;
+ 		}
+ 	}
+ 
+diff --git a/src/test/regress/expected/triggers.out b/src/test/regress/expected/triggers.out
+index 872b9100e1a..1eb8fba0953 100644
+--- a/src/test/regress/expected/triggers.out
++++ b/src/test/regress/expected/triggers.out
+@@ -2767,10 +2767,14 @@ NOTICE:  trigger = child2_delete_trig, old table = (BBB,42)
+ delete from child3;
+ NOTICE:  trigger = child3_delete_trig, old table = (42,CCC)
+ -- copy into parent sees parent-format tuples
+ copy parent (a, b) from stdin;
+ NOTICE:  trigger = parent_insert_trig, new table = (AAA,42), (BBB,42), (CCC,42)
++-- check detach/reattach behavior; statement triggers with transition tables
++-- should not prevent a table from becoming a partition again
++alter table parent detach partition child1;
++alter table parent attach partition child1 for values in ('AAA');
+ -- DML affecting parent sees tuples collected from children even if
+ -- there is no transition table trigger on the children
+ drop trigger child1_insert_trig on child1;
+ drop trigger child1_update_trig on child1;
+ drop trigger child1_delete_trig on child1;
+@@ -2964,10 +2968,14 @@ NOTICE:  trigger = parent_insert_trig, new table = (AAA,42), (BBB,42), (CCC,42)
+ -- same behavior for copy if there is an index (interesting because rows are
+ -- captured by a different code path in copyfrom.c if there are indexes)
+ create index on parent(b);
+ copy parent (a, b) from stdin;
+ NOTICE:  trigger = parent_insert_trig, new table = (DDD,42)
++-- check disinherit/reinherit behavior; statement triggers with transition
++-- tables should not prevent a table from becoming an inheritance child again
++alter table child1 no inherit parent;
++alter table child1 inherit parent;
+ -- DML affecting parent sees tuples collected from children even if
+ -- there is no transition table trigger on the children
+ drop trigger child1_insert_trig on child1;
+ drop trigger child1_update_trig on child1;
+ drop trigger child1_delete_trig on child1;
+diff --git a/src/test/regress/sql/triggers.sql b/src/test/regress/sql/triggers.sql
+index d674b25c83b..5f7f75d7ba5 100644
+--- a/src/test/regress/sql/triggers.sql
++++ b/src/test/regress/sql/triggers.sql
+@@ -1933,10 +1933,15 @@ copy parent (a, b) from stdin;
+ AAA	42
+ BBB	42
+ CCC	42
+ \.
+ 
++-- check detach/reattach behavior; statement triggers with transition tables
++-- should not prevent a table from becoming a partition again
++alter table parent detach partition child1;
++alter table parent attach partition child1 for values in ('AAA');
++
+ -- DML affecting parent sees tuples collected from children even if
+ -- there is no transition table trigger on the children
+ drop trigger child1_insert_trig on child1;
+ drop trigger child1_update_trig on child1;
+ drop trigger child1_delete_trig on child1;
+@@ -2152,10 +2157,15 @@ CCC	42
+ create index on parent(b);
+ copy parent (a, b) from stdin;
+ DDD	42
+ \.
+ 
++-- check disinherit/reinherit behavior; statement triggers with transition
++-- tables should not prevent a table from becoming an inheritance child again
++alter table child1 no inherit parent;
++alter table child1 inherit parent;
++
+ -- DML affecting parent sees tuples collected from children even if
+ -- there is no transition table trigger on the children
+ drop trigger child1_insert_trig on child1;
+ drop trigger child1_update_trig on child1;
+ drop trigger child1_delete_trig on child1;

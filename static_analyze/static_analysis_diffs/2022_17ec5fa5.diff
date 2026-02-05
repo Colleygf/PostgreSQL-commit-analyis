@@ -1,0 +1,78 @@
+commit 17ec5fa502d299b1919b1afacda839fb7d8206ad
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Fri May 6 14:41:31 2022 +0200
+
+    Clear the OpenSSL error queue before cryptohash operations
+    
+    Setting up an EVP context for ciphers banned under FIPS generate
+    two OpenSSL errors in the queue, and as we only consume one from
+    the queue the other is at the head for the next invocation:
+    
+      postgres=# select md5('foo');
+      ERROR:  could not compute MD5 hash: unsupported
+      postgres=# select md5('foo');
+      ERROR:  could not compute MD5 hash: initialization error
+    
+    Clearing the error queue when creating the context ensures that
+    we don't pull in an error from an earlier operation.
+    
+    Discussion: https://postgr.es/m/C89D932C-501E-4473-9750-638CFCD9095E@yesql.se
+
+diff --git a/src/common/cryptohash_openssl.c b/src/common/cryptohash_openssl.c
+index 6c98f1cf95a..8e76ffdee99 100644
+--- a/src/common/cryptohash_openssl.c
++++ b/src/common/cryptohash_openssl.c
+@@ -115,11 +115,14 @@ pg_cryptohash_create(pg_cryptohash_type type)
+ 	ctx->error = PG_CRYPTOHASH_ERROR_NONE;
+ 	ctx->errreason = NULL;
+ 
+ 	/*
+ 	 * Initialization takes care of assigning the correct type for OpenSSL.
++	 * Also ensure that there aren't any unconsumed errors in the queue from
++	 * previous runs.
+ 	 */
++	ERR_clear_error();
+ 	ctx->evpctx = EVP_MD_CTX_create();
+ 
+ 	if (ctx->evpctx == NULL)
+ 	{
+ 		explicit_bzero(ctx, sizeof(pg_cryptohash_ctx));
+@@ -180,10 +183,16 @@ pg_cryptohash_init(pg_cryptohash_ctx *ctx)
+ 	/* OpenSSL internals return 1 on success, 0 on failure */
+ 	if (status <= 0)
+ 	{
+ 		ctx->errreason = SSLerrmessage(ERR_get_error());
+ 		ctx->error = PG_CRYPTOHASH_ERROR_OPENSSL;
++		/*
++		 * The OpenSSL error queue should normally be empty since we've
++		 * consumed an error, but cipher initialization can in FIPS-enabled
++		 * OpenSSL builds generate two errors so clear the queue here as well.
++		 */
++		ERR_clear_error();
+ 		return -1;
+ 	}
+ 	return 0;
+ }
+ 
+diff --git a/src/common/hmac_openssl.c b/src/common/hmac_openssl.c
+index 44f36d51dcb..8874d6a240c 100644
+--- a/src/common/hmac_openssl.c
++++ b/src/common/hmac_openssl.c
+@@ -104,13 +104,17 @@ pg_hmac_create(pg_cryptohash_type type)
+ 
+ 	ctx->type = type;
+ 	ctx->error = PG_HMAC_ERROR_NONE;
+ 	ctx->errreason = NULL;
+ 
++
+ 	/*
+ 	 * Initialization takes care of assigning the correct type for OpenSSL.
++	 * Also ensure that there aren't any unconsumed errors in the queue from
++	 * previous runs.
+ 	 */
++	ERR_clear_error();
+ #ifdef HAVE_HMAC_CTX_NEW
+ #ifndef FRONTEND
+ 	ResourceOwnerEnlargeHMAC(CurrentResourceOwner);
+ #endif
+ 	ctx->hmacctx = HMAC_CTX_new();

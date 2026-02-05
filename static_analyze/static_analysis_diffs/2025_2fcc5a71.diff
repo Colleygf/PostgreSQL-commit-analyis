@@ -1,0 +1,54 @@
+commit 2fcc5a715130fbe9fb6eadf338e3bfe560eb0cb5
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Mon Dec 1 16:34:19 2025 +0100
+
+    Fix a strict aliasing violation
+    
+    This one is almost a textbook example of an aliasing violation, and it
+    is straightforward to fix, so clean it up.  (The warning only shows up
+    if you remove the -fno-strict-aliasing option.)  Also, move the code
+    after the error checking.  Doesn't make a difference technically, but
+    it seems strange to do actions before errors are checked.
+    
+    Reported-by: Tatsuo Ishii <ishii@postgresql.org>
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://www.postgresql.org/message-id/flat/20240724.155525.366150353176322967.ishii%40postgresql.org
+
+diff --git a/src/backend/replication/logical/origin.c b/src/backend/replication/logical/origin.c
+index 4632aa8115d..2380f369578 100644
+--- a/src/backend/replication/logical/origin.c
++++ b/src/backend/replication/logical/origin.c
+@@ -787,26 +787,25 @@ StartupReplicationOrigin(void)
+ 	{
+ 		ReplicationStateOnDisk disk_state;
+ 
+ 		readBytes = read(fd, &disk_state, sizeof(disk_state));
+ 
+-		/* no further data */
+-		if (readBytes == sizeof(crc))
+-		{
+-			/* not pretty, but simple ... */
+-			file_crc = *(pg_crc32c *) &disk_state;
+-			break;
+-		}
+-
+ 		if (readBytes < 0)
+ 		{
+ 			ereport(PANIC,
+ 					(errcode_for_file_access(),
+ 					 errmsg("could not read file \"%s\": %m",
+ 							path)));
+ 		}
+ 
++		/* no further data */
++		if (readBytes == sizeof(crc))
++		{
++			memcpy(&file_crc, &disk_state, sizeof(file_crc));
++			break;
++		}
++
+ 		if (readBytes != sizeof(disk_state))
+ 		{
+ 			ereport(PANIC,
+ 					(errcode_for_file_access(),
+ 					 errmsg("could not read file \"%s\": read %d of %zu",

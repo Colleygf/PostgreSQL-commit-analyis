@@ -1,0 +1,56 @@
+commit 7a424ece4828fa107f36e1c77985eabdbe69e50b
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Fri Feb 16 09:02:54 2024 +0530
+
+    Add more LOG and DEBUG messages for slot synchronization.
+    
+    This provides more information about remote slots during synchronization
+    which helps in debugging bugs and BF failures due to test case issues. We
+    might later want to change the LOG message added by this patch to DEBUG1.
+    
+    Author: Hou Zhijie
+    Reviewed-by: Amit Kapila, Bertrand Drouvot
+    Discussion: https://postgr.es/m/514f6f2f-6833-4539-39f1-96cd1e011f23@enterprisedb.com
+    Discussion: https://postgr.es/m/OS0PR01MB571633C23B2A4CAC5FB0371A944C2@OS0PR01MB5716.jpnprd01.prod.outlook.com
+
+diff --git a/src/backend/replication/logical/slotsync.c b/src/backend/replication/logical/slotsync.c
+index 0aa1bf1ad28..f1542ef0e96 100644
+--- a/src/backend/replication/logical/slotsync.c
++++ b/src/backend/replication/logical/slotsync.c
+@@ -319,10 +319,13 @@ reserve_wal_for_local_slot(XLogRecPtr restart_lsn)
+ 
+ 			GetWalRcvFlushRecPtr(NULL, &cur_timeline);
+ 			oldest_segno = XLogGetOldestSegno(cur_timeline);
+ 		}
+ 
++		elog(DEBUG1, "segno: %ld of purposed restart_lsn for the synced slot, oldest_segno: %ld available",
++			 segno, oldest_segno);
++
+ 		/*
+ 		 * If all required WAL is still there, great, otherwise retry. The
+ 		 * slot should prevent further removal of WAL, unless there's a
+ 		 * concurrent ReplicationSlotsComputeRequiredLSN() after we've written
+ 		 * the new restart_lsn above, so normally we should never need to loop
+@@ -359,11 +362,22 @@ update_and_persist_local_synced_slot(RemoteSlot *remote_slot, Oid remote_dbid)
+ 		 *
+ 		 * We do not drop the slot because the restart_lsn can be ahead of the
+ 		 * current location when recreating the slot in the next cycle. It may
+ 		 * take more time to create such a slot. Therefore, we keep this slot
+ 		 * and attempt the synchronization in the next cycle.
++		 *
++		 * XXX should this be changed to elog(DEBUG1) perhaps?
+ 		 */
++		ereport(LOG,
++				errmsg("could not sync slot information as remote slot precedes local slot:"
++					   " remote slot \"%s\": LSN (%X/%X), catalog xmin (%u) local slot: LSN (%X/%X), catalog xmin (%u)",
++					   remote_slot->name,
++					   LSN_FORMAT_ARGS(remote_slot->restart_lsn),
++					   remote_slot->catalog_xmin,
++					   LSN_FORMAT_ARGS(slot->data.restart_lsn),
++					   slot->data.catalog_xmin));
++
+ 		return;
+ 	}
+ 
+ 	/* First time slot update, the function must return true */
+ 	if (!update_local_synced_slot(remote_slot, remote_dbid))

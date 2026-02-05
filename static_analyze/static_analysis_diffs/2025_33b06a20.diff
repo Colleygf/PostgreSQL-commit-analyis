@@ -1,0 +1,66 @@
+commit 33b06a20016d8dd8dbdc1f6d6a9d79477c1104c5
+Author: David Rowley <drowley@postgresql.org>
+Date:   Tue Jun 17 10:49:36 2025 +1200
+
+    Fix possible Assert failure in verify_compact_attribute()
+    
+    Sometimes the TupleDesc used in verify_compact_attribute() is shared
+    among backends, and since CompactAttribute.attcacheoff gets updated
+    during tuple deformation, it was possible that another backend would
+    set attcacheoff on a given CompactAttribute in the small window of time
+    from when the attcacheoff from the live CompactAttribute was being set
+    in the 'tmp' CompactAttribute and before the Assert verifying that the
+    live and tmp CompactAttributes matched.
+    
+    Here we adjust the code to make a copy of the live CompactAttribute so
+    that we're not trying to Assert against a shared copy of it.
+    
+    Author: David Rowley <dgrowleyml@gmail.com>
+    Reported-by: Alexander Lakhin <exclusion@gmail.com>
+    Discussion: https://postgr.es/m/7195e408-758c-4031-8e61-4f842c716ac0@gmail.com
+
+diff --git a/src/backend/access/common/tupdesc.c b/src/backend/access/common/tupdesc.c
+index ffd0c78f905..020d00cd01c 100644
+--- a/src/backend/access/common/tupdesc.c
++++ b/src/backend/access/common/tupdesc.c
+@@ -140,29 +140,36 @@ populate_compact_attribute(TupleDesc tupdesc, int attnum)
+  */
+ void
+ verify_compact_attribute(TupleDesc tupdesc, int attnum)
+ {
+ #ifdef USE_ASSERT_CHECKING
+-	CompactAttribute *cattr = &tupdesc->compact_attrs[attnum];
++	CompactAttribute cattr;
+ 	Form_pg_attribute attr = TupleDescAttr(tupdesc, attnum);
+ 	CompactAttribute tmp;
+ 
++	/*
++	 * Make a temp copy of the TupleDesc's CompactAttribute.  This may be a
++	 * shared TupleDesc and the attcacheoff might get changed by another
++	 * backend.
++	 */
++	memcpy(&cattr, &tupdesc->compact_attrs[attnum], sizeof(CompactAttribute));
++
+ 	/*
+ 	 * Populate the temporary CompactAttribute from the corresponding
+ 	 * Form_pg_attribute
+ 	 */
+ 	populate_compact_attribute_internal(attr, &tmp);
+ 
+ 	/*
+ 	 * Make the attcacheoff match since it's been reset to -1 by
+ 	 * populate_compact_attribute_internal.  Same with attnullability.
+ 	 */
+-	tmp.attcacheoff = cattr->attcacheoff;
+-	tmp.attnullability = cattr->attnullability;
++	tmp.attcacheoff = cattr.attcacheoff;
++	tmp.attnullability = cattr.attnullability;
+ 
+ 	/* Check the freshly populated CompactAttribute matches the TupleDesc's */
+-	Assert(memcmp(&tmp, cattr, sizeof(CompactAttribute)) == 0);
++	Assert(memcmp(&tmp, &cattr, sizeof(CompactAttribute)) == 0);
+ #endif
+ }
+ 
+ /*
+  * CreateTemplateTupleDesc

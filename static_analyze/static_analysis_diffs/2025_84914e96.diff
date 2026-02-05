@@ -1,0 +1,82 @@
+commit 84914e964b447a63c5208ca2ec11ec3abfda0879
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Thu Jun 12 23:25:21 2025 +0900
+
+    pg_restore: Fix wrong descriptions of --with-{schema,data,statistics} options.
+    
+    Commit bde2fb797aa added the --with-schema, --with-data, and --with-statistics
+    options to pg_restore. These options control whether to restore schema, data,
+    or statistics if present in the archive. However, the help message and
+    documentation incorrectly described them as affecting what gets dumped.
+    
+    This commit corrects those descriptions to clarify that the options control
+    restoration, not dumping.
+    
+    Bug: #18952
+    Reported-by: TAKATSUKA Haruka <harukat@sraoss.co.jp>
+    Author: Fujii Masao <masao.fujii@gmail.com>
+    Reviewed-by: TAKATSUKA Haruka <harukat@sraoss.co.jp>
+    Reviewed-by: Daniel Gustafsson <daniel@yesql.se>
+    Discussion: https://postgr.es/m/18952-be40a620f8b1e755@postgresql.org
+
+diff --git a/doc/src/sgml/ref/pg_restore.sgml b/doc/src/sgml/ref/pg_restore.sgml
+index 2295df62d03..8c88b07dcc8 100644
+--- a/doc/src/sgml/ref/pg_restore.sgml
++++ b/doc/src/sgml/ref/pg_restore.sgml
+@@ -921,29 +921,32 @@ PostgreSQL documentation
+ 
+      <varlistentry>
+       <term><option>--with-data</option></term>
+       <listitem>
+        <para>
+-        Dump data. This is the default.
++        Output commands to restore data, if the archive contains them.
++        This is the default.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry>
+       <term><option>--with-schema</option></term>
+       <listitem>
+        <para>
+-        Dump schema (data definitions). This is the default.
++        Output commands to restore schema (data definitions), if the archive
++        contains them. This is the default.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry>
+       <term><option>--with-statistics</option></term>
+       <listitem>
+        <para>
+-        Dump statistics. This is the default.
++        Output commands to restore statistics, if the archive contains them.
++        This is the default.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
+      <varlistentry>
+diff --git a/src/bin/pg_dump/pg_restore.c b/src/bin/pg_dump/pg_restore.c
+index f2182e91825..c4b6214d618 100644
+--- a/src/bin/pg_dump/pg_restore.c
++++ b/src/bin/pg_dump/pg_restore.c
+@@ -710,13 +710,13 @@ usage(const char *progname)
+ 			 "                               match at least one entity each\n"));
+ 	printf(_("  --transaction-size=N         commit after every N objects\n"));
+ 	printf(_("  --use-set-session-authorization\n"
+ 			 "                               use SET SESSION AUTHORIZATION commands instead of\n"
+ 			 "                               ALTER OWNER commands to set ownership\n"));
+-	printf(_("  --with-data                  dump the data\n"));
+-	printf(_("  --with-schema                dump the schema\n"));
+-	printf(_("  --with-statistics            dump the statistics\n"));
++	printf(_("  --with-data                  restore the data\n"));
++	printf(_("  --with-schema                restore the schema\n"));
++	printf(_("  --with-statistics            restore the statistics\n"));
+ 
+ 	printf(_("\nConnection options:\n"));
+ 	printf(_("  -h, --host=HOSTNAME      database server host or socket directory\n"));
+ 	printf(_("  -p, --port=PORT          database server port number\n"));
+ 	printf(_("  -U, --username=NAME      connect as specified database user\n"));

@@ -1,0 +1,93 @@
+commit 23100645104f63bf7c35304f36f8a7d91f5ddd73
+Author: David Rowley <drowley@postgresql.org>
+Date:   Fri Jan 10 14:30:25 2025 +1300
+
+    Fix UNION planner datatype issue
+    
+    66c0185a3 gave the planner the ability to have union child queries
+    provide the union planner with pre-sorted input so that UNION queries
+    could be more efficiently implemented using Merge Append.
+    
+    That commit overlooked checking that the UNION target list and the union
+    child target list's types all match.  In some corner cases, this could
+    result in the planner producing sorts using the sort operator of the
+    top-level UNION's target list type rather than of the union child's
+    target list's type.  The implications of this range from silently
+    working correctly, despite using the wrong sort operator all the way up
+    to a segmentation fault.
+    
+    Here we fix by adjusting the planner so it makes no attempt to have the
+    subquery produce pre-sorted results when the data type of the UNION
+    target list and the types from the subquery target list don't match
+    exactly.
+    
+    Backpatch to 17, where 66c0185a3 was introduced.
+    
+    Reported-by: Jason Smith <dqetool@126.com>
+    Diagnosed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Bug: 18764
+    Discussion: https://postgr.es/m/18764-63ad667ea26e877a%40postgresql.org
+    Backpatch-through: 17
+
+diff --git a/src/backend/optimizer/plan/planner.c b/src/backend/optimizer/plan/planner.c
+index e92e108b6b6..6803edd0854 100644
+--- a/src/backend/optimizer/plan/planner.c
++++ b/src/backend/optimizer/plan/planner.c
+@@ -8075,35 +8075,55 @@ group_by_has_partkey(RelOptInfo *input_rel,
+  *
+  * This is similar to generate_setop_grouplist() but differs as the setop
+  * child query's targetlist entries may already have a tleSortGroupRef
+  * assigned for other purposes, such as GROUP BYs.  Here we keep the
+  * SortGroupClause list in the same order as 'op' groupClauses and just adjust
+- * the tleSortGroupRef to reference the TargetEntry's 'ressortgroupref'.
++ * the tleSortGroupRef to reference the TargetEntry's 'ressortgroupref'.  If
++ * any of the columns in the targetlist don't match to the setop's colTypes
++ * then we return an empty list.  This may leave some TLEs with unreferenced
++ * ressortgroupref markings, but that's harmless.
+  */
+ static List *
+ generate_setop_child_grouplist(SetOperationStmt *op, List *targetlist)
+ {
+ 	List	   *grouplist = copyObject(op->groupClauses);
+ 	ListCell   *lg;
+ 	ListCell   *lt;
++	ListCell   *ct;
+ 
+ 	lg = list_head(grouplist);
++	ct = list_head(op->colTypes);
+ 	foreach(lt, targetlist)
+ 	{
+ 		TargetEntry *tle = (TargetEntry *) lfirst(lt);
+ 		SortGroupClause *sgc;
++		Oid			coltype;
+ 
+ 		/* resjunk columns could have sortgrouprefs.  Leave these alone */
+ 		if (tle->resjunk)
+ 			continue;
+ 
+-		/* we expect every non-resjunk target to have a SortGroupClause */
++		/*
++		 * We expect every non-resjunk target to have a SortGroupClause and
++		 * colTypes.
++		 */
+ 		Assert(lg != NULL);
++		Assert(ct != NULL);
+ 		sgc = (SortGroupClause *) lfirst(lg);
++		coltype = lfirst_oid(ct);
++
++		/* reject if target type isn't the same as the setop target type */
++		if (coltype != exprType((Node *) tle->expr))
++			return NIL;
++
+ 		lg = lnext(grouplist, lg);
++		ct = lnext(op->colTypes, ct);
+ 
+ 		/* assign a tleSortGroupRef, or reuse the existing one */
+ 		sgc->tleSortGroupRef = assignSortGroupRef(tle, targetlist);
+ 	}
++
+ 	Assert(lg == NULL);
++	Assert(ct == NULL);
++
+ 	return grouplist;
+ }

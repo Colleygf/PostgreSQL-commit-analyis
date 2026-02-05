@@ -1,0 +1,74 @@
+commit a9781ae11ba2fdb44a3a72c9a7ebb727140b25c5
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Thu Apr 20 15:45:44 2023 +0200
+
+    Fix autovacuum cost debug logging
+    
+    Commit 7d71d3dd0 introduced finer grained updates of autovacuum option
+    changes by increasing the frequency of reading the configuration file.
+    The debug logging of cost parameter was however changed such that some
+    initial values weren't logged.  Fix by changing logging to use the old
+    frequency of logging regardless of them changing.
+    
+    Also avoid taking a log for rendering the log message unless the set
+    loglevel is such that the log entry will be emitted.
+    
+    Author: Masahiko Sawada <sawada.mshk@gmail.com>
+    Discussion: https://postgr.es/m/CAD21AoBS7o6Ljt_vfqPQPf67AhzKu3fR0iqk8B=vVYczMugKMQ@mail.gmail.com
+
+diff --git a/src/backend/postmaster/autovacuum.c b/src/backend/postmaster/autovacuum.c
+index 53c8f8d79cb..e23ec32e22f 100644
+--- a/src/backend/postmaster/autovacuum.c
++++ b/src/backend/postmaster/autovacuum.c
+@@ -1783,13 +1783,10 @@ FreeWorkerInfo(int code, Datum arg)
+  * config reload to ensure up-to-date values.
+  */
+ void
+ VacuumUpdateCosts(void)
+ {
+-	double		original_cost_delay = vacuum_cost_delay;
+-	int			original_cost_limit = vacuum_cost_limit;
+-
+ 	if (MyWorkerInfo)
+ 	{
+ 		if (av_storage_param_cost_delay >= 0)
+ 			vacuum_cost_delay = av_storage_param_cost_delay;
+ 		else if (autovacuum_vac_cost_delay >= 0)
+@@ -1819,20 +1816,19 @@ VacuumUpdateCosts(void)
+ 	{
+ 		VacuumCostActive = false;
+ 		VacuumCostBalance = 0;
+ 	}
+ 
+-	if (MyWorkerInfo)
++	/*
++	 * Since the cost logging requires a lock, avoid rendering the log message
++	 * in case we are using a message level where the log wouldn't be emitted.
++	 */
++	if (MyWorkerInfo && message_level_is_interesting(DEBUG2))
+ 	{
+ 		Oid			dboid,
+ 					tableoid;
+ 
+-		/* Only log updates to cost-related variables */
+-		if (vacuum_cost_delay == original_cost_delay &&
+-			vacuum_cost_limit == original_cost_limit)
+-			return;
+-
+ 		Assert(!LWLockHeldByMe(AutovacuumLock));
+ 
+ 		LWLockAcquire(AutovacuumLock, LW_SHARED);
+ 		dboid = MyWorkerInfo->wi_dboid;
+ 		tableoid = MyWorkerInfo->wi_tableoid;
+@@ -1842,11 +1838,10 @@ VacuumUpdateCosts(void)
+ 			 "Autovacuum VacuumUpdateCosts(db=%u, rel=%u, dobalance=%s, cost_limit=%d, cost_delay=%g active=%s failsafe=%s)",
+ 			 dboid, tableoid, pg_atomic_unlocked_test_flag(&MyWorkerInfo->wi_dobalance) ? "no" : "yes",
+ 			 vacuum_cost_limit, vacuum_cost_delay,
+ 			 vacuum_cost_delay > 0 ? "yes" : "no",
+ 			 VacuumFailsafeActive ? "yes" : "no");
+-
+ 	}
+ }
+ 
+ /*
+  * Update vacuum_cost_limit with the correct value for an autovacuum worker,

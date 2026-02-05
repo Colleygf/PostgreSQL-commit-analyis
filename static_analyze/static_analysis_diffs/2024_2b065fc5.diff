@@ -1,0 +1,73 @@
+commit 2b065fc549ed60249f211a7f37f383ff621973ea
+Author: Bruce Momjian <bruce@momjian.us>
+Date:   Tue May 14 20:48:11 2024 -0400
+
+    doc PG 17 relnotes:  wording fix
+    
+    Reported-by: Pantelis Theodosiou
+    
+    Discussion: https://postgr.es/m/CAE3TBxxvkSGJGv7S0SMLSAe0khrQJBHsTca799r=vDJTn+BDAw@mail.gmail.com
+    
+    Backpatch-through: master
+
+diff --git a/doc/src/sgml/release-17.sgml b/doc/src/sgml/release-17.sgml
+index a3b4a8fb3b9..9c7c0a0337f 100644
+--- a/doc/src/sgml/release-17.sgml
++++ b/doc/src/sgml/release-17.sgml
+@@ -383,11 +383,11 @@ Author: Tom Lane <tgl@sss.pgh.pa.us>
+ 2023-07-14 [e08d74ca1] Allow plan nodes with initPlans to be considered paralle
+ -->
+ 
+ <listitem>
+ <para>
+-Allow query nodes to be run in parallel in more case (Tom Lane)
++Allow query nodes to be run in parallel in more cases (Tom Lane)
+ </para>
+ </listitem>
+ 
+ <!--
+ Author: Alexander Korotkov <akorotkov@postgresql.org>
+@@ -561,10 +561,21 @@ Author: Michael Paquier <michael@paquier.xyz>
+ <para>
+ Improve performance of heavily-contended WAL writes (Bharath Rupireddy)
+ </para>
+ </listitem>
+ 
++<!--
++Author: David Rowley <drowley@postgresql.org>
++2024-04-07 [c4ab7da60] Avoid needless large memcpys in libpq socket writing
++-->
++
++<listitem>
++<para>
++Improve performance when transferring large blocks of data to a client (Melih Mutlu)
++</para>
++</listitem>
++
+ <!--
+ Author: Thomas Munro <tmunro@postgresql.org>
+ 2024-04-03 [210622c60] Provide vectored variant of ReadBuffer().
+ Author: Thomas Munro <tmunro@postgresql.org>
+ 2024-04-08 [b7b0f3f27] Use streaming I/O in sequential scans.
+@@ -1921,21 +1932,10 @@ Author: Tom Lane <tgl@sss.pgh.pa.us>
+ <para>
+ Add libpq function PQsetChunkedRowsMode to allow retrieval of results in chunks (Daniel Vérité)
+ </para>
+ </listitem>
+ 
+-<!--
+-Author: David Rowley <drowley@postgresql.org>
+-2024-04-07 [c4ab7da60] Avoid needless large memcpys in libpq socket writing
+--->
+-
+-<listitem>
+-<para>
+-Allow libpq to more efficiently transfer large blocks of data (Melih Mutlu)
+-</para>
+-</listitem>
+-
+ <!--
+ Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+ 2024-04-08 [d39a49c1e] Support TLS handshake directly without SSLRequest negoti
+ Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+ 2024-04-08 [91044ae4b] Send ALPN in TLS handshake, require it in direct SSL con

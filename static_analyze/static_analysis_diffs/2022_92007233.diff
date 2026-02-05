@@ -1,0 +1,119 @@
+commit 920072339f304a7da0b5de966117420c96ad78cb
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Tue Jul 12 15:37:39 2022 -0400
+
+    Improve error reporting from validate_exec().
+    
+    validate_exec() didn't guarantee to set errno to something appropriate
+    after a failure, leading to callers not being able to print an on-point
+    message.  Improve that.
+    
+    Noted by Kyotaro Horiguchi, though this isn't exactly his proposal.
+    
+    Discussion: https://postgr.es/m/20220615.131403.1791191615590453058.horikyota.ntt@gmail.com
+
+diff --git a/src/bin/pg_upgrade/exec.c b/src/bin/pg_upgrade/exec.c
+index 64276223d50..aa3d2f88ed8 100644
+--- a/src/bin/pg_upgrade/exec.c
++++ b/src/bin/pg_upgrade/exec.c
+@@ -421,22 +421,15 @@ check_exec(const char *dir, const char *program, bool check_version)
+ {
+ 	char		path[MAXPGPATH];
+ 	char		line[MAXPGPATH];
+ 	char		cmd[MAXPGPATH];
+ 	char		versionstr[128];
+-	int			ret;
+ 
+ 	snprintf(path, sizeof(path), "%s/%s", dir, program);
+ 
+-	ret = validate_exec(path);
+-
+-	if (ret == -1)
+-		pg_fatal("check for \"%s\" failed: does not exist or cannot be executed",
+-				 path);
+-	else if (ret == -2)
+-		pg_fatal("check for \"%s\" failed: cannot read (permission denied)",
+-				 path);
++	if (validate_exec(path) != 0)
++		pg_fatal("check for \"%s\" failed: %m", path);
+ 
+ 	snprintf(cmd, sizeof(cmd), "\"%s\" -V", path);
+ 
+ 	if (!pipe_read_line(cmd, line, sizeof(line)))
+ 		pg_fatal("check for \"%s\" failed: cannot execute",
+diff --git a/src/common/exec.c b/src/common/exec.c
+index 9da588daf91..f7d44b09569 100644
+--- a/src/common/exec.c
++++ b/src/common/exec.c
+@@ -72,10 +72,11 @@ static BOOL GetTokenUser(HANDLE hToken, PTOKEN_USER *ppTokenUser);
+  * validate_exec -- validate "path" as an executable file
+  *
+  * returns 0 if the file is found and no error is encountered.
+  *		  -1 if the regular file "path" does not exist or cannot be executed.
+  *		  -2 if the file is otherwise valid but cannot be read.
++ * in the failure cases, errno is set appropriately
+  */
+ int
+ validate_exec(const char *path)
+ {
+ 	struct stat buf;
+@@ -103,22 +104,33 @@ validate_exec(const char *path)
+ 	 */
+ 	if (stat(path, &buf) < 0)
+ 		return -1;
+ 
+ 	if (!S_ISREG(buf.st_mode))
++	{
++		/*
++		 * POSIX offers no errno code that's simply "not a regular file".  If
++		 * it's a directory we can use EISDIR.  Otherwise, it's most likely a
++		 * device special file, and EPERM (Operation not permitted) isn't too
++		 * horribly off base.
++		 */
++		errno = S_ISDIR(buf.st_mode) ? EISDIR : EPERM;
+ 		return -1;
++	}
+ 
+ 	/*
+ 	 * Ensure that the file is both executable and readable (required for
+ 	 * dynamic loading).
+ 	 */
+ #ifndef WIN32
+ 	is_r = (access(path, R_OK) == 0);
+ 	is_x = (access(path, X_OK) == 0);
++	/* access() will set errno if it returns -1 */
+ #else
+ 	is_r = buf.st_mode & S_IRUSR;
+ 	is_x = buf.st_mode & S_IXUSR;
++	errno = EACCES;				/* appropriate thing if we return nonzero */
+ #endif
+ 	return is_x ? (is_r ? 0 : -2) : -1;
+ }
+ 
+ 
+@@ -163,11 +175,11 @@ find_my_exec(const char *argv0, char *retpath)
+ 
+ 		if (validate_exec(retpath) == 0)
+ 			return resolve_symlinks(retpath);
+ 
+ 		log_error(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+-				  _("invalid binary \"%s\""), retpath);
++				  _("invalid binary \"%s\": %m"), retpath);
+ 		return -1;
+ 	}
+ 
+ #ifdef WIN32
+ 	/* Win32 checks the current directory first for names without slashes */
+@@ -213,11 +225,11 @@ find_my_exec(const char *argv0, char *retpath)
+ 					return resolve_symlinks(retpath);
+ 				case -1:		/* wasn't even a candidate, keep looking */
+ 					break;
+ 				case -2:		/* found but disqualified */
+ 					log_error(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+-							  _("could not read binary \"%s\""),
++							  _("could not read binary \"%s\": %m"),
+ 							  retpath);
+ 					break;
+ 			}
+ 		} while (*endp);
+ 	}

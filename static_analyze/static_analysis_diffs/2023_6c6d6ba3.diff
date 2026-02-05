@@ -1,0 +1,85 @@
+commit 6c6d6ba3ee2c160b53f727cf8e612014b316d6e4
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Tue Jan 24 09:25:36 2023 +0530
+
+    Fix the Drop Database hang.
+    
+    The drop database command waits for the logical replication sync worker to
+    accept ProcSignalBarrier and the worker's slot creation waits for the drop
+    database to finish which leads to a deadlock. This happens because the
+    tablesync worker holds interrupts while creating a slot.
+    
+    We prevent cancel/die interrupts while creating a slot in the table sync
+    worker because it is possible that before the server finishes this
+    command, a concurrent drop subscription happens which would complete
+    without removing this slot and that leads to the slot existing until the
+    end of walsender. However, the slot will eventually get dropped at the
+    walsender exit time, so there is no danger of the dangling slot.
+    
+    This patch reallows cancel/die interrupts while creating a slot and
+    modifies the test to wait for slots to become zero to prevent finding an
+    ephemeral slot.
+    
+    The reported hang doesn't happen in PG14 as the drop database starts to
+    wait for ProcSignalBarrier with PG15 (commits 4eb2176318 and e2f65f4255)
+    but it is good to backpatch this till PG14 as it is not a good idea to
+    prevent interrupts during a network call that could block indefinitely.
+    
+    Reported-by: Lakshmi Narayanan Sreethar
+    Diagnosed-by: Andres Freund
+    Author: Hou Zhijie
+    Reviewed-by: Vignesh C, Amit Kapila
+    Backpatch-through: 14, where it was introduced in commit 6b67d72b60
+    Discussion: https://postgr.es/m/CA+kvmZELXQ4ZD3U=XCXuG3KvFgkuPoN1QrEj8c-rMRodrLOnsg@mail.gmail.com
+
+diff --git a/src/backend/replication/logical/tablesync.c b/src/backend/replication/logical/tablesync.c
+index 4647837b823..07eea504ba8 100644
+--- a/src/backend/replication/logical/tablesync.c
++++ b/src/backend/replication/logical/tablesync.c
+@@ -1394,21 +1394,14 @@ LogicalRepSyncTableStart(XLogRecPtr *origin_startpos)
+ 
+ 	/*
+ 	 * Create a new permanent logical decoding slot. This slot will be used
+ 	 * for the catchup phase after COPY is done, so tell it to use the
+ 	 * snapshot to make the final data consistent.
+-	 *
+-	 * Prevent cancel/die interrupts while creating slot here because it is
+-	 * possible that before the server finishes this command, a concurrent
+-	 * drop subscription happens which would complete without removing this
+-	 * slot leading to a dangling slot on the server.
+ 	 */
+-	HOLD_INTERRUPTS();
+ 	walrcv_create_slot(LogRepWorkerWalRcvConn,
+ 					   slotname, false /* permanent */ , false /* two_phase */ ,
+ 					   CRS_USE_SNAPSHOT, origin_startpos);
+-	RESUME_INTERRUPTS();
+ 
+ 	/*
+ 	 * Setup replication origin tracking. The purpose of doing this before the
+ 	 * copy is to avoid doing the copy again due to any error in setting up
+ 	 * origin tracking.
+diff --git a/src/test/subscription/t/004_sync.pl b/src/test/subscription/t/004_sync.pl
+index d50c43b8e30..87381c08299 100644
+--- a/src/test/subscription/t/004_sync.pl
++++ b/src/test/subscription/t/004_sync.pl
+@@ -161,13 +161,17 @@ $result = $node_subscriber->poll_query_until('postgres', $started_query)
+ 
+ # DROP SUBSCRIPTION must clean up slots on the publisher side when the
+ # subscriber is stuck on data copy for constraint violation.
+ $node_subscriber->safe_psql('postgres', "DROP SUBSCRIPTION tap_sub");
+ 
+-$result = $node_publisher->safe_psql('postgres',
+-	"SELECT count(*) FROM pg_replication_slots");
+-is($result, qq(0),
++# When DROP SUBSCRIPTION tries to drop the tablesync slot, the slot may not
++# have been created, which causes the slot to be created after the DROP
++# SUSCRIPTION finishes. Such slots eventually get dropped at walsender exit
++# time. So, to prevent being affected by such ephemeral tablesync slots, we
++# wait until all the slots have been cleaned.
++ok( $node_publisher->poll_query_until(
++		'postgres', 'SELECT count(*) = 0 FROM pg_replication_slots'),
+ 	'DROP SUBSCRIPTION during error can clean up the slots on the publisher');
+ 
+ $node_subscriber->stop('fast');
+ $node_publisher->stop('fast');
+ 

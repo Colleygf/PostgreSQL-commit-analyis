@@ -1,0 +1,103 @@
+commit 00066aa1733d84109f7569a7202c3915d8289d3a
+Author: Andres Freund <andres@anarazel.de>
+Date:   Tue Apr 1 13:50:39 2025 -0400
+
+    md: Add comment & assert to buffer-zeroing path in md[start]readv()
+    
+    mdreadv() has a codepath to zero out buffers when a read returns zero bytes,
+    guarded by a check for zero_damaged_pages || InRecovery.
+    
+    The InRecovery codepath to zero out buffers in mdreadv() appears to be
+    unreachable. The only known paths to reach mdreadv()/mdstartreadv() in
+    recovery are XLogReadBufferExtended(), vm_readbuf(), and fsm_readbuf(), each
+    of which takes care to extend the relation if necessary. This looks to either
+    have been the case for a long time, or the code was never reachable.
+    
+    The zero_damaged_pages path is incomplete, as missing segments are not
+    created.
+    
+    Putting blocks into the buffer-pool that do not exist on disk is rather
+    problematic, as such blocks will, at least initially, not be found by scans
+    that rely on smgrnblocks(), as they are beyond EOF. It also can cause weird
+    problems with relation extension, as relation extension does not expect blocks
+    beyond EOF to exist.
+    
+    Therefore we would like to remove that path.
+    
+    mdstartreadv(), which I added in e5fe570b51c, does not implement this zeroing
+    logic. I had started a discussion about that a while ago (linked below), but
+    forgot to act on the conclusion of the discussion, namely to disable the
+    in-memory-zeroing behavior.
+    
+    We could certainly implement equivalent zeroing logic in mdstartreadv(), but
+    it would have to be more complicated due to potential differences in the
+    zero_damaged_pages setting between the definer and completor of IO. Given that
+    we want to remove the logic, that does not seem worth implementing the
+    necessary logic.
+    
+    For now, put an Assert(false) and comments documenting this choice into
+    mdreadv() and comments documenting the deprecation of the path in mdreadv()
+    and the non-implementation of it in mdstartreadv().  If we, during testing,
+    discover that we do need the path, we can implement it at that time.
+    
+    Reviewed-by: Noah Misch <noah@leadboat.com>
+    Discussion: https://postgr.es/m/postgr.es/m/20250330024513.ac.nmisch@google.com
+    Discussion: https://postgr.es/m/postgr.es/m/3qxxsnciyffyf3wyguiz4besdp5t5uxvv3utg75cbcszojlz7p@uibfzmnukkbd
+
+diff --git a/src/backend/storage/smgr/md.c b/src/backend/storage/smgr/md.c
+index b55892b9405..b39c9334656 100644
+--- a/src/backend/storage/smgr/md.c
++++ b/src/backend/storage/smgr/md.c
+@@ -908,13 +908,34 @@ mdreadv(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
+ 				 * Normally this is an error; upper levels should never try to
+ 				 * read a nonexistent block.  However, if zero_damaged_pages
+ 				 * is ON or we are InRecovery, we should instead return zeroes
+ 				 * without complaining.  This allows, for example, the case of
+ 				 * trying to update a block that was later truncated away.
++				 *
++				 * NB: We think that this codepath is unreachable in recovery
++				 * and incomplete with zero_damaged_pages, as missing segments
++				 * are not created. Putting blocks into the buffer-pool that
++				 * do not exist on disk is rather problematic, as it will not
++				 * be found by scans that rely on smgrnblocks(), as they are
++				 * beyond EOF. It also can cause weird problems with relation
++				 * extension, as relation extension does not expect blocks
++				 * beyond EOF to exist.
++				 *
++				 * Therefore we do not want to copy the logic into
++				 * mdstartreadv(), where it would have to be more complicated
++				 * due to potential differences in the zero_damaged_pages
++				 * setting between the definer and completor of IO.
++				 *
++				 * For PG 18, we are putting an Assert(false) in mdreadv()
++				 * (triggering failures in assertion-enabled builds, but
++				 * continuing to work in production builds). Afterwards we
++				 * plan to remove this code entirely.
+ 				 */
+ 				if (zero_damaged_pages || InRecovery)
+ 				{
++					Assert(false);	/* see comment above */
++
+ 					for (BlockNumber i = transferred_this_segment / BLCKSZ;
+ 						 i < nblocks_this_segment;
+ 						 ++i)
+ 						memset(buffers[i], 0, BLCKSZ);
+ 					break;
+@@ -1005,10 +1026,17 @@ mdstartreadv(PgAioHandle *ioh,
+ 						FilePathName(v->mdfd_vfd))));
+ 
+ 	/*
+ 	 * The error checks corresponding to the post-read checks in mdreadv() are
+ 	 * in md_readv_complete().
++	 *
++	 * However we chose, at least for now, to not implement the
++	 * zero_damaged_pages logic present in mdreadv(). As outlined in mdreadv()
++	 * that logic is rather problematic, and we want to get rid of it. Here
++	 * equivalent logic would have to be more complicated due to potential
++	 * differences in the zero_damaged_pages setting between the definer and
++	 * completor of IO.
+ 	 */
+ }
+ 
+ /*
+  * mdwritev() -- Write the supplied blocks at the appropriate location.

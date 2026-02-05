@@ -1,0 +1,117 @@
+commit 591cf626e71b460c53bef23347b93a0cfbd91f0f
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Tue Jan 2 12:23:36 2024 -0500
+
+    tsquery: fix typo "rewrited" -> "rewritten"
+    
+    Dagfinn Ilmari Mannsåker, reviewed by Shubham Khanna.
+    
+    Discussion: http://postgr.es/m/87le9fmi01.fsf@wibble.ilmari.org
+
+diff --git a/src/backend/utils/adt/tsquery_rewrite.c b/src/backend/utils/adt/tsquery_rewrite.c
+index 7e736351628..9d7a79cc718 100644
+--- a/src/backend/utils/adt/tsquery_rewrite.c
++++ b/src/backend/utils/adt/tsquery_rewrite.c
+@@ -279,11 +279,11 @@ findsubquery(QTNode *root, QTNode *ex, QTNode *subs, bool *isfind)
+ Datum
+ tsquery_rewrite_query(PG_FUNCTION_ARGS)
+ {
+ 	TSQuery		query = PG_GETARG_TSQUERY_COPY(0);
+ 	text	   *in = PG_GETARG_TEXT_PP(1);
+-	TSQuery		rewrited = query;
++	TSQuery		rewritten = query;
+ 	MemoryContext outercontext = CurrentMemoryContext;
+ 	MemoryContext oldcontext;
+ 	QTNode	   *tree;
+ 	char	   *buf;
+ 	SPIPlanPtr	plan;
+@@ -291,11 +291,11 @@ tsquery_rewrite_query(PG_FUNCTION_ARGS)
+ 	bool		isnull;
+ 
+ 	if (query->size == 0)
+ 	{
+ 		PG_FREE_IF_COPY(in, 1);
+-		PG_RETURN_POINTER(rewrited);
++		PG_RETURN_POINTER(rewritten);
+ 	}
+ 
+ 	tree = QT2QTN(GETQUERY(query), GETOPERAND(query));
+ 	QTNTernary(tree);
+ 	QTNSort(tree);
+@@ -389,41 +389,41 @@ tsquery_rewrite_query(PG_FUNCTION_ARGS)
+ 	SPI_finish();
+ 
+ 	if (tree)
+ 	{
+ 		QTNBinary(tree);
+-		rewrited = QTN2QT(tree);
++		rewritten = QTN2QT(tree);
+ 		QTNFree(tree);
+ 		PG_FREE_IF_COPY(query, 0);
+ 	}
+ 	else
+ 	{
+-		SET_VARSIZE(rewrited, HDRSIZETQ);
+-		rewrited->size = 0;
++		SET_VARSIZE(rewritten, HDRSIZETQ);
++		rewritten->size = 0;
+ 	}
+ 
+ 	pfree(buf);
+ 	PG_FREE_IF_COPY(in, 1);
+-	PG_RETURN_POINTER(rewrited);
++	PG_RETURN_POINTER(rewritten);
+ }
+ 
+ Datum
+ tsquery_rewrite(PG_FUNCTION_ARGS)
+ {
+ 	TSQuery		query = PG_GETARG_TSQUERY_COPY(0);
+ 	TSQuery		ex = PG_GETARG_TSQUERY(1);
+ 	TSQuery		subst = PG_GETARG_TSQUERY(2);
+-	TSQuery		rewrited = query;
++	TSQuery		rewritten = query;
+ 	QTNode	   *tree,
+ 			   *qex,
+ 			   *subs = NULL;
+ 
+ 	if (query->size == 0 || ex->size == 0)
+ 	{
+ 		PG_FREE_IF_COPY(ex, 1);
+ 		PG_FREE_IF_COPY(subst, 2);
+-		PG_RETURN_POINTER(rewrited);
++		PG_RETURN_POINTER(rewritten);
+ 	}
+ 
+ 	tree = QT2QTN(GETQUERY(query), GETOPERAND(query));
+ 	QTNTernary(tree);
+ 	QTNSort(tree);
+@@ -440,23 +440,23 @@ tsquery_rewrite(PG_FUNCTION_ARGS)
+ 	QTNFree(qex);
+ 	QTNFree(subs);
+ 
+ 	if (!tree)
+ 	{
+-		SET_VARSIZE(rewrited, HDRSIZETQ);
+-		rewrited->size = 0;
++		SET_VARSIZE(rewritten, HDRSIZETQ);
++		rewritten->size = 0;
+ 		PG_FREE_IF_COPY(ex, 1);
+ 		PG_FREE_IF_COPY(subst, 2);
+-		PG_RETURN_POINTER(rewrited);
++		PG_RETURN_POINTER(rewritten);
+ 	}
+ 	else
+ 	{
+ 		QTNBinary(tree);
+-		rewrited = QTN2QT(tree);
++		rewritten = QTN2QT(tree);
+ 		QTNFree(tree);
+ 	}
+ 
+ 	PG_FREE_IF_COPY(query, 0);
+ 	PG_FREE_IF_COPY(ex, 1);
+ 	PG_FREE_IF_COPY(subst, 2);
+-	PG_RETURN_POINTER(rewrited);
++	PG_RETURN_POINTER(rewritten);
+ }

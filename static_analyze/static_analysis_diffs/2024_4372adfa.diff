@@ -1,0 +1,56 @@
+commit 4372adfa24f2f5ddc587317d634b5389bd764106
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Mon Jan 22 20:44:38 2024 -0600
+
+    Fix possible NULL pointer dereference in GetNamedDSMSegment().
+    
+    GetNamedDSMSegment() doesn't check whether dsm_attach() returns
+    NULL, which creates the possibility of a NULL pointer dereference
+    soon after.  To fix, emit an ERROR if dsm_attach() returns NULL.
+    This shouldn't happen, but it would be nice to avoid a segfault if
+    it does.  In passing, tidy up the surrounding code.
+    
+    Reported-by: Tom Lane
+    Reviewed-by: Michael Paquier, Bharath Rupireddy
+    Discussion: https://postgr.es/m/3348869.1705854106%40sss.pgh.pa.us
+
+diff --git a/src/backend/storage/ipc/dsm_registry.c b/src/backend/storage/ipc/dsm_registry.c
+index ac11f51375e..c1781736532 100644
+--- a/src/backend/storage/ipc/dsm_registry.c
++++ b/src/backend/storage/ipc/dsm_registry.c
+@@ -175,23 +175,26 @@ GetNamedDSMSegment(const char *name, size_t size,
+ 	{
+ 		ereport(ERROR,
+ 				(errmsg("requested DSM segment size does not match size of "
+ 						"existing segment")));
+ 	}
+-	else if (!dsm_find_mapping(entry->handle))
++	else
+ 	{
+-		/* Attach to existing segment. */
+-		dsm_segment *seg = dsm_attach(entry->handle);
++		dsm_segment *seg = dsm_find_mapping(entry->handle);
++
++		/* If the existing segment is not already attached, attach it now. */
++		if (seg == NULL)
++		{
++			seg = dsm_attach(entry->handle);
++			if (seg == NULL)
++				elog(ERROR, "could not map dynamic shared memory segment");
++
++			dsm_pin_mapping(seg);
++		}
+ 
+-		dsm_pin_mapping(seg);
+ 		ret = dsm_segment_address(seg);
+ 	}
+-	else
+-	{
+-		/* Return address of an already-attached segment. */
+-		ret = dsm_segment_address(dsm_find_mapping(entry->handle));
+-	}
+ 
+ 	dshash_release_lock(dsm_registry_table, entry);
+ 	MemoryContextSwitchTo(oldcontext);
+ 
+ 	return ret;

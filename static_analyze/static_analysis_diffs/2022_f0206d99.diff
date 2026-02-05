@@ -1,0 +1,120 @@
+commit f0206d99520ebdb751469ad53ff62bbff817ab3d
+Author: Andrew Dunstan <andrew@dunslane.net>
+Date:   Tue Mar 22 13:27:26 2022 -0400
+
+    Fix new Object Access hooks test
+    
+    Commit 90efa2f556 caused some issues with EXEC_BACKEND builds and with
+    force_parallel_mode = regress setups. For the first issue we no longer
+    test if the module has been preloaded, and in fact we don't preload it,
+    but simply LOAD it in the test script. For the second issue we suppress
+    error messages emanating from parallel workers.
+    
+    Mark Dilger
+    
+    Discussion: https://postgr.es/m/7f6d54a1-4024-3b6e-e3ec-26cd394aac9e@dunslane.net
+
+diff --git a/src/test/modules/test_oat_hooks/Makefile b/src/test/modules/test_oat_hooks/Makefile
+index d0df9c1abbf..d03ef2caf17 100644
+--- a/src/test/modules/test_oat_hooks/Makefile
++++ b/src/test/modules/test_oat_hooks/Makefile
+@@ -5,13 +5,10 @@ OBJS = \
+ 	$(WIN32RES) \
+ 	test_oat_hooks.o
+ PGFILEDESC = "test_oat_hooks - example use of object access hooks"
+ 
+ REGRESS = test_oat_hooks
+-REGRESS_OPTS = --temp-config=$(top_srcdir)/src/test/modules/test_oat_hooks/test_oat_hooks.conf
+-# Disabled because these tests require "shared_preload_libraries=test_oat_hooks",
+-# which typical installcheck users do not have (e.g. buildfarm clients).
+ NO_INSTALLCHECK = 1
+ 
+ ifdef USE_PGXS
+ PG_CONFIG = pg_config
+ PGXS := $(shell $(PG_CONFIG) --pgxs)
+diff --git a/src/test/modules/test_oat_hooks/expected/test_oat_hooks.out b/src/test/modules/test_oat_hooks/expected/test_oat_hooks.out
+index 20357695801..4192a2fb49e 100644
+--- a/src/test/modules/test_oat_hooks/expected/test_oat_hooks.out
++++ b/src/test/modules/test_oat_hooks/expected/test_oat_hooks.out
+@@ -1,9 +1,10 @@
+ -- SET commands fire both the ProcessUtility_hook and the
+ -- object_access_hook_str.  Since the auditing GUC starts out false, we miss the
+ -- initial "attempting" audit message from the ProcessUtility_hook, but we
+ -- should thereafter see the audit messages
++LOAD 'test_oat_hooks';
+ SET test_oat_hooks.audit = true;
+ NOTICE:  in object_access_hook_str: superuser attempting alter (set) [test_oat_hooks.audit]
+ NOTICE:  in object_access_hook_str: superuser finished alter (set) [test_oat_hooks.audit]
+ NOTICE:  in process utility: superuser finished set
+ -- Create objects for use in the test
+diff --git a/src/test/modules/test_oat_hooks/sql/test_oat_hooks.sql b/src/test/modules/test_oat_hooks/sql/test_oat_hooks.sql
+index 5fb3a2f0ea4..7c382027824 100644
+--- a/src/test/modules/test_oat_hooks/sql/test_oat_hooks.sql
++++ b/src/test/modules/test_oat_hooks/sql/test_oat_hooks.sql
+@@ -1,9 +1,10 @@
+ -- SET commands fire both the ProcessUtility_hook and the
+ -- object_access_hook_str.  Since the auditing GUC starts out false, we miss the
+ -- initial "attempting" audit message from the ProcessUtility_hook, but we
+ -- should thereafter see the audit messages
++LOAD 'test_oat_hooks';
+ SET test_oat_hooks.audit = true;
+ 
+ -- Create objects for use in the test
+ CREATE USER regress_test_user;
+ CREATE TABLE regress_test_table (t text);
+diff --git a/src/test/modules/test_oat_hooks/test_oat_hooks.c b/src/test/modules/test_oat_hooks/test_oat_hooks.c
+index b1709f4d63d..b50567749c4 100644
+--- a/src/test/modules/test_oat_hooks/test_oat_hooks.c
++++ b/src/test/modules/test_oat_hooks/test_oat_hooks.c
+@@ -11,10 +11,11 @@
+  * -------------------------------------------------------------------------
+  */
+ 
+ #include "postgres.h"
+ 
++#include "access/parallel.h"
+ #include "catalog/dependency.h"
+ #include "catalog/objectaccess.h"
+ #include "catalog/pg_proc.h"
+ #include "executor/executor.h"
+ #include "fmgr.h"
+@@ -66,19 +67,10 @@ void		_PG_fini(void);
+  * Module load/unload callback
+  */
+ void
+ _PG_init(void)
+ {
+-	/*
+-	 * We allow to load the Object Access Type test module on single-user-mode
+-	 * or shared_preload_libraries settings only.
+-	 */
+-	if (IsUnderPostmaster)
+-		ereport(ERROR,
+-				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+-				 errmsg("test_oat_hooks must be loaded via shared_preload_libraries")));
+-
+ 	/*
+ 	 * test_oat_hooks.deny_set_variable = (on|off)
+ 	 */
+ 	DefineCustomBoolVariable("test_oat_hooks.deny_set_variable",
+ 							 "Deny non-superuser set permissions",
+@@ -198,11 +190,11 @@ _PG_fini(void)
+ }
+ 
+ static void
+ emit_audit_message(const char *type, const char *hook, char *action, char *objName)
+ {
+-	if (REGRESS_audit)
++	if (REGRESS_audit && !IsParallelWorker())
+ 	{
+ 		const char *who = superuser_arg(GetUserId()) ? "superuser" : "non-superuser";
+ 
+ 		if (objName)
+ 			ereport(NOTICE,
+diff --git a/src/test/modules/test_oat_hooks/test_oat_hooks.conf b/src/test/modules/test_oat_hooks/test_oat_hooks.conf
+deleted file mode 100644
+index a44cbdd4a4f..00000000000
+--- a/src/test/modules/test_oat_hooks/test_oat_hooks.conf
++++ /dev/null
+@@ -1 +0,0 @@
+-shared_preload_libraries = test_oat_hooks

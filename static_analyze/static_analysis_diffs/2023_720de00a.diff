@@ -1,0 +1,71 @@
+commit 720de00af49d3d46cb5c9b4753b52215f5029ac9
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Wed Mar 15 13:57:00 2023 +1300
+
+    Fix fractional vacuum_cost_delay.
+    
+    Commit 4753ef37 changed vacuum_delay_point() to use the WaitLatch() API,
+    to fix the problem that vacuum could keep running for a very long time
+    after the postmaster died.
+    
+    Unfortunately, that broke commit caf626b2's support for fractional
+    vacuum_cost_delay, which shipped in PostgreSQL 12.  WaitLatch() works in
+    whole milliseconds.
+    
+    For now, revert the change from commit 4753ef37, but add an explicit
+    check for postmaster death.  That's an extra system call on systems
+    other than Linux and FreeBSD, but that overhead doesn't matter much
+    considering that we willingly went to sleep and woke up again.  (In
+    later work, we might add higher resolution timeouts to the latch API so
+    that we could do this with our standard programming pattern, but that
+    wouldn't be back-patched.)
+    
+    Back-patch to 14, where commit 4753ef37 arrived.
+    
+    Reported-by: Melanie Plageman <melanieplageman@gmail.com>
+    Discussion: https://postgr.es/m/CAAKRu_b-q0hXCBUCAATh0Z4Zi6UkiC0k2DFgoD3nC-r3SkR3tg%40mail.gmail.com
+
+diff --git a/src/backend/commands/vacuum.c b/src/backend/commands/vacuum.c
+index 2e12baf8eb4..c54360a6a0a 100644
+--- a/src/backend/commands/vacuum.c
++++ b/src/backend/commands/vacuum.c
+@@ -48,10 +48,11 @@
+ #include "pgstat.h"
+ #include "postmaster/autovacuum.h"
+ #include "postmaster/bgworker_internals.h"
+ #include "storage/bufmgr.h"
+ #include "storage/lmgr.h"
++#include "storage/pmsignal.h"
+ #include "storage/proc.h"
+ #include "storage/procarray.h"
+ #include "utils/acl.h"
+ #include "utils/fmgroids.h"
+ #include "utils/guc.h"
+@@ -2230,15 +2231,22 @@ vacuum_delay_point(void)
+ 	if (msec > 0)
+ 	{
+ 		if (msec > VacuumCostDelay * 4)
+ 			msec = VacuumCostDelay * 4;
+ 
+-		(void) WaitLatch(MyLatch,
+-						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+-						 msec,
+-						 WAIT_EVENT_VACUUM_DELAY);
+-		ResetLatch(MyLatch);
++		pgstat_report_wait_start(WAIT_EVENT_VACUUM_DELAY);
++		pg_usleep(msec * 1000);
++		pgstat_report_wait_end();
++
++		/*
++		 * We don't want to ignore postmaster death during very long vacuums
++		 * with vacuum_cost_delay configured.  We can't use the usual
++		 * WaitLatch() approach here because we want microsecond-based sleep
++		 * durations above.
++		 */
++		if (IsUnderPostmaster && !PostmasterIsAlive())
++			exit(1);
+ 
+ 		VacuumCostBalance = 0;
+ 
+ 		/* update balance values for workers */
+ 		AutoVacuumUpdateDelay();

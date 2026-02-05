@@ -1,0 +1,82 @@
+commit 91fe092a966e6c08c0ead80388f474ac989dc9a3
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Apr 17 14:56:31 2024 +0900
+
+    Fix typos with function name in event_trigger.c
+    
+    Databases exist, contrary to datatabases.
+    
+    Oversight in e83d1b0c40cc.
+    
+    Author: Japin Li
+    Discussion: https://postgr.es/m/ME3P282MB316611A2F7BF43919F695228B6082@ME3P282MB3166.AUSP282.PROD.OUTLOOK.COM
+
+diff --git a/src/backend/commands/event_trigger.c b/src/backend/commands/event_trigger.c
+index 0d3214df9ca..7a5ed6b9850 100644
+--- a/src/backend/commands/event_trigger.c
++++ b/src/backend/commands/event_trigger.c
+@@ -109,11 +109,11 @@ static Oid	insert_event_trigger_tuple(const char *trigname, const char *eventnam
+ static void validate_ddl_tags(const char *filtervar, List *taglist);
+ static void validate_table_rewrite_tags(const char *filtervar, List *taglist);
+ static void EventTriggerInvoke(List *fn_oid_list, EventTriggerData *trigdata);
+ static const char *stringify_grant_objtype(ObjectType objtype);
+ static const char *stringify_adefprivs_objtype(ObjectType objtype);
+-static void SetDatatabaseHasLoginEventTriggers(void);
++static void SetDatabaseHasLoginEventTriggers(void);
+ 
+ /*
+  * Create an event trigger.
+  */
+ Oid
+@@ -313,11 +313,11 @@ insert_event_trigger_tuple(const char *trigname, const char *eventname, Oid evtO
+ 	/*
+ 	 * Login event triggers have an additional flag in pg_database to enable
+ 	 * faster lookups in hot codepaths. Set the flag unless already True.
+ 	 */
+ 	if (strcmp(eventname, "login") == 0)
+-		SetDatatabaseHasLoginEventTriggers();
++		SetDatabaseHasLoginEventTriggers();
+ 
+ 	/* Depend on owner. */
+ 	recordDependencyOnOwner(EventTriggerRelationId, trigoid, evtOwner);
+ 
+ 	/* Depend on event trigger function. */
+@@ -381,11 +381,11 @@ filter_list_to_array(List *filterlist)
+ /*
+  * Set pg_database.dathasloginevt flag for current database indicating that
+  * current database has on login event triggers.
+  */
+ void
+-SetDatatabaseHasLoginEventTriggers(void)
++SetDatabaseHasLoginEventTriggers(void)
+ {
+ 	/* Set dathasloginevt flag in pg_database */
+ 	Form_pg_database db;
+ 	Relation	pg_db = table_open(DatabaseRelationId, RowExclusiveLock);
+ 	HeapTuple	tuple;
+@@ -451,11 +451,11 @@ AlterEventTrigger(AlterEventTrigStmt *stmt)
+ 	 * Login event triggers have an additional flag in pg_database to enable
+ 	 * faster lookups in hot codepaths. Set the flag unless already True.
+ 	 */
+ 	if (namestrcmp(&evtForm->evtevent, "login") == 0 &&
+ 		tgenabled != TRIGGER_DISABLED)
+-		SetDatatabaseHasLoginEventTriggers();
++		SetDatabaseHasLoginEventTriggers();
+ 
+ 	InvokeObjectPostAlterHook(EventTriggerRelationId,
+ 							  trigoid, 0);
+ 
+ 	/* clean up */
+@@ -923,11 +923,11 @@ EventTriggerOnLogin(void)
+ 	}
+ 
+ 	/*
+ 	 * There is no active login event trigger, but our
+ 	 * pg_database.dathasloginevt is set. Try to unset this flag.  We use the
+-	 * lock to prevent concurrent SetDatatabaseHasLoginEventTriggers(), but we
++	 * lock to prevent concurrent SetDatabaseHasLoginEventTriggers(), but we
+ 	 * don't want to hang the connection waiting on the lock.  Thus, we are
+ 	 * just trying to acquire the lock conditionally.
+ 	 */
+ 	else if (ConditionalLockSharedObject(DatabaseRelationId, MyDatabaseId,
+ 										 0, AccessExclusiveLock))

@@ -1,0 +1,91 @@
+commit 0de5f0d869d1e06f172f10adf441e504174cf2fe
+Author: Masahiko Sawada <msawada@postgresql.org>
+Date:   Wed Dec 24 10:48:27 2025 -0800
+
+    Fix regression test failure when wal_level is set to minimal.
+    
+    Commit 67c209 removed the WARNING for insufficient wal_level from the
+    expected output, but the WARNING may still appear on buildfarm members
+    that run with wal_level=minimal.
+    
+    To avoid unstable test output depending on wal_level, this commit the
+    test to use ALTER PUBLICATION for verifying the same behavior,
+    ensuring the output remains consistent regardless of the wal_level
+    setting.
+    
+    Per buildfarm member thorntail.
+    
+    Author: Zhijie Hou <houzj.fnst@fujitsu.com>
+    Discussion: https://postgr.es/m/TY4PR01MB16907680E27BAB146C8EB1A4294B2A@TY4PR01MB16907.jpnprd01.prod.outlook.com
+
+diff --git a/src/test/regress/expected/publication.out b/src/test/regress/expected/publication.out
+index 7f81e61d7a7..7fb49aaf29b 100644
+--- a/src/test/regress/expected/publication.out
++++ b/src/test/regress/expected/publication.out
+@@ -284,13 +284,13 @@ Publications:
+ --- Specifying both ALL TABLES and ALL SEQUENCES
+ SET client_min_messages = 'ERROR';
+ CREATE PUBLICATION regress_pub_for_allsequences_alltables FOR ALL SEQUENCES, ALL TABLES;
+ -- Specifying WITH clause in an ALL SEQUENCES publication will emit a NOTICE.
+ SET client_min_messages = 'NOTICE';
+-CREATE PUBLICATION regress_pub_for_allsequences_alltables_withclause FOR ALL SEQUENCES, ALL TABLES WITH (publish = 'insert');
++ALTER PUBLICATION regress_pub_for_allsequences_alltables SET (publish = 'insert');
+ NOTICE:  publication parameters are not applicable to sequence synchronization and will be ignored for sequences
+-CREATE PUBLICATION regress_pub_for_allsequences_withclause FOR ALL SEQUENCES WITH (publish_generated_columns = 'stored');
++ALTER PUBLICATION regress_pub_for_allsequences_alltables SET (publish_generated_columns = 'stored');
+ NOTICE:  publication parameters are not applicable to sequence synchronization and will be ignored for sequences
+ RESET client_min_messages;
+ SELECT pubname, puballtables, puballsequences FROM pg_publication WHERE pubname = 'regress_pub_for_allsequences_alltables';
+                 pubname                 | puballtables | puballsequences 
+ ----------------------------------------+--------------+-----------------
+@@ -299,19 +299,17 @@ SELECT pubname, puballtables, puballsequences FROM pg_publication WHERE pubname
+ 
+ \dRp+ regress_pub_for_allsequences_alltables
+                                        Publication regress_pub_for_allsequences_alltables
+           Owner           | All tables | All sequences | Inserts | Updates | Deletes | Truncates | Generated columns | Via root 
+ --------------------------+------------+---------------+---------+---------+---------+-----------+-------------------+----------
+- regress_publication_user | t          | t             | t       | t       | t       | t         | none              | f
++ regress_publication_user | t          | t             | t       | f       | f       | f         | stored            | f
+ (1 row)
+ 
+ DROP SEQUENCE regress_pub_seq0, pub_test.regress_pub_seq1;
+ DROP PUBLICATION regress_pub_forallsequences1;
+ DROP PUBLICATION regress_pub_forallsequences2;
+ DROP PUBLICATION regress_pub_for_allsequences_alltables;
+-DROP PUBLICATION regress_pub_for_allsequences_alltables_withclause;
+-DROP PUBLICATION regress_pub_for_allsequences_withclause;
+ -- fail - Specifying ALL TABLES more than once
+ CREATE PUBLICATION regress_pub_for_allsequences_alltables FOR ALL SEQUENCES, ALL TABLES, ALL TABLES;
+ ERROR:  invalid publication object list
+ LINE 1: ...equences_alltables FOR ALL SEQUENCES, ALL TABLES, ALL TABLES...
+                                                              ^
+diff --git a/src/test/regress/sql/publication.sql b/src/test/regress/sql/publication.sql
+index 00390aecd47..85b00bd67c8 100644
+--- a/src/test/regress/sql/publication.sql
++++ b/src/test/regress/sql/publication.sql
+@@ -144,23 +144,21 @@ RESET client_min_messages;
+ SET client_min_messages = 'ERROR';
+ CREATE PUBLICATION regress_pub_for_allsequences_alltables FOR ALL SEQUENCES, ALL TABLES;
+ 
+ -- Specifying WITH clause in an ALL SEQUENCES publication will emit a NOTICE.
+ SET client_min_messages = 'NOTICE';
+-CREATE PUBLICATION regress_pub_for_allsequences_alltables_withclause FOR ALL SEQUENCES, ALL TABLES WITH (publish = 'insert');
+-CREATE PUBLICATION regress_pub_for_allsequences_withclause FOR ALL SEQUENCES WITH (publish_generated_columns = 'stored');
++ALTER PUBLICATION regress_pub_for_allsequences_alltables SET (publish = 'insert');
++ALTER PUBLICATION regress_pub_for_allsequences_alltables SET (publish_generated_columns = 'stored');
+ RESET client_min_messages;
+ 
+ SELECT pubname, puballtables, puballsequences FROM pg_publication WHERE pubname = 'regress_pub_for_allsequences_alltables';
+ \dRp+ regress_pub_for_allsequences_alltables
+ 
+ DROP SEQUENCE regress_pub_seq0, pub_test.regress_pub_seq1;
+ DROP PUBLICATION regress_pub_forallsequences1;
+ DROP PUBLICATION regress_pub_forallsequences2;
+ DROP PUBLICATION regress_pub_for_allsequences_alltables;
+-DROP PUBLICATION regress_pub_for_allsequences_alltables_withclause;
+-DROP PUBLICATION regress_pub_for_allsequences_withclause;
+ 
+ -- fail - Specifying ALL TABLES more than once
+ CREATE PUBLICATION regress_pub_for_allsequences_alltables FOR ALL SEQUENCES, ALL TABLES, ALL TABLES;
+ 
+ -- fail - Specifying ALL SEQUENCES more than once

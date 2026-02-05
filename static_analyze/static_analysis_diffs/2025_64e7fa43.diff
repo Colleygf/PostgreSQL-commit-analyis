@@ -1,0 +1,73 @@
+commit 64e7fa43a948a82f97e305f020f924c02671a434
+Author: Melanie Plageman <melanieplageman@gmail.com>
+Date:   Fri Apr 4 11:34:06 2025 -0400
+
+    Fix autoprewarm neglect of tablespaces
+    
+    While prewarming blocks from a dump file, autoprewarm_database_main()
+    mistakenly ignored tablespace when detecting the beginning of the next
+    relation to prewarm. Because RelFileNumbers are only unique within a
+    tablespace, autoprewarm could miss prewarming blocks from a
+    relation with the same RelFileNumber in a different tablespace.
+    
+    Though this situation is likely rare in practice, it's best to make the
+    code correct. Do so by explicitly checking for the RelFileNumber when
+    detecting a new relation.
+    
+    Reported-by: Heikki Linnakangas <hlinnaka@iki.fi>
+    Discussion: https://postgr.es/m/97c36982-603b-494a-95f4-aaf2a12ac27e%40iki.fi
+
+diff --git a/contrib/pg_prewarm/autoprewarm.c b/contrib/pg_prewarm/autoprewarm.c
+index 73485a2323c..760b1548eff 100644
+--- a/contrib/pg_prewarm/autoprewarm.c
++++ b/contrib/pg_prewarm/autoprewarm.c
+@@ -470,14 +470,19 @@ autoprewarm_database_main(Datum main_arg)
+ 			old_blk->database != 0)
+ 			break;
+ 
+ 		/*
+ 		 * As soon as we encounter a block of a new relation, close the old
+-		 * relation. Note that rel will be NULL if try_relation_open failed
+-		 * previously; in that case, there is nothing to close.
++		 * relation. RelFileNumbers are only guaranteed to be unique within a
++		 * tablespace, so check that too.
++		 *
++		 * Note that rel will be NULL if try_relation_open failed previously;
++		 * in that case, there is nothing to close.
+ 		 */
+-		if (old_blk != NULL && old_blk->filenumber != blk->filenumber &&
++		if (old_blk != NULL &&
++			(old_blk->tablespace != blk->tablespace ||
++			 old_blk->filenumber != blk->filenumber) &&
+ 			rel != NULL)
+ 		{
+ 			relation_close(rel, AccessShareLock);
+ 			rel = NULL;
+ 			CommitTransactionCommand();
+@@ -485,11 +490,13 @@ autoprewarm_database_main(Datum main_arg)
+ 
+ 		/*
+ 		 * Try to open each new relation, but only once, when we first
+ 		 * encounter it. If it's been dropped, skip the associated blocks.
+ 		 */
+-		if (old_blk == NULL || old_blk->filenumber != blk->filenumber)
++		if (old_blk == NULL ||
++			old_blk->tablespace != blk->tablespace ||
++			old_blk->filenumber != blk->filenumber)
+ 		{
+ 			Oid			reloid;
+ 
+ 			Assert(rel == NULL);
+ 			StartTransactionCommand();
+@@ -506,10 +513,11 @@ autoprewarm_database_main(Datum main_arg)
+ 			continue;
+ 		}
+ 
+ 		/* Once per fork, check for fork existence and size. */
+ 		if (old_blk == NULL ||
++			old_blk->tablespace != blk->tablespace ||
+ 			old_blk->filenumber != blk->filenumber ||
+ 			old_blk->forknum != blk->forknum)
+ 		{
+ 			/*
+ 			 * smgrexists is not safe for illegal forknum, hence check whether

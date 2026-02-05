@@ -1,0 +1,54 @@
+commit 0b84f5c419a300dc1b1a70cf63b9907208e52643
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Wed Mar 13 08:33:26 2024 +0530
+
+    Fix a random failure in 038_save_logical_slots_shutdown.pl.
+    
+    The test ensures that all the WAL on the publisher is sent to the
+    subscriber before shutdown by comparing the confirmed_flush_lsn of the
+    associated slot with the shutdown_checkpoint WAL location. But if the
+    shutdown_checkpoint location falls into a new page in the WAL then the
+    check won't work. So, ensure that the shutdown_checkpoint WAL record
+    doesn't fall into a new page.
+    
+    Reported-by: Bharath Rupireddy
+    Author: Bharath Rupireddy
+    Reviewed-by: Vignesh C, Kuroda Hayato, Amit Kapila
+    Discussion: https://postgr.es/m/CALj2ACVLzH5CN-h9=S26mdRHPuJ9yDLUw70yh4JOiPw03WL0CQ@mail.gmail.com
+
+diff --git a/src/test/recovery/t/038_save_logical_slots_shutdown.pl b/src/test/recovery/t/038_save_logical_slots_shutdown.pl
+index 5a4f5dc1d40..2a3bf1f8da9 100644
+--- a/src/test/recovery/t/038_save_logical_slots_shutdown.pl
++++ b/src/test/recovery/t/038_save_logical_slots_shutdown.pl
+@@ -58,10 +58,16 @@ $node_subscriber->start;
+ 
+ # Create tables
+ $node_publisher->safe_psql('postgres', "CREATE TABLE test_tbl (id int)");
+ $node_subscriber->safe_psql('postgres', "CREATE TABLE test_tbl (id int)");
+ 
++# To avoid a shutdown checkpoint WAL record (that gets generated as part of
++# the publisher restart below) falling into a new page, advance the WAL
++# segment. Otherwise, the confirmed_flush_lsn and shutdown_checkpoint
++# location won't match.
++$node_publisher->advance_wal(1);
++
+ # Insert some data
+ $node_publisher->safe_psql('postgres',
+ 	"INSERT INTO test_tbl VALUES (generate_series(1, 5));");
+ 
+ # Setup logical replication
+@@ -79,10 +85,14 @@ my $result =
+ 
+ is($result, qq(5), "check initial copy was done");
+ 
+ my $offset = -s $node_publisher->logfile;
+ 
++# Note: Don't insert any data on the publisher that may cause the shutdown
++# checkpoint to fall into a new WAL file. See the comments atop advance_wal()
++# above.
++
+ # Restart the publisher to ensure that the slot will be flushed if required
+ $node_publisher->restart();
+ 
+ # Wait until the walsender creates decoding context
+ $node_publisher->wait_for_log(

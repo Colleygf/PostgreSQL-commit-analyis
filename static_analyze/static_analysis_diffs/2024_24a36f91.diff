@@ -1,0 +1,45 @@
+commit 24a36f91e32d6cbb8182c4cc6529d6e47587c988
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri Oct 18 11:06:41 2024 +0200
+
+    Fix strsep() use for SCRAM secrets parsing
+    
+    The previous code (from commit 5d2e1cc117b) did not detect end of
+    string correctly, so it would fail to error out if fewer than the
+    expected number of fields were present, which could then later lead to
+    a crash when NULL string pointers are accessed.
+    
+    Reported-by: Alexander Lakhin <exclusion@gmail.com>
+    Reported-by: Ranier Vilela <ranier.vf@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/79692bf9-17d3-41e6-b9c9-fc8c3944222a@eisentraut.org
+
+diff --git a/src/backend/libpq/auth-scram.c b/src/backend/libpq/auth-scram.c
+index 03ddddc3c27..56df870e9ef 100644
+--- a/src/backend/libpq/auth-scram.c
++++ b/src/backend/libpq/auth-scram.c
+@@ -606,17 +606,21 @@ parse_scram_secret(const char *secret, int *iterations,
+ 	 * The secret is of form:
+ 	 *
+ 	 * SCRAM-SHA-256$<iterations>:<salt>$<storedkey>:<serverkey>
+ 	 */
+ 	v = pstrdup(secret);
+-	if ((scheme_str = strsep(&v, "$")) == NULL)
++	scheme_str = strsep(&v, "$");
++	if (v == NULL)
+ 		goto invalid_secret;
+-	if ((iterations_str = strsep(&v, ":")) == NULL)
++	iterations_str = strsep(&v, ":");
++	if (v == NULL)
+ 		goto invalid_secret;
+-	if ((salt_str = strsep(&v, "$")) == NULL)
++	salt_str = strsep(&v, "$");
++	if (v == NULL)
+ 		goto invalid_secret;
+-	if ((storedkey_str = strsep(&v, ":")) == NULL)
++	storedkey_str = strsep(&v, ":");
++	if (v == NULL)
+ 		goto invalid_secret;
+ 	serverkey_str = v;
+ 
+ 	/* Parse the fields */
+ 	if (strcmp(scheme_str, "SCRAM-SHA-256") != 0)

@@ -1,0 +1,86 @@
+commit 8c848cd4b8e9e0fee33eaad33cb44376b9e5b480
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Fri Sep 9 12:22:20 2022 +0200
+
+    Fix GetForeignKey*Triggers for self-referential FKs
+    
+    Because of inadequate filtering, the check triggers were confusing the
+    search for action triggers in GetForeignKeyActionTriggers and vice-versa
+    in GetForeignKeyCheckTriggers; this confusion results in seemingly
+    random assertion failures, and can have real impact in non-asserting
+    builds depending on catalog order.  Change these functions so that they
+    correctly ignore triggers that are not relevant to each side.
+    
+    To reduce the odds of further problems, do not break out of the
+    searching loop in assertion builds.  This break is likely to hide bugs;
+    without it, we would have detected this bug immediately.
+    
+    This problem was introduced by f4566345cf40, so backpatch to 15 where
+    that commit first appeared.
+    
+    Author: Amit Langote <amitlangote09@gmail.com>
+    Discussion: https://postgr.es/m/20220908172029.sejft2ppckbo6oh5@awork3.anarazel.de
+    Discussion: https://postgr.es/m/4104619.1662663056@sss.pgh.pa.us
+
+diff --git a/src/backend/commands/tablecmds.c b/src/backend/commands/tablecmds.c
+index 53b0f3a9c1e..e3233a8f385 100644
+--- a/src/backend/commands/tablecmds.c
++++ b/src/backend/commands/tablecmds.c
+@@ -10579,22 +10579,28 @@ GetForeignKeyActionTriggers(Relation trigrel,
+ 
+ 		if (trgform->tgconstrrelid != conrelid)
+ 			continue;
+ 		if (trgform->tgrelid != confrelid)
+ 			continue;
++		/* Only ever look at "action" triggers on the PK side. */
++		if (RI_FKey_trigger_type(trgform->tgfoid) != RI_TRIGGER_PK)
++			continue;
+ 		if (TRIGGER_FOR_DELETE(trgform->tgtype))
+ 		{
+ 			Assert(*deleteTriggerOid == InvalidOid);
+ 			*deleteTriggerOid = trgform->oid;
+ 		}
+ 		else if (TRIGGER_FOR_UPDATE(trgform->tgtype))
+ 		{
+ 			Assert(*updateTriggerOid == InvalidOid);
+ 			*updateTriggerOid = trgform->oid;
+ 		}
++#ifndef USE_ASSERT_CHECKING
++		/* In an assert-enabled build, continue looking to find duplicates */
+ 		if (OidIsValid(*deleteTriggerOid) && OidIsValid(*updateTriggerOid))
+ 			break;
++#endif
+ 	}
+ 
+ 	if (!OidIsValid(*deleteTriggerOid))
+ 		elog(ERROR, "could not find ON DELETE action trigger of foreign key constraint %u",
+ 			 conoid);
+@@ -10634,22 +10640,28 @@ GetForeignKeyCheckTriggers(Relation trigrel,
+ 
+ 		if (trgform->tgconstrrelid != confrelid)
+ 			continue;
+ 		if (trgform->tgrelid != conrelid)
+ 			continue;
++		/* Only ever look at "check" triggers on the FK side. */
++		if (RI_FKey_trigger_type(trgform->tgfoid) != RI_TRIGGER_FK)
++			continue;
+ 		if (TRIGGER_FOR_INSERT(trgform->tgtype))
+ 		{
+ 			Assert(*insertTriggerOid == InvalidOid);
+ 			*insertTriggerOid = trgform->oid;
+ 		}
+ 		else if (TRIGGER_FOR_UPDATE(trgform->tgtype))
+ 		{
+ 			Assert(*updateTriggerOid == InvalidOid);
+ 			*updateTriggerOid = trgform->oid;
+ 		}
++#ifndef USE_ASSERT_CHECKING
++		/* In an assert-enabled build, continue looking to find duplicates. */
+ 		if (OidIsValid(*insertTriggerOid) && OidIsValid(*updateTriggerOid))
+ 			break;
++#endif
+ 	}
+ 
+ 	if (!OidIsValid(*insertTriggerOid))
+ 		elog(ERROR, "could not find ON INSERT check triggers of foreign key constraint %u",
+ 			 conoid);

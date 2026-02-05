@@ -1,0 +1,57 @@
+commit 94131cd53c1552efe85c3e8120356c22cd658163
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Nov 20 12:03:47 2024 -0500
+
+    Avoid assertion failure if a setop leaf query contains setops.
+    
+    Ordinarily transformSetOperationTree will collect all UNION/
+    INTERSECT/EXCEPT steps into the setOperations tree of the topmost
+    Query, so that leaf queries do not contain any setOperations.
+    However, it cannot thus flatten a subquery that also contains
+    WITH, ORDER BY, FOR UPDATE, or LIMIT.  I (tgl) forgot that in
+    commit 07b4c48b6 and wrote an assertion in rule deparsing that
+    a leaf's setOperations would always be empty.
+    
+    If it were nonempty then we would want to parenthesize the subquery
+    to ensure that the output represents the setop nesting correctly
+    (e.g. UNION below INTERSECT had better get parenthesized).  So
+    rather than just removing the faulty Assert, let's change it into
+    an additional case to check to decide whether to add parens.  We
+    don't expect that the additional case will ever fire, but it's
+    cheap insurance.
+    
+    Man Zeng and Tom Lane
+    
+    Discussion: https://postgr.es/m/tencent_7ABF9B1F23B0C77606FC5FE3@qq.com
+
+diff --git a/src/backend/utils/adt/ruleutils.c b/src/backend/utils/adt/ruleutils.c
+index a39068d1bf1..2194ab3dfa5 100644
+--- a/src/backend/utils/adt/ruleutils.c
++++ b/src/backend/utils/adt/ruleutils.c
+@@ -6351,17 +6351,23 @@ get_setop_query(Node *setOp, Query *query, deparse_context *context)
+ 		RangeTblRef *rtr = (RangeTblRef *) setOp;
+ 		RangeTblEntry *rte = rt_fetch(rtr->rtindex, query->rtable);
+ 		Query	   *subquery = rte->subquery;
+ 
+ 		Assert(subquery != NULL);
+-		Assert(subquery->setOperations == NULL);
+-		/* Need parens if WITH, ORDER BY, FOR UPDATE, or LIMIT; see gram.y */
++
++		/*
++		 * We need parens if WITH, ORDER BY, FOR UPDATE, or LIMIT; see gram.y.
++		 * Also add parens if the leaf query contains its own set operations.
++		 * (That shouldn't happen unless one of the other clauses is also
++		 * present, see transformSetOperationTree; but let's be safe.)
++		 */
+ 		need_paren = (subquery->cteList ||
+ 					  subquery->sortClause ||
+ 					  subquery->rowMarks ||
+ 					  subquery->limitOffset ||
+-					  subquery->limitCount);
++					  subquery->limitCount ||
++					  subquery->setOperations);
+ 		if (need_paren)
+ 			appendStringInfoChar(buf, '(');
+ 		get_query_def(subquery, buf, context->namespaces,
+ 					  context->resultDesc, context->colNamesVisible,
+ 					  context->prettyFlags, context->wrapColumn,

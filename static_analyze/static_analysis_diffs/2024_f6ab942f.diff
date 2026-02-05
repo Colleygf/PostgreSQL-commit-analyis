@@ -1,0 +1,44 @@
+commit f6ab942f5de003f37b88580154ebb614655d7e11
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Tue Apr 30 19:24:12 2024 +0900
+
+    doc: Remove one example related to pg_input_error_info()
+    
+    This slightly bloated the contents of the function table for this entry,
+    without really bringing extra value.
+    
+    Per discussion with Jian He and David G. Johnston.
+    
+    Discussion: https://postgr.es/m/CACJufxGdyoBJQMSxwdxNK=k8M5WUth5FDFd4Wq_K4f7+1J2xuQ@mail.gmail.com
+
+diff --git a/doc/src/sgml/func.sgml b/doc/src/sgml/func.sgml
+index 1928de57623..36b2c5427af 100644
+--- a/doc/src/sgml/func.sgml
++++ b/doc/src/sgml/func.sgml
+@@ -26877,25 +26877,16 @@ SELECT currval(pg_get_serial_sequence('sometable', 'id'));
+         a <quote>soft</quote> error.  Otherwise, invalid input will abort
+         the transaction, just as if the string had been cast to the type
+         directly.
+        </para>
+        <para>
+-        <literal>select * from pg_input_error_info('42000000000', 'integer')</literal>
++        <literal>SELECT * FROM pg_input_error_info('42000000000', 'integer')</literal>
+         <returnvalue></returnvalue>
+ <programlisting>
+                        message                        | detail | hint | sql_error_code
+ ------------------------------------------------------+--------+------+----------------
+  value "42000000000" is out of range for type integer |        |      | 22003
+-</programlisting>
+-       </para>
+-       <para>
+-        <literal>select message, detail from pg_input_error_info('1234.567', 'numeric(7,4)')</literal>
+-        <returnvalue></returnvalue>
+-<programlisting>
+-        message         |                                      detail
+-------------------------+----------------------------------&zwsp;-------------------------------------------------
+- numeric field overflow | A field with precision 7, scale 4 must round to an absolute value less than 10^3.
+ </programlisting>
+        </para></entry>
+       </row>
+      </tbody>
+     </tgroup>

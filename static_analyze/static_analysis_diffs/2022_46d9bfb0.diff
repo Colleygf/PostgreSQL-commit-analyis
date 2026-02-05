@@ -1,0 +1,109 @@
+commit 46d9bfb0a68f7b145199711d2fb5d37561c4a130
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Wed Mar 16 17:20:24 2022 +1300
+
+    Fix race between DROP TABLESPACE and checkpointing.
+    
+    Commands like ALTER TABLE SET TABLESPACE may leave files for the next
+    checkpoint to clean up.  If such files are not removed by the time DROP
+    TABLESPACE is called, we request a checkpoint so that they are deleted.
+    However, there is presently a window before checkpoint start where new
+    unlink requests won't be scheduled until the following checkpoint.  This
+    means that the checkpoint forced by DROP TABLESPACE might not remove the
+    files we expect it to remove, and the following ERROR will be emitted:
+    
+            ERROR:  tablespace "mytblspc" is not empty
+    
+    To fix, add a call to AbsorbSyncRequests() just before advancing the
+    unlink cycle counter.  This ensures that any unlink requests forwarded
+    prior to checkpoint start (i.e., when ckpt_started is incremented) will
+    be processed by the current checkpoint.  Since AbsorbSyncRequests()
+    performs memory allocations, it cannot be called within a critical
+    section, so we also need to move SyncPreCheckpoint() to before
+    CreateCheckPoint()'s critical section.
+    
+    This is an old bug, so back-patch to all supported versions.
+    
+    Author: Nathan Bossart <nathandbossart@gmail.com>
+    Reported-by: Nathan Bossart <nathandbossart@gmail.com>
+    Reviewed-by: Thomas Munro <thomas.munro@gmail.com>
+    Reviewed-by: Andres Freund <andres@anarazel.de>
+    Discussion: https://postgr.es/m/20220215235845.GA2665318%40nathanxps13
+
+diff --git a/src/backend/access/transam/xlog.c b/src/backend/access/transam/xlog.c
+index ed16f279b1f..f436471b276 100644
+--- a/src/backend/access/transam/xlog.c
++++ b/src/backend/access/transam/xlog.c
+@@ -6295,10 +6295,18 @@ CreateCheckPoint(int flags)
+ 	 * log_checkpoints is currently off.
+ 	 */
+ 	MemSet(&CheckpointStats, 0, sizeof(CheckpointStats));
+ 	CheckpointStats.ckpt_start_t = GetCurrentTimestamp();
+ 
++	/*
++	 * Let smgr prepare for checkpoint; this has to happen outside the
++	 * critical section and before we determine the REDO pointer.  Note that
++	 * smgr must not do anything that'd have to be undone if we decide no
++	 * checkpoint is needed.
++	 */
++	SyncPreCheckpoint();
++
+ 	/*
+ 	 * Use a critical section to force system panic if we have trouble.
+ 	 */
+ 	START_CRIT_SECTION();
+ 
+@@ -6308,17 +6316,10 @@ CreateCheckPoint(int flags)
+ 		ControlFile->state = DB_SHUTDOWNING;
+ 		UpdateControlFile();
+ 		LWLockRelease(ControlFileLock);
+ 	}
+ 
+-	/*
+-	 * Let smgr prepare for checkpoint; this has to happen before we determine
+-	 * the REDO pointer.  Note that smgr must not do anything that'd have to
+-	 * be undone if we decide no checkpoint is needed.
+-	 */
+-	SyncPreCheckpoint();
+-
+ 	/* Begin filling in the checkpoint WAL record */
+ 	MemSet(&checkPoint, 0, sizeof(checkPoint));
+ 	checkPoint.time = (pg_time_t) time(NULL);
+ 
+ 	/*
+diff --git a/src/backend/storage/sync/sync.c b/src/backend/storage/sync/sync.c
+index 0c4d9ce687f..c695d816fc6 100644
+--- a/src/backend/storage/sync/sync.c
++++ b/src/backend/storage/sync/sync.c
+@@ -172,18 +172,30 @@ InitSync(void)
+  * started from those that arrived during the checkpoint, we use a cycle
+  * counter similar to the one we use for fsync requests. That cycle
+  * counter is incremented here.
+  *
+  * This must be called *before* the checkpoint REDO point is determined.
+- * That ensures that we won't delete files too soon.
++ * That ensures that we won't delete files too soon.  Since this calls
++ * AbsorbSyncRequests(), which performs memory allocations, it cannot be
++ * called within a critical section.
+  *
+  * Note that we can't do anything here that depends on the assumption
+  * that the checkpoint will be completed.
+  */
+ void
+ SyncPreCheckpoint(void)
+ {
++	/*
++	 * Operations such as DROP TABLESPACE assume that the next checkpoint will
++	 * process all recently forwarded unlink requests, but if they aren't
++	 * absorbed prior to advancing the cycle counter, they won't be processed
++	 * until a future checkpoint.  The following absorb ensures that any
++	 * unlink requests forwarded before the checkpoint began will be processed
++	 * in the current checkpoint.
++	 */
++	AbsorbSyncRequests();
++
+ 	/*
+ 	 * Any unlink requests arriving after this point will be assigned the next
+ 	 * cycle counter, and won't be unlinked until next checkpoint.
+ 	 */
+ 	checkpoint_cycle_ctr++;

@@ -1,0 +1,69 @@
+commit 0174c2d213f69a4ba87932de706eedf3fbb5979e
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Thu Sep 7 14:38:15 2023 +1200
+
+    Fix instability in 031_recovery_conflict.pl.
+    
+    Where the test wants a VACUUM command to generate WAL that would
+    conflict with a session on the standby, it could transiently fail to do
+    so if it couldn't acquire a cleanup lock conditionally at that moment on
+    the primary.  VACUUM FREEZE will wait, so use that instead.
+    
+    No back-patch for now, but that will be needed if/when the test is
+    re-enabled in back-branches.
+    
+    Suggested-by: Andres Freund <andres@anarazel.de>
+    Reported-by: Christoph Berg <myon@debian.org>
+    Discussion: https://postgr.es/m/20230812210006.ei7tutzwcr5svyt6%40awork3.anarazel.de
+
+diff --git a/src/test/recovery/t/031_recovery_conflict.pl b/src/test/recovery/t/031_recovery_conflict.pl
+index 05e83fa854f..7cafe2fd867 100644
+--- a/src/test/recovery/t/031_recovery_conflict.pl
++++ b/src/test/recovery/t/031_recovery_conflict.pl
+@@ -107,12 +107,12 @@ my $res = $psql_standby->query_safe(
+ like($res, qr/^0$/m, "$sect: cursor with conflicting pin established");
+ 
+ # to check the log starting now for recovery conflict messages
+ my $log_location = -s $node_standby->logfile;
+ 
+-# VACUUM on the primary
+-$node_primary->safe_psql($test_db, qq[VACUUM $table1;]);
++# VACUUM FREEZE on the primary
++$node_primary->safe_psql($test_db, qq[VACUUM FREEZE $table1;]);
+ 
+ # Wait for catchup. Existing connection will be terminated before replay is
+ # finished, so waiting for catchup ensures that there is no race between
+ # encountering the recovery conflict which causes the disconnect and checking
+ # the logfile for the terminated connection.
+@@ -142,12 +142,12 @@ like($res, qr/^0$/m, "$sect: cursor with conflicting snapshot established");
+ 
+ # Do some HOT updates
+ $node_primary->safe_psql($test_db,
+ 	qq[UPDATE $table1 SET a = a + 1 WHERE a > 2;]);
+ 
+-# VACUUM, pruning those dead tuples
+-$node_primary->safe_psql($test_db, qq[VACUUM $table1;]);
++# VACUUM FREEZE, pruning those dead tuples
++$node_primary->safe_psql($test_db, qq[VACUUM FREEZE $table1;]);
+ 
+ # Wait for attempted replay of PRUNE records
+ $node_primary->wait_for_replay_catchup($node_standby);
+ 
+ check_conflict_log(
+@@ -262,13 +262,13 @@ ok( $node_standby->poll_query_until(
+ 		'postgres', qq[
+ SELECT 'waiting' FROM pg_locks WHERE locktype = 'relation' AND NOT granted;
+ ], 'waiting'),
+ 	"$sect: lock acquisition is waiting");
+ 
+-# VACUUM will prune away rows, causing a buffer pin conflict, while standby
+-# psql is waiting on lock
+-$node_primary->safe_psql($test_db, qq[VACUUM $table1;]);
++# VACUUM FREEZE will prune away rows, causing a buffer pin conflict, while
++# standby psql is waiting on lock
++$node_primary->safe_psql($test_db, qq[VACUUM FREEZE $table1;]);
+ $node_primary->wait_for_replay_catchup($node_standby);
+ 
+ check_conflict_log("User transaction caused buffer deadlock with recovery.");
+ $psql_standby->reconnect_and_clear();
+ check_conflict_stat("deadlock");

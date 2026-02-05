@@ -1,0 +1,94 @@
+commit 87f81a55632107006e5006a2d0bc5272ebaeca64
+Author: David Rowley <drowley@postgresql.org>
+Date:   Wed Nov 6 09:16:00 2024 +1300
+
+    Fix hypothetical bug in ExprState building for hashing
+    
+    adf97c156 gave ExprStates the ability to hash expressions and return a
+    single hash value.  That commit supports seeding the hash value with an
+    initial value to have that blended into the final hash value.
+    
+    Here we fix a hypothetical bug where if there are zero expressions to
+    hash, the initial value is stored in the wrong location.  The existing
+    code stored the initial value in an intermediate location expecting that
+    when the expressions were hashed that those steps would store the final
+    hash value in the ExprState.resvalue field.  However, that wouldn't happen
+    when there are zero expressions to hash.  The correct thing to do instead
+    is to have a special case for zero expressions and when we hit that case,
+    store the initial value directly in the ExprState.resvalue.  The reason
+    that this is a hypothetical bug is that no code currently calls
+    ExecBuildHash32Expr passing a non-zero initial value.
+    
+    Discussion: https://postgr.es/m/CAApHDvpMAL_zxbMRr1LOex3O7Y7R7ZN2i8iUFLQhqQiJMAg3qw@mail.gmail.com
+
+diff --git a/src/backend/executor/execExpr.c b/src/backend/executor/execExpr.c
+index 45954d979f6..8f7a5340059 100644
+--- a/src/backend/executor/execExpr.c
++++ b/src/backend/executor/execExpr.c
+@@ -4002,24 +4002,25 @@ ExecBuildHash32Expr(TupleDesc desc, const TupleTableSlotOps *ops,
+ 	List	   *adjust_jumps = NIL;
+ 	ListCell   *lc;
+ 	ListCell   *lc2;
+ 	intptr_t	strict_opcode;
+ 	intptr_t	opcode;
++	int			num_exprs = list_length(hash_exprs);
+ 
+-	Assert(list_length(hash_exprs) == list_length(collations));
++	Assert(num_exprs == list_length(collations));
+ 
+ 	state->parent = parent;
+ 
+ 	/* Insert setup steps as needed. */
+ 	ExecCreateExprSetupSteps(state, (Node *) hash_exprs);
+ 
+ 	/*
+-	 * When hashing more than 1 expression or if we have an init value, we
+-	 * need somewhere to store the intermediate hash value so that it's
+-	 * available to be combined with the result of subsequent hashing.
++	 * Make a place to store intermediate hash values between subsequent
++	 * hashing of individual expressions.  We only need this if there is more
++	 * than one expression to hash or an initial value plus one expression.
+ 	 */
+-	if (list_length(hash_exprs) > 1 || init_value != 0)
++	if ((int64) num_exprs + (init_value != 0) > 1)
+ 		iresult = palloc(sizeof(NullableDatum));
+ 
+ 	if (init_value == 0)
+ 	{
+ 		/*
+@@ -4030,15 +4031,19 @@ ExecBuildHash32Expr(TupleDesc desc, const TupleTableSlotOps *ops,
+ 		strict_opcode = EEOP_HASHDATUM_FIRST_STRICT;
+ 		opcode = EEOP_HASHDATUM_FIRST;
+ 	}
+ 	else
+ 	{
+-		/* Set up operation to set the initial value. */
++		/*
++		 * Set up operation to set the initial value.  Normally we store this
++		 * in the intermediate hash value location, but if there are no exprs
++		 * to hash, store it in the ExprState's result field.
++		 */
+ 		scratch.opcode = EEOP_HASHDATUM_SET_INITVAL;
+ 		scratch.d.hashdatum_initvalue.init_value = UInt32GetDatum(init_value);
+-		scratch.resvalue = &iresult->value;
+-		scratch.resnull = &iresult->isnull;
++		scratch.resvalue = num_exprs > 0 ? &iresult->value : &state->resvalue;
++		scratch.resnull = num_exprs > 0 ? &iresult->isnull : &state->resnull;
+ 
+ 		ExprEvalPushStep(state, &scratch);
+ 
+ 		/*
+ 		 * When using an initial value use the NEXT32/NEXT32_STRICT ops as the
+@@ -4072,11 +4077,11 @@ ExecBuildHash32Expr(TupleDesc desc, const TupleTableSlotOps *ops,
+ 		ExecInitExprRec(expr,
+ 						state,
+ 						&fcinfo->args[0].value,
+ 						&fcinfo->args[0].isnull);
+ 
+-		if (i == list_length(hash_exprs) - 1)
++		if (i == num_exprs - 1)
+ 		{
+ 			/* the result for hashing the final expr is stored in the state */
+ 			scratch.resvalue = &state->resvalue;
+ 			scratch.resnull = &state->resnull;
+ 		}

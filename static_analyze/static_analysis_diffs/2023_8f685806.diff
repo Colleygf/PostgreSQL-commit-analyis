@@ -1,0 +1,63 @@
+commit 8f6858064b1442f9ad057d289b0e4f018a2ad8aa
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri Jan 27 10:49:17 2023 +0100
+
+    meson: Fix installation path computation
+    
+    We have the long-standing logic to append "postgresql" to some
+    installation paths if it does not already contain "pgsql" or
+    "postgres".  The existing meson implementation of that only considered
+    the subdirectory under the prefix, not the prefix itself.  Fix that,
+    so that it now works the same way as the implementation in
+    Makefile.global.
+    
+    Reviewed-by: Andres Freund <andres@anarazel.de>
+    Discussion: https://www.postgresql.org/message-id/a6a6de12-f705-2b33-2fd9-9743277deb08@enterprisedb.com
+
+diff --git a/meson.build b/meson.build
+index 45fb9dd616e..e379a252a51 100644
+--- a/meson.build
++++ b/meson.build
+@@ -463,36 +463,38 @@ endif
+ 
+ pkg = 'postgresql'
+ 
+ dir_prefix = get_option('prefix')
+ 
++dir_prefix_contains_pg = (dir_prefix.contains('pgsql') or dir_prefix.contains('postgres'))
++
+ dir_bin = get_option('bindir')
+ 
+ dir_data = get_option('datadir')
+-if not (dir_data.contains('pgsql') or dir_data.contains('postgres'))
++if not (dir_prefix_contains_pg or dir_data.contains('pgsql') or dir_data.contains('postgres'))
+   dir_data = dir_data / pkg
+ endif
+ 
+ dir_sysconf = get_option('sysconfdir')
+-if not (dir_sysconf.contains('pgsql') or dir_sysconf.contains('postgres'))
++if not (dir_prefix_contains_pg or dir_sysconf.contains('pgsql') or dir_sysconf.contains('postgres'))
+   dir_sysconf = dir_sysconf / pkg
+ endif
+ 
+ dir_lib = get_option('libdir')
+ 
+ dir_lib_pkg = dir_lib
+-if not (dir_lib_pkg.contains('pgsql') or dir_lib_pkg.contains('postgres'))
++if not (dir_prefix_contains_pg or dir_lib_pkg.contains('pgsql') or dir_lib_pkg.contains('postgres'))
+   dir_lib_pkg = dir_lib_pkg / pkg
+ endif
+ 
+ dir_pgxs = dir_lib_pkg / 'pgxs'
+ 
+ dir_include = get_option('includedir')
+ 
+ dir_include_pkg = dir_include
+ dir_include_pkg_rel = ''
+-if not (dir_include_pkg.contains('pgsql') or dir_include_pkg.contains('postgres'))
++if not (dir_prefix_contains_pg or dir_include_pkg.contains('pgsql') or dir_include_pkg.contains('postgres'))
+   dir_include_pkg = dir_include_pkg / pkg
+   dir_include_pkg_rel = pkg
+ endif
+ 
+ dir_man = get_option('mandir')

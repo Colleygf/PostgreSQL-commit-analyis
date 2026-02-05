@@ -1,0 +1,114 @@
+commit 9790affcce032710c907aced834e968f2fc41bce
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Wed Dec 3 14:41:12 2025 +0100
+
+    Fix stray references to SubscriptRef
+    
+    This type never existed.  SubscriptingRef was meant instead.
+    
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://www.postgresql.org/message-id/flat/2eaa45e3-efc5-4d75-b082-f8159f51445f%40eisentraut.org
+
+diff --git a/contrib/hstore/hstore_subs.c b/contrib/hstore/hstore_subs.c
+index 3d03f66fa0d..1bae69e4e2c 100644
+--- a/contrib/hstore/hstore_subs.c
++++ b/contrib/hstore/hstore_subs.c
+@@ -72,11 +72,11 @@ hstore_subscript_transform(SubscriptingRef *sbsref,
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_DATATYPE_MISMATCH),
+ 				 errmsg("hstore subscript must have type text"),
+ 				 parser_errposition(pstate, exprLocation(ai->uidx))));
+ 
+-	/* ... and store the transformed subscript into the SubscriptRef node */
++	/* ... and store the transformed subscript into the SubscriptingRef node */
+ 	sbsref->refupperindexpr = list_make1(subexpr);
+ 	sbsref->reflowerindexpr = NIL;
+ 
+ 	/* Determine the result type of the subscripting operation; always text */
+ 	sbsref->refrestype = TEXTOID;
+diff --git a/src/backend/utils/adt/arraysubs.c b/src/backend/utils/adt/arraysubs.c
+index 2940fb8e8d7..b476fa586a9 100644
+--- a/src/backend/utils/adt/arraysubs.c
++++ b/src/backend/utils/adt/arraysubs.c
+@@ -138,11 +138,11 @@ array_subscript_transform(SubscriptingRef *sbsref,
+ 			subexpr = NULL;
+ 		}
+ 		upperIndexpr = lappend(upperIndexpr, subexpr);
+ 	}
+ 
+-	/* ... and store the transformed lists into the SubscriptRef node */
++	/* ... and store the transformed lists into the SubscriptingRef node */
+ 	sbsref->refupperindexpr = upperIndexpr;
+ 	sbsref->reflowerindexpr = lowerIndexpr;
+ 
+ 	/* Verify subscript list lengths are within implementation limit */
+ 	if (list_length(upperIndexpr) > MAXDIM)
+diff --git a/src/backend/utils/adt/jsonbsubs.c b/src/backend/utils/adt/jsonbsubs.c
+index e8626d3b4fc..b9f5eed44a6 100644
+--- a/src/backend/utils/adt/jsonbsubs.c
++++ b/src/backend/utils/adt/jsonbsubs.c
+@@ -150,11 +150,11 @@ jsonb_subscript_transform(SubscriptingRef *sbsref,
+ 		}
+ 
+ 		upperIndexpr = lappend(upperIndexpr, subExpr);
+ 	}
+ 
+-	/* store the transformed lists into the SubscriptRef node */
++	/* store the transformed lists into the SubscriptingRef node */
+ 	sbsref->refupperindexpr = upperIndexpr;
+ 	sbsref->reflowerindexpr = NIL;
+ 
+ 	/* Determine the result type of the subscripting operation; always jsonb */
+ 	sbsref->refrestype = JSONBOID;
+diff --git a/src/include/nodes/subscripting.h b/src/include/nodes/subscripting.h
+index e991f4bf826..6e133b881d3 100644
+--- a/src/include/nodes/subscripting.h
++++ b/src/include/nodes/subscripting.h
+@@ -33,27 +33,27 @@ typedef struct SubscriptExecSteps SubscriptExecSteps;
+  *
+  * In addition to the method pointers, struct SubscriptRoutines includes
+  * several bool flags that specify properties of the subscripting actions
+  * this data type can perform:
+  *
+- * fetch_strict indicates that a fetch SubscriptRef is strict, i.e., returns
++ * fetch_strict indicates that a fetch SubscriptingRef is strict, i.e., returns
+  * NULL if any input (either the container or any subscript) is NULL.
+  *
+- * fetch_leakproof indicates that a fetch SubscriptRef is leakproof, i.e.,
++ * fetch_leakproof indicates that a fetch SubscriptingRef is leakproof, i.e.,
+  * will not throw any data-value-dependent errors.  Typically this requires
+  * silently returning NULL for invalid subscripts.
+  *
+- * store_leakproof similarly indicates whether an assignment SubscriptRef is
++ * store_leakproof similarly indicates whether an assignment SubscriptingRef is
+  * leakproof.  (It is common to prefer throwing errors for invalid subscripts
+  * in assignments; that's fine, but it makes the operation not leakproof.
+  * In current usage there is no advantage in making assignments leakproof.)
+  *
+  * There is no store_strict flag.  Such behavior would generally be
+  * undesirable, since for example a null subscript in an assignment would
+  * cause the entire container to become NULL.
+  *
+- * Regardless of these flags, all SubscriptRefs are expected to be immutable,
++ * Regardless of these flags, all SubscriptingRefs are expected to be immutable,
+  * that is they must always give the same results for the same inputs.
+  * They are expected to always be parallel-safe, as well.
+  */
+ 
+ /*
+@@ -157,11 +157,12 @@ typedef void (*SubscriptExecSetup) (const SubscriptingRef *sbsref,
+ /* Struct returned by the SQL-visible subscript handler function */
+ typedef struct SubscriptRoutines
+ {
+ 	SubscriptTransform transform;	/* parse analysis function */
+ 	SubscriptExecSetup exec_setup;	/* expression compilation function */
+-	bool		fetch_strict;	/* is fetch SubscriptRef strict? */
+-	bool		fetch_leakproof;	/* is fetch SubscriptRef leakproof? */
+-	bool		store_leakproof;	/* is assignment SubscriptRef leakproof? */
++	bool		fetch_strict;	/* is fetch SubscriptingRef strict? */
++	bool		fetch_leakproof;	/* is fetch SubscriptingRef leakproof? */
++	bool		store_leakproof;	/* is assignment SubscriptingRef
++									 * leakproof? */
+ } SubscriptRoutines;
+ 
+ #endif							/* SUBSCRIPTING_H */

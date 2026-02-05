@@ -1,0 +1,98 @@
+commit 43830ecb8a9b6a1bc322298a77a5e0d87c2e83d4
+Author: Dean Rasheed <dean.a.rasheed@gmail.com>
+Date:   Fri Jan 17 10:35:07 2025 +0000
+
+    Fix parsing of qualified relation names in RETURNING.
+    
+    Given a qualified refname, refnameNamespaceItem() will search for a
+    matching namespace item by relation OID, rather than by name. Commit
+    80feb727c8 broke this by adding additional namespace items for OLD and
+    NEW in the RETURNING list, which have the same relation OID, causing
+    ambiguity. Fix this by ignoring these in the search, which is correct
+    since they don't match the qualified relation name, and so there is no
+    real ambiguity.
+    
+    Reported by Richard Guo.
+    
+    Discussion: https://postgr.es/m/CAMbWs49MBjWYWDROJ8MZ%3DY%2B4UgRQa10wzik1tWrD5yto9eoGXg%40mail.gmail.com
+
+diff --git a/src/backend/parser/parse_relation.c b/src/backend/parser/parse_relation.c
+index 679bf640c62..101fba34b18 100644
+--- a/src/backend/parser/parse_relation.c
++++ b/src/backend/parser/parse_relation.c
+@@ -123,11 +123,14 @@ static bool isQueryUsingTempRelation_walker(Node *node, void *context);
+  *
+  * A qualified refname (schemaname != NULL) can only match a relation item
+  * that (a) has no alias and (b) is for the same relation identified by
+  * schemaname.refname.  In this case we convert schemaname.refname to a
+  * relation OID and search by relid, rather than by alias name.  This is
+- * peculiar, but it's what SQL says to do.
++ * peculiar, but it's what SQL says to do.  While processing a query's
++ * RETURNING list, there may be additional namespace items for OLD and NEW,
++ * with the same relation OID as the target namespace item.  These are
++ * ignored in the search, since they don't match by schemaname.refname.
+  */
+ ParseNamespaceItem *
+ refnameNamespaceItem(ParseState *pstate,
+ 					 const char *schemaname,
+ 					 const char *refname,
+@@ -253,10 +256,13 @@ scanNameSpaceForRelid(ParseState *pstate, Oid relid, int location)
+ 		if (!nsitem->p_rel_visible)
+ 			continue;
+ 		/* If not inside LATERAL, ignore lateral-only items */
+ 		if (nsitem->p_lateral_only && !pstate->p_lateral_active)
+ 			continue;
++		/* Ignore OLD/NEW namespace items that can appear in RETURNING */
++		if (nsitem->p_returning_type != VAR_RETURNING_DEFAULT)
++			continue;
+ 
+ 		/* yes, the test for alias == NULL should be there... */
+ 		if (rte->rtekind == RTE_RELATION &&
+ 			rte->relid == relid &&
+ 			rte->alias == NULL)
+diff --git a/src/test/regress/expected/returning.out b/src/test/regress/expected/returning.out
+index 6bd36a811fc..d1394c67833 100644
+--- a/src/test/regress/expected/returning.out
++++ b/src/test/regress/expected/returning.out
+@@ -764,10 +764,20 @@ DELETE FROM zerocol
+ ----------+-------+----------+------+-------
+  zerocol  | (0,1) |          |      | (0,1)
+ (1 row)
+ 
+ DROP TABLE zerocol;
++-- Test schema-qualified table name in RETURNING list
++CREATE TABLE public.tt(a int, b int);
++INSERT INTO public.tt VALUES (1, 10);
++UPDATE public.tt SET b = b * 2 RETURNING a, b, old.b, new.b, tt.b, public.tt.b;
++ a | b  | b  | b  | b  | b  
++---+----+----+----+----+----
++ 1 | 20 | 10 | 20 | 20 | 20
++(1 row)
++
++DROP TABLE public.tt;
+ -- Test cross-partition updates and attribute mapping
+ CREATE TABLE foo_parted (a int, b float8, c text) PARTITION BY LIST (a);
+ CREATE TABLE foo_part_s1 PARTITION OF foo_parted FOR VALUES IN (1);
+ CREATE TABLE foo_part_s2 PARTITION OF foo_parted FOR VALUES IN (2);
+ CREATE TABLE foo_part_d1 (c text, a int, b float8);
+diff --git a/src/test/regress/sql/returning.sql b/src/test/regress/sql/returning.sql
+index b7258a3d97e..54caf56244c 100644
+--- a/src/test/regress/sql/returning.sql
++++ b/src/test/regress/sql/returning.sql
+@@ -310,10 +310,16 @@ INSERT INTO zerocol SELECT
+ DELETE FROM zerocol
+   RETURNING old.tableoid::regclass, old.ctid,
+             new.tableoid::regclass, new.ctid, ctid, *;
+ DROP TABLE zerocol;
+ 
++-- Test schema-qualified table name in RETURNING list
++CREATE TABLE public.tt(a int, b int);
++INSERT INTO public.tt VALUES (1, 10);
++UPDATE public.tt SET b = b * 2 RETURNING a, b, old.b, new.b, tt.b, public.tt.b;
++DROP TABLE public.tt;
++
+ -- Test cross-partition updates and attribute mapping
+ CREATE TABLE foo_parted (a int, b float8, c text) PARTITION BY LIST (a);
+ CREATE TABLE foo_part_s1 PARTITION OF foo_parted FOR VALUES IN (1);
+ CREATE TABLE foo_part_s2 PARTITION OF foo_parted FOR VALUES IN (2);
+ CREATE TABLE foo_part_d1 (c text, a int, b float8);

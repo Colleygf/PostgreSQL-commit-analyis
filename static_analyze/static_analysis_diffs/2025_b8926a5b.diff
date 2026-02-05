@@ -1,0 +1,64 @@
+commit b8926a5b4bb82e3c56855185da4106d24d26154c
+Author: Álvaro Herrera <alvherre@kurilemu.de>
+Date:   Thu Jul 17 17:40:22 2025 +0200
+
+    Remove assertion from PortalRunMulti
+    
+    We have an assertion to ensure that a command tag has been assigned by
+    the time we're done executing, but if we happen to execute a command
+    with no queries, the assertion would fail.  Per discussion, rather than
+    contort things to get a tag assigned, just remove the assertion.
+    
+    Oversight in 2f9661311b83.  That commit also retained a comment that
+    explained logic that had been adjacent to it but diffused into various
+    places, leaving none apt to keep part of the comment.  Remove that part,
+    and rewrite what remains for extra clarity.
+    
+    Bug: #18984
+    Backpatch-through: 13
+    Reported-by: Aleksander Alekseev <aleksander@tigerdata.com>
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Reviewed-by: Michaël Paquier <michael@paquier.xyz>
+    Discussion: https://postgr.es/m/18984-0f4778a6599ac3ae@postgresql.org
+
+diff --git a/src/backend/tcop/pquery.c b/src/backend/tcop/pquery.c
+index d1593f38b35..08791b8f75e 100644
+--- a/src/backend/tcop/pquery.c
++++ b/src/backend/tcop/pquery.c
+@@ -1348,28 +1348,19 @@ PortalRunMulti(Portal portal,
+ 	/* Pop the snapshot if we pushed one. */
+ 	if (active_snapshot_set)
+ 		PopActiveSnapshot();
+ 
+ 	/*
+-	 * If a query completion data was supplied, use it.  Otherwise use the
+-	 * portal's query completion data.
+-	 *
+-	 * Exception: Clients expect INSERT/UPDATE/DELETE tags to have counts, so
+-	 * fake them with zeros.  This can happen with DO INSTEAD rules if there
+-	 * is no replacement query of the same type as the original.  We print "0
+-	 * 0" here because technically there is no query of the matching tag type,
+-	 * and printing a non-zero count for a different query type seems wrong,
+-	 * e.g.  an INSERT that does an UPDATE instead should not print "0 1" if
+-	 * one row was updated.  See QueryRewrite(), step 3, for details.
++	 * If a command tag was requested and we did not fill in a run-time-
++	 * determined tag above, copy the parse-time tag from the Portal.  (There
++	 * might not be any tag there either, in edge cases such as empty prepared
++	 * statements.  That's OK.)
+ 	 */
+-	if (qc && qc->commandTag == CMDTAG_UNKNOWN)
+-	{
+-		if (portal->qc.commandTag != CMDTAG_UNKNOWN)
+-			CopyQueryCompletion(qc, &portal->qc);
+-		/* If the caller supplied a qc, we should have set it by now. */
+-		Assert(qc->commandTag != CMDTAG_UNKNOWN);
+-	}
++	if (qc &&
++		qc->commandTag == CMDTAG_UNKNOWN &&
++		portal->qc.commandTag != CMDTAG_UNKNOWN)
++		CopyQueryCompletion(qc, &portal->qc);
+ }
+ 
+ /*
+  * PortalRunFetch
+  *		Variant form of PortalRun that supports SQL FETCH directions.

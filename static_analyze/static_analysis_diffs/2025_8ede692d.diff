@@ -1,0 +1,53 @@
+commit 8ede692de512750ecb6930213e6d78ed90ef06d0
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Tue May 13 09:54:29 2025 +0530
+
+    Fix the race condition in the test added by 7c99dc587.
+    
+    After executing ALTER SUBSCRIPTION tap_sub SET PUBLICATION, we did not
+    wait for the new walsender process to restart. As a result, an INSERT
+    executed immediately after the ALTER could be decoded and skipped,
+    considering it is not part of any subscribed publication. And, the old
+    apply worker could also confirm the LSN of such an INSERT. This could
+    cause the replication to resume from a point after the INSERT. In such
+    cases, we miss the expected warning about the missing publication.
+    
+    To fix this, ensure the walsender has restarted before continuing after
+    ALTER SUBSCRIPTION.
+    
+    Reported-by: Tom Lane as per CI
+    Author: vignesh C <vignesh21@gmail.com>
+    Reviewed-by: Xuneng Zhou <xunengzhou@gmail.com>
+    Reviewed-by: Amit Kapila <amit.kapila16@gmail.com>
+    Discussion: https://postgr.es/m/1230066.1745992333@sss.pgh.pa.us
+
+diff --git a/src/test/subscription/t/024_add_drop_pub.pl b/src/test/subscription/t/024_add_drop_pub.pl
+index b594941c7cb..e995d8b3839 100644
+--- a/src/test/subscription/t/024_add_drop_pub.pl
++++ b/src/test/subscription/t/024_add_drop_pub.pl
+@@ -89,14 +89,25 @@ is($result, qq(20|1|10), 'check initial data is copied to subscriber');
+ 
+ # Create table on publisher and subscriber
+ $node_publisher->safe_psql('postgres', "CREATE TABLE tab_3 (a int)");
+ $node_subscriber->safe_psql('postgres', "CREATE TABLE tab_3 (a int)");
+ 
++my $oldpid = $node_publisher->safe_psql('postgres',
++	"SELECT pid FROM pg_stat_replication WHERE application_name = 'tap_sub' AND state = 'streaming';"
++);
++
+ # Set the subscription with a missing publication
+ $node_subscriber->safe_psql('postgres',
+ 	"ALTER SUBSCRIPTION tap_sub SET PUBLICATION tap_pub_3");
+ 
++# Wait for the walsender to restart after altering the subscription
++$node_publisher->poll_query_until('postgres',
++	"SELECT pid != $oldpid FROM pg_stat_replication WHERE application_name = 'tap_sub' AND state = 'streaming';"
++  )
++  or die
++  "Timed out while waiting for apply worker to restart after altering the subscription";
++
+ my $offset = -s $node_publisher->logfile;
+ 
+ $node_publisher->safe_psql('postgres',"INSERT INTO tab_3 values(1)");
+ 
+ # Verify that a warning is logged.

@@ -1,0 +1,144 @@
+commit fe29b2a1dab2b3d81e6c350679b7d9b0e1c8c850
+Author: Richard Guo <rguo@postgresql.org>
+Date:   Thu May 15 17:09:04 2025 +0900
+
+    Fix Assert failure in XMLTABLE parser
+    
+    In an XMLTABLE expression, columns can be marked NOT NULL, and the
+    parser internally fabricates an option named "is_not_null" to
+    represent this.  However, the parser also allows users to specify
+    arbitrary option names.  This creates a conflict: a user can
+    explicitly use "is_not_null" as an option name and assign it a
+    non-Boolean value, which violates internal assumptions and triggers an
+    assertion failure.
+    
+    To fix, this patch checks whether a user-supplied name collides with
+    the internally reserved option name and raises an error if so.
+    Additionally, the internal name is renamed to "__pg__is_not_null" to
+    further reduce the risk of collision with user-defined names.
+    
+    Reported-by: Евгений Горбанев <gorbanyoves@basealt.ru>
+    Author: Richard Guo <guofenglinux@gmail.com>
+    Reviewed-by: Alvaro Herrera <alvherre@kurilemu.de>
+    Discussion: https://postgr.es/m/6bac9886-65bf-4cec-96bd-e304159f28db@basealt.ru
+    Backpatch-through: 15
+
+diff --git a/src/backend/parser/gram.y b/src/backend/parser/gram.y
+index 3c4268b271a..0b5652071d1 100644
+--- a/src/backend/parser/gram.y
++++ b/src/backend/parser/gram.y
+@@ -14228,11 +14228,11 @@ xmltable_column_el:
+ 										(errcode(ERRCODE_SYNTAX_ERROR),
+ 										 errmsg("only one PATH value per column is allowed"),
+ 										 parser_errposition(defel->location)));
+ 							fc->colexpr = defel->arg;
+ 						}
+-						else if (strcmp(defel->defname, "is_not_null") == 0)
++						else if (strcmp(defel->defname, "__pg__is_not_null") == 0)
+ 						{
+ 							if (nullability_seen)
+ 								ereport(ERROR,
+ 										(errcode(ERRCODE_SYNTAX_ERROR),
+ 										 errmsg("conflicting or redundant NULL / NOT NULL declarations for column \"%s\"", fc->colname),
+@@ -14271,17 +14271,24 @@ xmltable_column_option_list:
+ 				{ $$ = lappend($1, $2); }
+ 		;
+ 
+ xmltable_column_option_el:
+ 			IDENT b_expr
+-				{ $$ = makeDefElem($1, $2, @1); }
++				{
++					if (strcmp($1, "__pg__is_not_null") == 0)
++						ereport(ERROR,
++								(errcode(ERRCODE_SYNTAX_ERROR),
++								 errmsg("option name \"%s\" cannot be used in XMLTABLE", $1),
++								 parser_errposition(@1)));
++					$$ = makeDefElem($1, $2, @1);
++				}
+ 			| DEFAULT b_expr
+ 				{ $$ = makeDefElem("default", $2, @1); }
+ 			| NOT NULL_P
+-				{ $$ = makeDefElem("is_not_null", (Node *) makeBoolean(true), @1); }
++				{ $$ = makeDefElem("__pg__is_not_null", (Node *) makeBoolean(true), @1); }
+ 			| NULL_P
+-				{ $$ = makeDefElem("is_not_null", (Node *) makeBoolean(false), @1); }
++				{ $$ = makeDefElem("__pg__is_not_null", (Node *) makeBoolean(false), @1); }
+ 			| PATH b_expr
+ 				{ $$ = makeDefElem("path", $2, @1); }
+ 		;
+ 
+ xml_namespace_list:
+diff --git a/src/test/regress/expected/xml.out b/src/test/regress/expected/xml.out
+index bcc743f4851..103a22a3b1d 100644
+--- a/src/test/regress/expected/xml.out
++++ b/src/test/regress/expected/xml.out
+@@ -1371,10 +1371,14 @@ EXPLAIN (COSTS OFF, VERBOSE) SELECT * FROM xmltableview1;
+ (7 rows)
+ 
+ -- errors
+ SELECT * FROM XMLTABLE (ROW () PASSING null COLUMNS v1 timestamp) AS f (v1, v2);
+ ERROR:  XMLTABLE function has 1 columns available but 2 columns specified
++SELECT * FROM XMLTABLE (ROW () PASSING null COLUMNS v1 timestamp __pg__is_not_null 1) AS f (v1);
++ERROR:  option name "__pg__is_not_null" cannot be used in XMLTABLE
++LINE 1: ...MLTABLE (ROW () PASSING null COLUMNS v1 timestamp __pg__is_n...
++                                                             ^
+ -- XMLNAMESPACES tests
+ SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS zz),
+                       '/zz:rows/zz:row'
+                       PASSING '<rows xmlns="http://x.y"><row><a>10</a></row></rows>'
+                       COLUMNS a int PATH 'zz:a');
+diff --git a/src/test/regress/expected/xml_1.out b/src/test/regress/expected/xml_1.out
+index a1c5d314171..73c411118a3 100644
+--- a/src/test/regress/expected/xml_1.out
++++ b/src/test/regress/expected/xml_1.out
+@@ -1045,10 +1045,14 @@ EXPLAIN (COSTS OFF, VERBOSE) SELECT * FROM xmltableview1;
+ (7 rows)
+ 
+ -- errors
+ SELECT * FROM XMLTABLE (ROW () PASSING null COLUMNS v1 timestamp) AS f (v1, v2);
+ ERROR:  XMLTABLE function has 1 columns available but 2 columns specified
++SELECT * FROM XMLTABLE (ROW () PASSING null COLUMNS v1 timestamp __pg__is_not_null 1) AS f (v1);
++ERROR:  option name "__pg__is_not_null" cannot be used in XMLTABLE
++LINE 1: ...MLTABLE (ROW () PASSING null COLUMNS v1 timestamp __pg__is_n...
++                                                             ^
+ -- XMLNAMESPACES tests
+ SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS zz),
+                       '/zz:rows/zz:row'
+                       PASSING '<rows xmlns="http://x.y"><row><a>10</a></row></rows>'
+                       COLUMNS a int PATH 'zz:a');
+diff --git a/src/test/regress/expected/xml_2.out b/src/test/regress/expected/xml_2.out
+index 045641dae64..a85d95358d9 100644
+--- a/src/test/regress/expected/xml_2.out
++++ b/src/test/regress/expected/xml_2.out
+@@ -1357,10 +1357,14 @@ EXPLAIN (COSTS OFF, VERBOSE) SELECT * FROM xmltableview1;
+ (7 rows)
+ 
+ -- errors
+ SELECT * FROM XMLTABLE (ROW () PASSING null COLUMNS v1 timestamp) AS f (v1, v2);
+ ERROR:  XMLTABLE function has 1 columns available but 2 columns specified
++SELECT * FROM XMLTABLE (ROW () PASSING null COLUMNS v1 timestamp __pg__is_not_null 1) AS f (v1);
++ERROR:  option name "__pg__is_not_null" cannot be used in XMLTABLE
++LINE 1: ...MLTABLE (ROW () PASSING null COLUMNS v1 timestamp __pg__is_n...
++                                                             ^
+ -- XMLNAMESPACES tests
+ SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS zz),
+                       '/zz:rows/zz:row'
+                       PASSING '<rows xmlns="http://x.y"><row><a>10</a></row></rows>'
+                       COLUMNS a int PATH 'zz:a');
+diff --git a/src/test/regress/sql/xml.sql b/src/test/regress/sql/xml.sql
+index 4c3520ce898..0ea4f508837 100644
+--- a/src/test/regress/sql/xml.sql
++++ b/src/test/regress/sql/xml.sql
+@@ -433,10 +433,12 @@ EXPLAIN (COSTS OFF) SELECT * FROM xmltableview1;
+ EXPLAIN (COSTS OFF, VERBOSE) SELECT * FROM xmltableview1;
+ 
+ -- errors
+ SELECT * FROM XMLTABLE (ROW () PASSING null COLUMNS v1 timestamp) AS f (v1, v2);
+ 
++SELECT * FROM XMLTABLE (ROW () PASSING null COLUMNS v1 timestamp __pg__is_not_null 1) AS f (v1);
++
+ -- XMLNAMESPACES tests
+ SELECT * FROM XMLTABLE(XMLNAMESPACES('http://x.y' AS zz),
+                       '/zz:rows/zz:row'
+                       PASSING '<rows xmlns="http://x.y"><row><a>10</a></row></rows>'
+                       COLUMNS a int PATH 'zz:a');

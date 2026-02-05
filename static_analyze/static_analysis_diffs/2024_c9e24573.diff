@@ -1,0 +1,82 @@
+commit c9e24573905bef7fc3e4efb02bdb4d0cc8e43c51
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Sat Jul 27 07:16:52 2024 +0900
+
+    Fix more holes with SLRU code in need of int64 for segment numbers
+    
+    This is a continuation of 3937cadfd438, taking care of more areas I have
+    managed to miss previously.
+    
+    Reported-by: Noah Misch
+    Reviewed-by: Noah Misch
+    Discussion: https://postgr.es/m/20240724130059.1f.nmisch@google.com
+    Backpatch-through: 17
+
+diff --git a/src/backend/access/transam/multixact.c b/src/backend/access/transam/multixact.c
+index 675affe4f76..c601ff98a14 100644
+--- a/src/backend/access/transam/multixact.c
++++ b/src/backend/access/transam/multixact.c
+@@ -3048,11 +3048,12 @@ PerformMembersTruncation(MultiXactOffset oldestOffset, MultiXactOffset newOldest
+ 	 * Delete all the segments but the last one. The last segment can still
+ 	 * contain, possibly partially, valid data.
+ 	 */
+ 	while (segment != endsegment)
+ 	{
+-		elog(DEBUG2, "truncating multixact members segment %x", segment);
++		elog(DEBUG2, "truncating multixact members segment %llx",
++			 (unsigned long long) segment);
+ 		SlruDeleteSegment(MultiXactMemberCtl, segment);
+ 
+ 		/* move to next segment, handling wraparound correctly */
+ 		if (segment == maxsegment)
+ 			segment = 0;
+@@ -3199,18 +3200,18 @@ TruncateMultiXact(MultiXactId newOldestMulti, Oid newOldestMultiDB)
+ 		LWLockRelease(MultiXactTruncationLock);
+ 		return;
+ 	}
+ 
+ 	elog(DEBUG1, "performing multixact truncation: "
+-		 "offsets [%u, %u), offsets segments [%x, %x), "
+-		 "members [%u, %u), members segments [%x, %x)",
++		 "offsets [%u, %u), offsets segments [%llx, %llx), "
++		 "members [%u, %u), members segments [%llx, %llx)",
+ 		 oldestMulti, newOldestMulti,
+-		 MultiXactIdToOffsetSegment(oldestMulti),
+-		 MultiXactIdToOffsetSegment(newOldestMulti),
++		 (unsigned long long) MultiXactIdToOffsetSegment(oldestMulti),
++		 (unsigned long long) MultiXactIdToOffsetSegment(newOldestMulti),
+ 		 oldestOffset, newOldestOffset,
+-		 MXOffsetToMemberSegment(oldestOffset),
+-		 MXOffsetToMemberSegment(newOldestOffset));
++		 (unsigned long long) MXOffsetToMemberSegment(oldestOffset),
++		 (unsigned long long) MXOffsetToMemberSegment(newOldestOffset));
+ 
+ 	/*
+ 	 * Do truncation, and the WAL logging of the truncation, in a critical
+ 	 * section. That way offsets/members cannot get out of sync anymore, i.e.
+ 	 * once consistent the newOldestMulti will always exist in members, even
+@@ -3459,18 +3460,18 @@ multixact_redo(XLogReaderState *record)
+ 
+ 		memcpy(&xlrec, XLogRecGetData(record),
+ 			   SizeOfMultiXactTruncate);
+ 
+ 		elog(DEBUG1, "replaying multixact truncation: "
+-			 "offsets [%u, %u), offsets segments [%x, %x), "
+-			 "members [%u, %u), members segments [%x, %x)",
++			 "offsets [%u, %u), offsets segments [%llx, %llx), "
++			 "members [%u, %u), members segments [%llx, %llx)",
+ 			 xlrec.startTruncOff, xlrec.endTruncOff,
+-			 MultiXactIdToOffsetSegment(xlrec.startTruncOff),
+-			 MultiXactIdToOffsetSegment(xlrec.endTruncOff),
++			 (unsigned long long) MultiXactIdToOffsetSegment(xlrec.startTruncOff),
++			 (unsigned long long) MultiXactIdToOffsetSegment(xlrec.endTruncOff),
+ 			 xlrec.startTruncMemb, xlrec.endTruncMemb,
+-			 MXOffsetToMemberSegment(xlrec.startTruncMemb),
+-			 MXOffsetToMemberSegment(xlrec.endTruncMemb));
++			 (unsigned long long) MXOffsetToMemberSegment(xlrec.startTruncMemb),
++			 (unsigned long long) MXOffsetToMemberSegment(xlrec.endTruncMemb));
+ 
+ 		/* should not be required, but more than cheap enough */
+ 		LWLockAcquire(MultiXactTruncationLock, LW_EXCLUSIVE);
+ 
+ 		/*

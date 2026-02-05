@@ -1,0 +1,62 @@
+commit e89f4c66182e409b6643b1e8426371011dc25217
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Mon May 13 10:32:33 2024 +0200
+
+    Fix test case to do what it intends to
+    
+    This test case intended to fail because setting a column as generated to
+    the partitioned table while leaving the partition alone is not allowed;
+    but instead failed because of a discrepancy of not-null constraint.  Fix
+    this by adding the not-null constraint first, then set the column as
+    generated in a separate ALTER TABLE command, which gets the expected
+    error.  Also, because the next test also wants to set the column as
+    not-null, add a BEGIN/ROLLBACK block so that the added not-null is
+    removed.
+    
+    Oversight in 699586315704.
+
+diff --git a/src/test/regress/expected/identity.out b/src/test/regress/expected/identity.out
+index 31ad041055f..29539e7f632 100644
+--- a/src/test/regress/expected/identity.out
++++ b/src/test/regress/expected/identity.out
+@@ -754,15 +754,17 @@ INSERT into pitest3_p1 VALUES ('2016-07-3', 'from pitest3_p1', 2);
+ ALTER TABLE pitest3_p1
+             ALTER COLUMN f3 SET NOT NULL,
+             ALTER COLUMN f3 ADD GENERATED ALWAYS AS IDENTITY (START WITH 3);
+ ERROR:  cannot add identity to a column of a partition
+ -- fails, changing only the partitioned table not allowed
++BEGIN;
++ALTER TABLE pitest3_p1 ALTER COLUMN f3 SET NOT NULL;
+ ALTER TABLE ONLY pitest3
+-            ALTER COLUMN f3 SET NOT NULL,
+             ALTER COLUMN f3 ADD GENERATED ALWAYS AS IDENTITY (START WITH 3);
+-ERROR:  constraint must be added to child tables too
++ERROR:  cannot add identity to a column of only the partitioned table
+ HINT:  Do not specify the ONLY keyword.
++ROLLBACK;
+ ALTER TABLE pitest3
+             ALTER COLUMN f3 SET NOT NULL,
+             ALTER COLUMN f3 ADD GENERATED ALWAYS AS IDENTITY (START WITH 3);
+ INSERT into pitest3(f1, f2) VALUES ('2016-07-4', 'from pitest3');
+ INSERT into pitest3_p1 (f1, f2) VALUES ('2016-07-5', 'from pitest3_p1');
+diff --git a/src/test/regress/sql/identity.sql b/src/test/regress/sql/identity.sql
+index 27ca708ff19..84c43a19a31 100644
+--- a/src/test/regress/sql/identity.sql
++++ b/src/test/regress/sql/identity.sql
+@@ -416,13 +416,15 @@ INSERT into pitest3_p1 VALUES ('2016-07-3', 'from pitest3_p1', 2);
+ -- fails, changing only a partition not allowed
+ ALTER TABLE pitest3_p1
+             ALTER COLUMN f3 SET NOT NULL,
+             ALTER COLUMN f3 ADD GENERATED ALWAYS AS IDENTITY (START WITH 3);
+ -- fails, changing only the partitioned table not allowed
++BEGIN;
++ALTER TABLE pitest3_p1 ALTER COLUMN f3 SET NOT NULL;
+ ALTER TABLE ONLY pitest3
+-            ALTER COLUMN f3 SET NOT NULL,
+             ALTER COLUMN f3 ADD GENERATED ALWAYS AS IDENTITY (START WITH 3);
++ROLLBACK;
+ ALTER TABLE pitest3
+             ALTER COLUMN f3 SET NOT NULL,
+             ALTER COLUMN f3 ADD GENERATED ALWAYS AS IDENTITY (START WITH 3);
+ INSERT into pitest3(f1, f2) VALUES ('2016-07-4', 'from pitest3');
+ INSERT into pitest3_p1 (f1, f2) VALUES ('2016-07-5', 'from pitest3_p1');

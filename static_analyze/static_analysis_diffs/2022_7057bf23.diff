@@ -1,0 +1,91 @@
+commit 7057bf23546868ee5f1d9721e7129fb636aab042
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Wed Jul 13 10:34:54 2022 +0200
+
+    Fix XID list support some more
+    
+    Read/out support in 5ca0fe5c8ad7 was missing/incomplete, per Tom Lane.
+    Again, as far as core is concerned, this is not only dead code but also
+    untested; however, third parties may come to rely on it, so the standard
+    features should work.
+    
+    Discussion: https://postgr.es/m/1548311.1657636605@sss.pgh.pa.us
+
+diff --git a/src/backend/nodes/outfuncs.c b/src/backend/nodes/outfuncs.c
+index 4d776e7b51b..9e43fec86d4 100644
+--- a/src/backend/nodes/outfuncs.c
++++ b/src/backend/nodes/outfuncs.c
+@@ -831,11 +831,12 @@ outNode(StringInfo str, const void *obj)
+ 	/* Guard against stack overflow due to overly complex expressions */
+ 	check_stack_depth();
+ 
+ 	if (obj == NULL)
+ 		appendStringInfoString(str, "<>");
+-	else if (IsA(obj, List) || IsA(obj, IntList) || IsA(obj, OidList))
++	else if (IsA(obj, List) || IsA(obj, IntList) || IsA(obj, OidList) ||
++			 IsA(obj, XidList))
+ 		_outList(str, obj);
+ 	/* nodeRead does not want to see { } around these! */
+ 	else if (IsA(obj, Integer))
+ 		_outInteger(str, (Integer *) obj);
+ 	else if (IsA(obj, Float))
+diff --git a/src/backend/nodes/read.c b/src/backend/nodes/read.c
+index 1e61fde6367..4a54996b63f 100644
+--- a/src/backend/nodes/read.c
++++ b/src/backend/nodes/read.c
+@@ -302,11 +302,11 @@ nodeTokenType(const char *token, int length)
+  * This routine applies some semantic knowledge on top of the purely
+  * lexical tokenizer pg_strtok().   It can read
+  *	* Value token nodes (integers, floats, booleans, or strings);
+  *	* General nodes (via parseNodeString() from readfuncs.c);
+  *	* Lists of the above;
+- *	* Lists of integers or OIDs.
++ *	* Lists of integers, OIDs, or TransactionIds.
+  * The return value is declared void *, not Node *, to avoid having to
+  * cast it explicitly in callers that assign to fields of different types.
+  *
+  * External callers should always pass NULL/0 for the arguments.  Internally
+  * a non-NULL token may be passed when the upper recursion level has already
+@@ -344,10 +344,11 @@ nodeRead(const char *token, int tok_len)
+ 				List	   *l = NIL;
+ 
+ 				/*----------
+ 				 * Could be an integer list:	(i int int ...)
+ 				 * or an OID list:				(o int int ...)
++				 * or an XID list:				(x int int ...)
+ 				 * or a list of nodes/values:	(node node ...)
+ 				 *----------
+ 				 */
+ 				token = pg_strtok(&tok_len);
+ 				if (token == NULL)
+@@ -390,10 +391,30 @@ nodeRead(const char *token, int tok_len)
+ 							elog(ERROR, "unrecognized OID: \"%.*s\"",
+ 								 tok_len, token);
+ 						l = lappend_oid(l, val);
+ 					}
+ 				}
++				else if (tok_len == 1 && token[0] == 'x')
++				{
++					/* List of TransactionIds */
++					for (;;)
++					{
++						TransactionId val;
++						char	   *endptr;
++
++						token = pg_strtok(&tok_len);
++						if (token == NULL)
++							elog(ERROR, "unterminated List structure");
++						if (token[0] == ')')
++							break;
++						val = (TransactionId) strtoul(token, &endptr, 10);
++						if (endptr != token + tok_len)
++							elog(ERROR, "unrecognized Xid: \"%.*s\"",
++								 tok_len, token);
++						l = lappend_xid(l, val);
++					}
++				}
+ 				else
+ 				{
+ 					/* List of other node types */
+ 					for (;;)
+ 					{

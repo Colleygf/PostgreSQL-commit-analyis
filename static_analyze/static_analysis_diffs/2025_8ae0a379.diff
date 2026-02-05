@@ -1,0 +1,71 @@
+commit 8ae0a37932d81082ec7e4b10eb304a83c561408e
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Thu Apr 3 20:37:52 2025 +0200
+
+    oauth: Fix build on platforms without epoll/kqueue
+    
+    register_socket() missed a variable declaration if neither
+    HAVE_SYS_EPOLL_H nor HAVE_SYS_EVENT_H was defined.
+    
+    While we're fixing that, adjust the tests to check pg_config.h for one
+    of the multiplexer implementations, rather than assuming that Windows is
+    the only platform without support. (Christoph reported this on
+    hurd-amd64, an experimental Debian.)
+    
+    Author: Jacob Champion <jacob.champion@enterprisedb.com>
+    Reported-by: Christoph Berg <myon@debian.org>
+    Discussion: https://postgr.es/m/Z-sPFl27Y0ZC-VBl%40msg.df7cb.de
+
+diff --git a/src/interfaces/libpq/fe-auth-oauth-curl.c b/src/interfaces/libpq/fe-auth-oauth-curl.c
+index 9e0e8a9f2be..cd9c0323bb6 100644
+--- a/src/interfaces/libpq/fe-auth-oauth-curl.c
++++ b/src/interfaces/libpq/fe-auth-oauth-curl.c
+@@ -1170,12 +1170,13 @@ setup_multiplexer(struct async_ctx *actx)
+  */
+ static int
+ register_socket(CURL *curl, curl_socket_t socket, int what, void *ctx,
+ 				void *socketp)
+ {
+-#ifdef HAVE_SYS_EPOLL_H
+ 	struct async_ctx *actx = ctx;
++
++#ifdef HAVE_SYS_EPOLL_H
+ 	struct epoll_event ev = {0};
+ 	int			res;
+ 	int			op = EPOLL_CTL_ADD;
+ 
+ 	switch (what)
+@@ -1229,11 +1230,10 @@ register_socket(CURL *curl, curl_socket_t socket, int what, void *ctx,
+ 	}
+ 
+ 	return 0;
+ #endif
+ #ifdef HAVE_SYS_EVENT_H
+-	struct async_ctx *actx = ctx;
+ 	struct kevent ev[2] = {0};
+ 	struct kevent ev_out[2];
+ 	struct timespec timeout = {0};
+ 	int			nev = 0;
+ 	int			res;
+diff --git a/src/test/modules/oauth_validator/t/001_server.pl b/src/test/modules/oauth_validator/t/001_server.pl
+index 30295364ebd..d88994abc24 100644
+--- a/src/test/modules/oauth_validator/t/001_server.pl
++++ b/src/test/modules/oauth_validator/t/001_server.pl
+@@ -24,13 +24,15 @@ if (!$ENV{PG_TEST_EXTRA} || $ENV{PG_TEST_EXTRA} !~ /\boauth\b/)
+ {
+ 	plan skip_all =>
+ 	  'Potentially unsafe test oauth not enabled in PG_TEST_EXTRA';
+ }
+ 
+-if ($windows_os)
++unless (check_pg_config("#define HAVE_SYS_EVENT_H 1")
++	or check_pg_config("#define HAVE_SYS_EPOLL_H 1"))
+ {
+-	plan skip_all => 'OAuth server-side tests are not supported on Windows';
++	plan skip_all =>
++	  'OAuth server-side tests are not supported on this platform';
+ }
+ 
+ if ($ENV{with_libcurl} ne 'yes')
+ {
+ 	plan skip_all => 'client-side OAuth not supported by this build';

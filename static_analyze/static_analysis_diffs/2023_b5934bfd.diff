@@ -1,0 +1,111 @@
+commit b5934bfd6071fed3a38cea0cfaa93afda63d9c0c
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu Aug 31 08:07:48 2023 +0900
+
+    Fix some shadow variables in src/backend/replication/
+    
+    The code is able to compile already without warnings under
+    -Wshadow=compatible-local, which is itself already enabled in the tree,
+    and the ones fixed here showed up with the more restrictive -Wshadow.
+    
+    There are more of these that we may want to look at, and the ones fixed
+    here made the code confusing.
+    
+    Author: Peter Smith
+    Discussion: https://postgr.es/m/CAHut+PuR0y4ofNOxi691VTVWmBfScHV9AaBMGSpeh8+DKp81Nw@mail.gmail.com
+
+diff --git a/src/backend/replication/logical/logicalfuncs.c b/src/backend/replication/logical/logicalfuncs.c
+index 55a24c02c94..197169d6b0d 100644
+--- a/src/backend/replication/logical/logicalfuncs.c
++++ b/src/backend/replication/logical/logicalfuncs.c
+@@ -179,14 +179,14 @@ pg_logical_slot_get_changes_guts(FunctionCallInfo fcinfo, bool confirm, bool bin
+ 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+ 					 errmsg("array must have even number of elements")));
+ 
+ 		for (i = 0; i < nelems; i += 2)
+ 		{
+-			char	   *name = TextDatumGetCString(datum_opts[i]);
++			char	   *optname = TextDatumGetCString(datum_opts[i]);
+ 			char	   *opt = TextDatumGetCString(datum_opts[i + 1]);
+ 
+-			options = lappend(options, makeDefElem(name, (Node *) makeString(opt), -1));
++			options = lappend(options, makeDefElem(optname, (Node *) makeString(opt), -1));
+ 		}
+ 	}
+ 
+ 	InitMaterializedSRF(fcinfo, 0);
+ 	p->tupstore = rsinfo->setResult;
+diff --git a/src/backend/replication/logical/reorderbuffer.c b/src/backend/replication/logical/reorderbuffer.c
+index 0dab0bb64e8..12edc5772a9 100644
+--- a/src/backend/replication/logical/reorderbuffer.c
++++ b/src/backend/replication/logical/reorderbuffer.c
+@@ -4838,20 +4838,20 @@ ReorderBufferToastReplace(ReorderBuffer *rb, ReorderBufferTXN *txn,
+ 		ent->reconstructed = reconstructed;
+ 
+ 		/* stitch toast tuple back together from its parts */
+ 		dlist_foreach(it, &ent->chunks)
+ 		{
+-			bool		isnull;
++			bool		cisnull;
+ 			ReorderBufferChange *cchange;
+ 			ReorderBufferTupleBuf *ctup;
+ 			Pointer		chunk;
+ 
+ 			cchange = dlist_container(ReorderBufferChange, node, it.cur);
+ 			ctup = cchange->data.tp.newtuple;
+-			chunk = DatumGetPointer(fastgetattr(&ctup->tuple, 3, toast_desc, &isnull));
++			chunk = DatumGetPointer(fastgetattr(&ctup->tuple, 3, toast_desc, &cisnull));
+ 
+-			Assert(!isnull);
++			Assert(!cisnull);
+ 			Assert(!VARATT_IS_EXTERNAL(chunk));
+ 			Assert(!VARATT_IS_SHORT(chunk));
+ 
+ 			memcpy(VARDATA(reconstructed) + data_done,
+ 				   VARDATA(chunk),
+diff --git a/src/backend/replication/walsender.c b/src/backend/replication/walsender.c
+index 80374c55be5..46e48492ac8 100644
+--- a/src/backend/replication/walsender.c
++++ b/src/backend/replication/walsender.c
+@@ -3538,11 +3538,11 @@ pg_stat_get_wal_senders(PG_FUNCTION_ARGS)
+ 	num_standbys = SyncRepGetCandidateStandbys(&sync_standbys);
+ 
+ 	for (i = 0; i < max_wal_senders; i++)
+ 	{
+ 		WalSnd	   *walsnd = &WalSndCtl->walsnds[i];
+-		XLogRecPtr	sentPtr;
++		XLogRecPtr	sent_ptr;
+ 		XLogRecPtr	write;
+ 		XLogRecPtr	flush;
+ 		XLogRecPtr	apply;
+ 		TimeOffset	writeLag;
+ 		TimeOffset	flushLag;
+@@ -3562,11 +3562,11 @@ pg_stat_get_wal_senders(PG_FUNCTION_ARGS)
+ 		{
+ 			SpinLockRelease(&walsnd->mutex);
+ 			continue;
+ 		}
+ 		pid = walsnd->pid;
+-		sentPtr = walsnd->sentPtr;
++		sent_ptr = walsnd->sentPtr;
+ 		state = walsnd->state;
+ 		write = walsnd->write;
+ 		flush = walsnd->flush;
+ 		apply = walsnd->apply;
+ 		writeLag = walsnd->writeLag;
+@@ -3605,13 +3605,13 @@ pg_stat_get_wal_senders(PG_FUNCTION_ARGS)
+ 		}
+ 		else
+ 		{
+ 			values[1] = CStringGetTextDatum(WalSndGetStateString(state));
+ 
+-			if (XLogRecPtrIsInvalid(sentPtr))
++			if (XLogRecPtrIsInvalid(sent_ptr))
+ 				nulls[2] = true;
+-			values[2] = LSNGetDatum(sentPtr);
++			values[2] = LSNGetDatum(sent_ptr);
+ 
+ 			if (XLogRecPtrIsInvalid(write))
+ 				nulls[3] = true;
+ 			values[3] = LSNGetDatum(write);
+ 

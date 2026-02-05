@@ -1,0 +1,69 @@
+commit f2a2bf66c87e14f07aefe23cbbe2f2d9edcd9734
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Tue Apr 19 20:38:53 2022 +0200
+
+    Fix extract epoch from interval calculation
+    
+    The new numeric code for extract epoch from interval accidentally
+    truncated the DAYS_PER_YEAR value to an integer, leading to results
+    that mismatched the floating-point interval_part calculations.
+    
+    The commit a2da77cdb4661826482ebf2ddba1f953bc74afe4 that introduced
+    this actually contains the regression test change that this reverts.
+    I suppose this was missed at the time.
+    
+    Reported-by: Joseph Koshakow <koshy44@gmail.com>
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://www.postgresql.org/message-id/flat/CAAvxfHd5n%3D13NYA2q_tUq%3D3%3DSuWU-CufmTf-Ozj%3DfrEgt7pXwQ%40mail.gmail.com
+
+diff --git a/src/backend/utils/adt/timestamp.c b/src/backend/utils/adt/timestamp.c
+index da73796eac8..552b631ba78 100644
+--- a/src/backend/utils/adt/timestamp.c
++++ b/src/backend/utils/adt/timestamp.c
+@@ -5306,14 +5306,20 @@ interval_part_common(PG_FUNCTION_ARGS, bool retnumeric)
+ 		{
+ 			Numeric		result;
+ 			int64		secs_from_day_month;
+ 			int64		val;
+ 
+-			/* this always fits into int64 */
+-			secs_from_day_month = ((int64) DAYS_PER_YEAR * (interval->month / MONTHS_PER_YEAR) +
+-								   (int64) DAYS_PER_MONTH * (interval->month % MONTHS_PER_YEAR) +
+-								   interval->day) * SECS_PER_DAY;
++			/*
++			 * To do this calculation in integer arithmetic even though
++			 * DAYS_PER_YEAR is fractional, multiply everything by 4 and then
++			 * divide by 4 again at the end.  This relies on DAYS_PER_YEAR
++			 * being a multiple of 0.25 and on SECS_PER_DAY being a multiple
++			 * of 4.
++			 */
++			secs_from_day_month = ((int64) (4 * DAYS_PER_YEAR) * (interval->month / MONTHS_PER_YEAR) +
++								   (int64) (4 * DAYS_PER_MONTH) * (interval->month % MONTHS_PER_YEAR) +
++								   (int64) 4 * interval->day) * (SECS_PER_DAY / 4);
+ 
+ 			/*---
+ 			 * result = secs_from_day_month + interval->time / 1'000'000
+ 			 * = (secs_from_day_month * 1'000'000 + interval->time) / 1'000'000
+ 			 */
+diff --git a/src/test/regress/expected/interval.out b/src/test/regress/expected/interval.out
+index 03f77c01dcf..00885acd1df 100644
+--- a/src/test/regress/expected/interval.out
++++ b/src/test/regress/expected/interval.out
+@@ -1653,15 +1653,15 @@ SELECT f1,
+               f1               | microsecond | millisecond |   second   | minute | hour | day | month | quarter | year | decade | century | millennium |       epoch       
+ -------------------------------+-------------+-------------+------------+--------+------+-----+-------+---------+------+--------+---------+------------+-------------------
+  @ 1 min                       |           0 |       0.000 |   0.000000 |      1 |    0 |   0 |     0 |       1 |    0 |      0 |       0 |          0 |         60.000000
+  @ 5 hours                     |           0 |       0.000 |   0.000000 |      0 |    5 |   0 |     0 |       1 |    0 |      0 |       0 |          0 |      18000.000000
+  @ 10 days                     |           0 |       0.000 |   0.000000 |      0 |    0 |  10 |     0 |       1 |    0 |      0 |       0 |          0 |     864000.000000
+- @ 34 years                    |           0 |       0.000 |   0.000000 |      0 |    0 |   0 |     0 |       1 |   34 |      3 |       0 |          0 | 1072224000.000000
++ @ 34 years                    |           0 |       0.000 |   0.000000 |      0 |    0 |   0 |     0 |       1 |   34 |      3 |       0 |          0 | 1072958400.000000
+  @ 3 mons                      |           0 |       0.000 |   0.000000 |      0 |    0 |   0 |     3 |       2 |    0 |      0 |       0 |          0 |    7776000.000000
+  @ 14 secs ago                 |   -14000000 |  -14000.000 | -14.000000 |      0 |    0 |   0 |     0 |       1 |    0 |      0 |       0 |          0 |        -14.000000
+  @ 1 day 2 hours 3 mins 4 secs |     4000000 |    4000.000 |   4.000000 |      3 |    2 |   1 |     0 |       1 |    0 |      0 |       0 |          0 |      93784.000000
+- @ 6 years                     |           0 |       0.000 |   0.000000 |      0 |    0 |   0 |     0 |       1 |    6 |      0 |       0 |          0 |  189216000.000000
++ @ 6 years                     |           0 |       0.000 |   0.000000 |      0 |    0 |   0 |     0 |       1 |    6 |      0 |       0 |          0 |  189345600.000000
+  @ 5 mons                      |           0 |       0.000 |   0.000000 |      0 |    0 |   0 |     5 |       2 |    0 |      0 |       0 |          0 |   12960000.000000
+  @ 5 mons 12 hours             |           0 |       0.000 |   0.000000 |      0 |   12 |   0 |     5 |       2 |    0 |      0 |       0 |          0 |   13003200.000000
+ (10 rows)
+ 
+ SELECT EXTRACT(FORTNIGHT FROM INTERVAL '2 days');  -- error

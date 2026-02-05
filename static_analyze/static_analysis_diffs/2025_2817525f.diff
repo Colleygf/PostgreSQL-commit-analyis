@@ -1,0 +1,88 @@
+commit 2817525f0d56075e1f3a14c0dc6a180b337d8aed
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Sun Mar 23 20:41:16 2025 +0200
+
+    Fix rare assertion failure in standby, if primary is restarted
+    
+    During hot standby, ExpireAllKnownAssignedTransactionIds() and
+    ExpireOldKnownAssignedTransactionIds() functions mark old transactions
+    as no-longer running, but they failed to update xactCompletionCount
+    and latestCompletedXid. AFAICS it would not lead to incorrect query
+    results, because those functions effectively turn in-progress
+    transactions into aborted transactions and an MVCC snapshot considers
+    both as "not visible". But it could surprise GetSnapshotDataReuse()
+    and trigger the "TransactionIdPrecedesOrEquals(TransactionXmin,
+    RecentXmin))" assertion in it, if the apparent xmin in a backend would
+    move backwards. We saw this happen when GetCatalogSnapshot() would
+    reuse an older catalog snapshot, when GetTransactionSnapshot() had
+    already advanced TransactionXmin.
+    
+    The bug goes back all the way to commit 623a9ba79b in v14 that
+    introduced the snapshot reuse mechanism, but it started to happen more
+    frequently with commit 952365cded6 which removed a
+    GetTransactionSnapshot() call from backend startup. That made it more
+    likely for ExpireOldKnownAssignedTransactionIds() to be called between
+    GetCatalogSnapshot() and the first GetTransactionSnapshot() in a
+    backend.
+    
+    Andres Freund first spotted this assertion failure on buildfarm member
+    'skink'. Reproduction and analysis by Tomas Vondra.
+    
+    Backpatch-through: 14
+    Discussion: https://www.postgresql.org/message-id/oey246mcw43cy4qw2hqjmurbd62lfdpcuxyqiu7botx3typpax%40h7o7mfg5zmdj
+
+diff --git a/src/backend/storage/ipc/procarray.c b/src/backend/storage/ipc/procarray.c
+index 2e54c11f880..e5b945a9ee3 100644
+--- a/src/backend/storage/ipc/procarray.c
++++ b/src/backend/storage/ipc/procarray.c
+@@ -4495,13 +4495,27 @@ ExpireTreeKnownAssignedTransactionIds(TransactionId xid, int nsubxids,
+  *		Remove all entries in KnownAssignedXids and reset lastOverflowedXid.
+  */
+ void
+ ExpireAllKnownAssignedTransactionIds(void)
+ {
++	FullTransactionId latestXid;
++
+ 	LWLockAcquire(ProcArrayLock, LW_EXCLUSIVE);
+ 	KnownAssignedXidsRemovePreceding(InvalidTransactionId);
+ 
++	/* Reset latestCompletedXid to nextXid - 1 */
++	Assert(FullTransactionIdIsValid(TransamVariables->nextXid));
++	latestXid = TransamVariables->nextXid;
++	FullTransactionIdRetreat(&latestXid);
++	TransamVariables->latestCompletedXid = latestXid;
++
++	/*
++	 * Any transactions that were in-progress were effectively aborted, so
++	 * advance xactCompletionCount.
++	 */
++	TransamVariables->xactCompletionCount++;
++
+ 	/*
+ 	 * Reset lastOverflowedXid.  Currently, lastOverflowedXid has no use after
+ 	 * the call of this function.  But do this for unification with what
+ 	 * ExpireOldKnownAssignedTransactionIds() do.
+ 	 */
+@@ -4515,12 +4529,22 @@ ExpireAllKnownAssignedTransactionIds(void)
+  *		potentially reset lastOverflowedXid.
+  */
+ void
+ ExpireOldKnownAssignedTransactionIds(TransactionId xid)
+ {
++	TransactionId latestXid;
++
+ 	LWLockAcquire(ProcArrayLock, LW_EXCLUSIVE);
+ 
++	/* As in ProcArrayEndTransaction, advance latestCompletedXid */
++	latestXid = xid;
++	TransactionIdRetreat(latestXid);
++	MaintainLatestCompletedXidRecovery(latestXid);
++
++	/* ... and xactCompletionCount */
++	TransamVariables->xactCompletionCount++;
++
+ 	/*
+ 	 * Reset lastOverflowedXid if we know all transactions that have been
+ 	 * possibly running are being gone.  Not doing so could cause an incorrect
+ 	 * lastOverflowedXid value, which makes extra snapshots be marked as
+ 	 * suboverflowed.

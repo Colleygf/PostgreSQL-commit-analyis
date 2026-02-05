@@ -1,0 +1,76 @@
+commit 4ddfbd2a8ea9b41ced0cad1d984c833085f8ce91
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sun Jul 31 13:43:17 2022 -0400
+
+    Fix trim_array() for zero-dimensional array argument.
+    
+    The code tried to access ARR_DIMS(v)[0] and ARR_LBOUND(v)[0]
+    whether or not those values exist.  This made the range check
+    on the "n" argument unstable --- it might or might not fail, and
+    if it did it would report garbage for the allowed upper limit.
+    These bogus accesses would probably annoy Valgrind, and if you
+    were very unlucky even lead to SIGSEGV.
+    
+    Report and fix by Martin Kalcher.  Back-patch to v14 where this
+    function was added.
+    
+    Discussion: https://postgr.es/m/baaeb413-b8a8-4656-5757-ef347e5ec11f@aboutsource.net
+
+diff --git a/src/backend/utils/adt/arrayfuncs.c b/src/backend/utils/adt/arrayfuncs.c
+index fb167f226a0..495e449a9e9 100644
+--- a/src/backend/utils/adt/arrayfuncs.c
++++ b/src/backend/utils/adt/arrayfuncs.c
+@@ -6837,11 +6837,11 @@ width_bucket_array_variable(Datum operand,
+ Datum
+ trim_array(PG_FUNCTION_ARGS)
+ {
+ 	ArrayType  *v = PG_GETARG_ARRAYTYPE_P(0);
+ 	int			n = PG_GETARG_INT32(1);
+-	int			array_length = ARR_DIMS(v)[0];
++	int			array_length = (ARR_NDIM(v) > 0) ? ARR_DIMS(v)[0] : 0;
+ 	int16		elmlen;
+ 	bool		elmbyval;
+ 	char		elmalign;
+ 	int			lower[MAXDIM];
+ 	int			upper[MAXDIM];
+@@ -6857,12 +6857,15 @@ trim_array(PG_FUNCTION_ARGS)
+ 						array_length)));
+ 
+ 	/* Set all the bounds as unprovided except the first upper bound */
+ 	memset(lowerProvided, false, sizeof(lowerProvided));
+ 	memset(upperProvided, false, sizeof(upperProvided));
+-	upper[0] = ARR_LBOUND(v)[0] + array_length - n - 1;
+-	upperProvided[0] = true;
++	if (ARR_NDIM(v) > 0)
++	{
++		upper[0] = ARR_LBOUND(v)[0] + array_length - n - 1;
++		upperProvided[0] = true;
++	}
+ 
+ 	/* Fetch the needed information about the element type */
+ 	get_typlenbyvalalign(ARR_ELEMTYPE(v), &elmlen, &elmbyval, &elmalign);
+ 
+ 	/* Get the slice */
+diff --git a/src/test/regress/expected/arrays.out b/src/test/regress/expected/arrays.out
+index ce6f3a65f97..97920f38c21 100644
+--- a/src/test/regress/expected/arrays.out
++++ b/src/test/regress/expected/arrays.out
+@@ -2443,5 +2443,7 @@ FROM
+ 
+ SELECT trim_array(ARRAY[1, 2, 3], -1); -- fail
+ ERROR:  number of elements to trim must be between 0 and 3
+ SELECT trim_array(ARRAY[1, 2, 3], 10); -- fail
+ ERROR:  number of elements to trim must be between 0 and 3
++SELECT trim_array(ARRAY[]::int[], 1); -- fail
++ERROR:  number of elements to trim must be between 0 and 0
+diff --git a/src/test/regress/sql/arrays.sql b/src/test/regress/sql/arrays.sql
+index f774faf8568..791af5c0ce1 100644
+--- a/src/test/regress/sql/arrays.sql
++++ b/src/test/regress/sql/arrays.sql
+@@ -752,5 +752,6 @@ FROM
+         ('[-15:-10]={1,2,3,4,5,6}'),
+         ('{{1,10},{2,20},{3,30},{4,40}}')) v(arr);
+ 
+ SELECT trim_array(ARRAY[1, 2, 3], -1); -- fail
+ SELECT trim_array(ARRAY[1, 2, 3], 10); -- fail
++SELECT trim_array(ARRAY[]::int[], 1); -- fail

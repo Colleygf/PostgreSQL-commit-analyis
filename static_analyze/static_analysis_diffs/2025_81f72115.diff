@@ -1,0 +1,81 @@
+commit 81f72115cf189b0a428d3efca2e4beb02b825111
+Author: Álvaro Herrera <alvherre@kurilemu.de>
+Date:   Thu Dec 11 20:56:37 2025 +0100
+
+    Fix infer_arbiter_index for partitioned tables
+    
+    The fix for concurrent index operations in bc32a12e0db2 started
+    considering indexes that are not yet marked indisvalid as arbiters for
+    INSERT ON CONFLICT.  For partitioned tables, this leads to including
+    indexes that may not exist in partitions, causing a trivially
+    reproducible "invalid arbiter index list" error to be thrown because of
+    failure to match the index.  To fix, it suffices to ignore !indisvalid
+    indexes on partitioned tables.  There should be no risk that the set of
+    indexes will change for concurrent transactions, because in order for
+    such an index to be marked valid, an ALTER INDEX ATTACH PARTITION must
+    run which requires AccessExclusiveLock.
+    
+    Author: Mihail Nikalayeu <mihailnikalayeu@gmail.com>
+    Reported-by: Alexander Lakhin <exclusion@gmail.com>
+    Reviewed-by: Álvaro Herrera <alvherre@kurilemu.de>
+    Discussion: https://postgr.es/m/17622f79-117a-4a44-aa8e-0374e53faaf0%40gmail.com
+
+diff --git a/src/backend/optimizer/util/plancat.c b/src/backend/optimizer/util/plancat.c
+index e553afb7f01..bf45c355b77 100644
+--- a/src/backend/optimizer/util/plancat.c
++++ b/src/backend/optimizer/util/plancat.c
+@@ -997,10 +997,19 @@ infer_arbiter_indexes(PlannerInfo *root)
+ 		 * indexes at least one index that is marked valid.
+ 		 */
+ 		if (!idxForm->indisready)
+ 			continue;
+ 
++		/*
++		 * Ignore invalid indexes for partitioned tables.  It's possible that
++		 * some partitions don't have the index (yet), and then we would not
++		 * find a match during ExecInitPartitionInfo.
++		 */
++		if (relation->rd_rel->relkind == RELKIND_PARTITIONED_TABLE &&
++			!idxForm->indisvalid)
++			continue;
++
+ 		/*
+ 		 * Note that we do not perform a check against indcheckxmin (like e.g.
+ 		 * get_relation_info()) here to eliminate candidates, because
+ 		 * uniqueness checking only cares about the most recently committed
+ 		 * tuple versions.
+diff --git a/src/test/regress/expected/partition_info.out b/src/test/regress/expected/partition_info.out
+index 42b6bc77cad..4defa66e5b3 100644
+--- a/src/test/regress/expected/partition_info.out
++++ b/src/test/regress/expected/partition_info.out
+@@ -347,5 +347,12 @@ SELECT pg_partition_root('ptif_li_child');
+ (1 row)
+ 
+ DROP VIEW ptif_test_view;
+ DROP MATERIALIZED VIEW ptif_test_matview;
+ DROP TABLE ptif_li_parent, ptif_li_child;
++-- Test about selection of arbiter indexes for partitioned tables with
++-- non-valid index on the parent table
++CREATE TABLE pt (a int PRIMARY KEY) PARTITION BY RANGE (a);
++CREATE TABLE p1 PARTITION OF pt FOR VALUES FROM (1) to (2) PARTITION BY RANGE (a);
++CREATE TABLE p1_1 PARTITION OF p1 FOR VALUES FROM (1) TO (2);
++CREATE UNIQUE INDEX ON ONLY p1 (a);
++INSERT INTO p1 VALUES (1) ON CONFLICT (a) DO NOTHING;
+diff --git a/src/test/regress/sql/partition_info.sql b/src/test/regress/sql/partition_info.sql
+index b5060bec7f0..2ef65292bab 100644
+--- a/src/test/regress/sql/partition_info.sql
++++ b/src/test/regress/sql/partition_info.sql
+@@ -125,5 +125,13 @@ SELECT pg_partition_root('ptif_test_matview');
+ SELECT pg_partition_root('ptif_li_parent');
+ SELECT pg_partition_root('ptif_li_child');
+ DROP VIEW ptif_test_view;
+ DROP MATERIALIZED VIEW ptif_test_matview;
+ DROP TABLE ptif_li_parent, ptif_li_child;
++
++-- Test about selection of arbiter indexes for partitioned tables with
++-- non-valid index on the parent table
++CREATE TABLE pt (a int PRIMARY KEY) PARTITION BY RANGE (a);
++CREATE TABLE p1 PARTITION OF pt FOR VALUES FROM (1) to (2) PARTITION BY RANGE (a);
++CREATE TABLE p1_1 PARTITION OF p1 FOR VALUES FROM (1) TO (2);
++CREATE UNIQUE INDEX ON ONLY p1 (a);
++INSERT INTO p1 VALUES (1) ON CONFLICT (a) DO NOTHING;

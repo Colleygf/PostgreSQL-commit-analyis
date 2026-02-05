@@ -1,0 +1,53 @@
+commit 05c821294e6c52609a999aefbe6c53f79f39c81e
+Author: Etsuro Fujita <efujita@postgresql.org>
+Date:   Wed Aug 30 17:15:00 2023 +0900
+
+    postgres_fdw: Fix test for parameterized foreign scan.
+    
+    Commit e4106b252 should have updated this test, but did not; back-patch
+    to all supported branches.
+    
+    Reviewed by Richard Guo.
+    
+    Discussion: http://postgr.es/m/CAPmGK15nR0NXLSCKQAcqbZbTzrzd5MozowWnTnGfPkayndF43Q%40mail.gmail.com
+
+diff --git a/contrib/postgres_fdw/expected/postgres_fdw.out b/contrib/postgres_fdw/expected/postgres_fdw.out
+index 77df7eb8e48..144c114d0fe 100644
+--- a/contrib/postgres_fdw/expected/postgres_fdw.out
++++ b/contrib/postgres_fdw/expected/postgres_fdw.out
+@@ -742,14 +742,14 @@ EXPLAIN (VERBOSE, COSTS OFF)
+    ->  Foreign Scan on public.ft2 b
+          Output: b.c1, b.c2, b.c3, b.c4, b.c5, b.c6, b.c7, b.c8
+          Remote SQL: SELECT "C 1", c2, c3, c4, c5, c6, c7, c8 FROM "S 1"."T 1" WHERE (("C 1" = $1::integer))
+ (8 rows)
+ 
+-SELECT * FROM ft2 a, ft2 b WHERE a.c1 = 47 AND b.c1 = a.c2;
+- c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  | c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
+-----+----+-------+------------------------------+--------------------------+----+------------+-----+----+----+-------+------------------------------+--------------------------+----+------------+-----
+- 47 |  7 | 00047 | Tue Feb 17 00:00:00 1970 PST | Tue Feb 17 00:00:00 1970 | 7  | 7          | foo |  7 |  7 | 00007 | Thu Jan 08 00:00:00 1970 PST | Thu Jan 08 00:00:00 1970 | 7  | 7          | foo
++SELECT * FROM "S 1"."T 1" a, ft2 b WHERE a."C 1" = 47 AND b.c1 = a.c2;
++ C 1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  | c1 | c2 |  c3   |              c4              |            c5            | c6 |     c7     | c8  
++-----+----+-------+------------------------------+--------------------------+----+------------+-----+----+----+-------+------------------------------+--------------------------+----+------------+-----
++  47 |  7 | 00047 | Tue Feb 17 00:00:00 1970 PST | Tue Feb 17 00:00:00 1970 | 7  | 7          | foo |  7 |  7 | 00007 | Thu Jan 08 00:00:00 1970 PST | Thu Jan 08 00:00:00 1970 | 7  | 7          | foo
+ (1 row)
+ 
+ -- check both safe and unsafe join conditions
+ EXPLAIN (VERBOSE, COSTS OFF)
+   SELECT * FROM ft2 a, ft2 b
+diff --git a/contrib/postgres_fdw/sql/postgres_fdw.sql b/contrib/postgres_fdw/sql/postgres_fdw.sql
+index cfb1b57e337..a303bfb322d 100644
+--- a/contrib/postgres_fdw/sql/postgres_fdw.sql
++++ b/contrib/postgres_fdw/sql/postgres_fdw.sql
+@@ -342,11 +342,11 @@ EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c1 = (ARRAY[c1,c2,3])[1]
+ EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c6 = E'foo''s\\bar';  -- check special chars
+ EXPLAIN (VERBOSE, COSTS OFF) SELECT * FROM ft1 t1 WHERE c8 = 'foo';  -- can't be sent to remote
+ -- parameterized remote path for foreign table
+ EXPLAIN (VERBOSE, COSTS OFF)
+   SELECT * FROM "S 1"."T 1" a, ft2 b WHERE a."C 1" = 47 AND b.c1 = a.c2;
+-SELECT * FROM ft2 a, ft2 b WHERE a.c1 = 47 AND b.c1 = a.c2;
++SELECT * FROM "S 1"."T 1" a, ft2 b WHERE a."C 1" = 47 AND b.c1 = a.c2;
+ 
+ -- check both safe and unsafe join conditions
+ EXPLAIN (VERBOSE, COSTS OFF)
+   SELECT * FROM ft2 a, ft2 b
+   WHERE a.c2 = 6 AND b.c1 = a.c1 AND a.c8 = 'foo' AND b.c7 = upper(a.c7);

@@ -1,0 +1,96 @@
+commit 18cdf5932a279a2c035d44460e1e0cbb659471f2
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Fri Sep 19 09:19:03 2025 -0500
+
+    Fix obsolete references to postgres.h in comments.
+    
+    Oversights in commits d08741eab5 and d952373a98.
+    
+    Reviewed-by: Chao Li <li.evan.chao@gmail.com>
+    Discussion: https://postgr.es/m/aMxbfSJ2wLWd32x-%40nathan
+
+diff --git a/src/include/access/htup_details.h b/src/include/access/htup_details.h
+index ae813a79041..fa4525e3f58 100644
+--- a/src/include/access/htup_details.h
++++ b/src/include/access/htup_details.h
+@@ -632,11 +632,11 @@ BITMAPLEN(int NATTS)
+ 
+ /*
+  * MaxAttrSize is a somewhat arbitrary upper limit on the declared size of
+  * data fields of char(n) and similar types.  It need not have anything
+  * directly to do with the *actual* upper limit of varlena values, which
+- * is currently 1Gb (see TOAST structures in postgres.h).  I've set it
++ * is currently 1Gb (see TOAST structures in varatt.h).  I've set it
+  * at 10Mb which seems like a reasonable number --- tgl 8/6/00.
+  */
+ #define MaxAttrSize		(10 * 1024 * 1024)
+ 
+ 
+diff --git a/src/include/c.h b/src/include/c.h
+index f303ba0605a..31d74e8f127 100644
+--- a/src/include/c.h
++++ b/src/include/c.h
+@@ -657,11 +657,11 @@ typedef uint32 CommandId;
+  * client-side routines should never see a TOASTed value.  But even in a
+  * de-TOASTed value, beware of touching vl_len_ directly, as its
+  * representation is no longer convenient.  It's recommended that code always
+  * use macros VARDATA_ANY, VARSIZE_ANY, VARSIZE_ANY_EXHDR, VARDATA, VARSIZE,
+  * and SET_VARSIZE instead of relying on direct mentions of the struct fields.
+- * See postgres.h for details of the TOASTed form.
++ * See varatt.h for details of the TOASTed form.
+  * ----------------
+  */
+ struct varlena
+ {
+ 	char		vl_len_[4];		/* Do not touch this field directly! */
+diff --git a/src/include/utils/expandeddatum.h b/src/include/utils/expandeddatum.h
+index cde9a0c073b..6d8dfa76320 100644
+--- a/src/include/utils/expandeddatum.h
++++ b/src/include/utils/expandeddatum.h
+@@ -93,11 +93,11 @@ typedef struct ExpandedObjectMethods
+  * without making an additional allocation, and in particular without worrying
+  * whether a separately palloc'd object would have sufficient lifespan.
+  * But note that these pointers are just a convenience; a pointer object
+  * appearing somewhere else would still be legal.
+  *
+- * The typedef declaration for this appears in postgres.h.
++ * The typedef declaration for this appears in varatt.h.
+  */
+ struct ExpandedObjectHeader
+ {
+ 	/* Phony varlena header */
+ 	int32		vl_len_;		/* always EOH_HEADER_MAGIC, see below */
+diff --git a/src/include/utils/memutils.h b/src/include/utils/memutils.h
+index 8abc26abce2..7bbe5a36959 100644
+--- a/src/include/utils/memutils.h
++++ b/src/include/utils/memutils.h
+@@ -28,11 +28,11 @@
+  *		There is no guarantee that smaller allocations will succeed, but
+  *		larger requests will be summarily denied.
+  *
+  * palloc() enforces MaxAllocSize, chosen to correspond to the limiting size
+  * of varlena objects under TOAST.  See VARSIZE_4B() and related macros in
+- * postgres.h.  Many datatypes assume that any allocatable size can be
++ * varatt.h.  Many datatypes assume that any allocatable size can be
+  * represented in a varlena header.  This limit also permits a caller to use
+  * an "int" variable for an index into or length of an allocation.  Callers
+  * careful to avoid these hazards can access the higher limit with
+  * MemoryContextAllocHuge().  Both limits permit code to assume that it may
+  * compute twice an allocation's size without overflow.
+diff --git a/src/include/utils/varbit.h b/src/include/utils/varbit.h
+index 2f525aaa2af..7b81e8e6bbc 100644
+--- a/src/include/utils/varbit.h
++++ b/src/include/utils/varbit.h
+@@ -18,11 +18,11 @@
+ #include <limits.h>
+ 
+ #include "fmgr.h"
+ 
+ /*
+- * Modeled on struct varlena from postgres.h, but data type is bits8.
++ * Modeled on struct varlena from c.h, but data type is bits8.
+  *
+  * Caution: if bit_len is not a multiple of BITS_PER_BYTE, the low-order
+  * bits of the last byte of bit_dat[] are unused and MUST be zeroes.
+  * (This allows bit_cmp() to not bother masking the last byte.)
+  * Also, there should not be any excess bytes counted in the header length.

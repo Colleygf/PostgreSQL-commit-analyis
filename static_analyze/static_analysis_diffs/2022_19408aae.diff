@@ -1,0 +1,97 @@
+commit 19408aae7fa2bf28866fb262b27f08405e71152e
+Author: Andrew Dunstan <andrew@dunslane.net>
+Date:   Sun Jun 12 09:17:17 2022 -0400
+
+    Make subscription tests pass with log_error_verbosity=verbose
+    
+    Recent additions to the subscription tests check for log entries, but
+    fail to account for the possible presence of an SQL errror code, which
+    happens if log_error_verbosity is set to 'verbose'. Add this into the
+    regular expressions that are checked for.
+
+diff --git a/src/test/subscription/t/027_nosuperuser.pl b/src/test/subscription/t/027_nosuperuser.pl
+index 350bc40efcb..96ec23aab70 100644
+--- a/src/test/subscription/t/027_nosuperuser.pl
++++ b/src/test/subscription/t/027_nosuperuser.pl
+@@ -177,11 +177,11 @@ expect_replication("alice.unpartitioned", 2, 5, 7,
+ #
+ revoke_superuser("regress_admin");
+ publish_update("alice.unpartitioned", 5 => 9);
+ expect_failure(
+ 	"alice.unpartitioned", 2, 5, 7,
+-	qr/ERROR:  permission denied for table unpartitioned/msi,
++	qr/ERROR: ( [A-Z0-9]+:)? permission denied for table unpartitioned/msi,
+ 	"non-superuser admin fails to replicate update");
+ grant_superuser("regress_admin");
+ expect_replication("alice.unpartitioned", 2, 7, 9,
+ 	"admin with restored superuser privilege replicates update");
+ 
+@@ -212,11 +212,11 @@ publish_update("alice.unpartitioned", 7 => 13);
+ expect_failure(
+ 	"alice.unpartitioned",
+ 	3,
+ 	7,
+ 	11,
+-	qr/ERROR:  permission denied for table unpartitioned/msi,
++	qr/ERROR: ( [A-Z0-9]+:)? permission denied for table unpartitioned/msi,
+ 	"non-superuser admin without SELECT privileges fails to replicate update"
+ );
+ 
+ # Now grant SELECT
+ #
+@@ -260,11 +260,11 @@ publish_insert("alice.unpartitioned", 15);
+ expect_failure(
+ 	"alice.unpartitioned",
+ 	2,
+ 	11,
+ 	13,
+-	qr/ERROR:  "regress_admin" cannot replicate into relation with row-level security enabled: "unpartitioned\w*"/msi,
++	qr/ERROR: ( [A-Z0-9]+:)? "regress_admin" cannot replicate into relation with row-level security enabled: "unpartitioned\w*"/msi,
+ 	"non-superuser admin fails to replicate insert into rls enabled table");
+ grant_superuser("regress_admin");
+ expect_replication("alice.unpartitioned", 3, 11, 15,
+ 	"admin with restored superuser privilege replicates insert into rls enabled unpartitioned"
+ );
+@@ -274,11 +274,11 @@ publish_update("alice.unpartitioned", 11 => 17);
+ expect_failure(
+ 	"alice.unpartitioned",
+ 	3,
+ 	11,
+ 	15,
+-	qr/ERROR:  "regress_admin" cannot replicate into relation with row-level security enabled: "unpartitioned\w*"/msi,
++	qr/ERROR: ( [A-Z0-9]+:)? "regress_admin" cannot replicate into relation with row-level security enabled: "unpartitioned\w*"/msi,
+ 	"non-superuser admin fails to replicate update into rls enabled unpartitioned"
+ );
+ 
+ grant_bypassrls("regress_admin");
+ expect_replication("alice.unpartitioned", 3, 13, 17,
+@@ -289,11 +289,11 @@ publish_delete("alice.unpartitioned", 13);
+ expect_failure(
+ 	"alice.unpartitioned",
+ 	3,
+ 	13,
+ 	17,
+-	qr/ERROR:  "regress_admin" cannot replicate into relation with row-level security enabled: "unpartitioned\w*"/msi,
++	qr/ERROR: ( [A-Z0-9]+:)? "regress_admin" cannot replicate into relation with row-level security enabled: "unpartitioned\w*"/msi,
+ 	"non-superuser admin without bypassrls fails to replicate delete into rls enabled unpartitioned"
+ );
+ grant_bypassrls("regress_admin");
+ expect_replication("alice.unpartitioned", 2, 15, 17,
+ 	"admin with bypassrls replicates delete into rls enabled unpartitioned");
+diff --git a/src/test/subscription/t/029_on_error.pl b/src/test/subscription/t/029_on_error.pl
+index e8b904b7452..303e8ec3fc2 100644
+--- a/src/test/subscription/t/029_on_error.pl
++++ b/src/test/subscription/t/029_on_error.pl
+@@ -46,11 +46,11 @@ sub test_skip_lsn
+ 	);
+ 
+ 	# Check the log to ensure that the transaction is skipped, and advance the
+ 	# offset of the log file for the next test.
+ 	$offset = $node_subscriber->wait_for_log(
+-		qr/LOG:  done skipping logical replication transaction finished at $lsn/,
++		qr/LOG: ( [A-Z0-9]+:)? done skipping logical replication transaction finished at $lsn/,
+ 		$offset);
+ 
+ 	# Insert non-conflict data
+ 	$node_publisher->safe_psql('postgres',
+ 		"INSERT INTO tbl VALUES $nonconflict_data");

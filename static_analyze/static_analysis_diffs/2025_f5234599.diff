@@ -1,0 +1,110 @@
+commit f52345995d3691de7b0a888903b6cfed1497c672
+Author: Masahiko Sawada <msawada@postgresql.org>
+Date:   Tue Mar 4 11:16:12 2025 -0800
+
+    pg_upgrade: Check for the expected error message in TAP tests.
+    
+    Since pg_upgrade prints its error messages on stdout, we can't use
+    command_fails_like() to check if it fails for the right reason. This
+    commit uses command_checks_all() in pg_upgrade TAP tests to check the
+    exit status and stdout, enabling proper verification of error
+    reasons.
+    
+    Author: Dagfinn Ilmari Mannsåker <ilmari@ilmari.org>
+    Discussion: https://postgr.es/m/87tt8h1vb7.fsf@wibble.ilmari.org
+
+diff --git a/src/bin/pg_upgrade/t/002_pg_upgrade.pl b/src/bin/pg_upgrade/t/002_pg_upgrade.pl
+index 45ea94c84bb..c00cf68d660 100644
+--- a/src/bin/pg_upgrade/t/002_pg_upgrade.pl
++++ b/src/bin/pg_upgrade/t/002_pg_upgrade.pl
+@@ -394,11 +394,11 @@ chdir ${PostgreSQL::Test::Utils::tmp_check};
+ $oldnode->stop;
+ 
+ # Cause a failure at the start of pg_upgrade, this should create the logging
+ # directory pg_upgrade_output.d but leave it around.  Keep --check for an
+ # early exit.
+-command_fails(
++command_checks_all(
+ 	[
+ 		'pg_upgrade', '--no-sync',
+ 		'-d', $oldnode->data_dir,
+ 		'-D', $newnode->data_dir,
+ 		'-b', $oldbindir . '/does/not/exist/',
+@@ -406,10 +406,13 @@ command_fails(
+ 		'-s', $newnode->host,
+ 		'-p', $oldnode->port,
+ 		'-P', $newnode->port,
+ 		$mode, '--check',
+ 	],
++	1,
++	[qr{check for ".*?does/not/exist" failed}],
++	[],
+ 	'run of pg_upgrade --check for new instance with incorrect binary path');
+ ok(-d $newnode->data_dir . "/pg_upgrade_output.d",
+ 	"pg_upgrade_output.d/ not removed after pg_upgrade failure");
+ rmtree($newnode->data_dir . "/pg_upgrade_output.d");
+ 
+diff --git a/src/bin/pg_upgrade/t/004_subscription.pl b/src/bin/pg_upgrade/t/004_subscription.pl
+index 13773316e1d..e3ccff9f270 100644
+--- a/src/bin/pg_upgrade/t/004_subscription.pl
++++ b/src/bin/pg_upgrade/t/004_subscription.pl
+@@ -128,11 +128,11 @@ my $reporigin = 'pg_' . qq($sub_oid);
+ $old_sub->safe_psql('postgres',
+ 	"SELECT pg_replication_origin_drop('$reporigin')");
+ 
+ $old_sub->stop;
+ 
+-command_fails(
++command_checks_all(
+ 	[
+ 		'pg_upgrade',
+ 		'--no-sync',
+ 		'--old-datadir' => $old_sub->data_dir,
+ 		'--new-datadir' => $new_sub->data_dir,
+@@ -142,10 +142,15 @@ command_fails(
+ 		'--old-port' => $old_sub->port,
+ 		'--new-port' => $new_sub->port,
+ 		$mode,
+ 		'--check',
+ 	],
++	1,
++	[
++		qr/\QYour installation contains subscriptions without origin or having relations not in i (initialize) or r (ready) state\E/
++	],
++	[],
+ 	'run of pg_upgrade --check for old instance with relation in \'d\' datasync(invalid) state and missing replication origin'
+ );
+ 
+ # Verify the reason why the subscriber cannot be upgraded
+ my $sub_relstate_filename;
+diff --git a/src/bin/pg_upgrade/t/005_char_signedness.pl b/src/bin/pg_upgrade/t/005_char_signedness.pl
+index b3092f03bb7..d186822ac77 100644
+--- a/src/bin/pg_upgrade/t/005_char_signedness.pl
++++ b/src/bin/pg_upgrade/t/005_char_signedness.pl
+@@ -39,11 +39,11 @@ command_like(
+ 	[ 'pg_controldata', $old->data_dir ],
+ 	qr/Default char data signedness:\s+unsigned/,
+ 	'updated default char signedness is unsigned in control file');
+ 
+ # Cannot use --set-char-signedness option for upgrading from v18+
+-command_fails(
++command_checks_all(
+ 	[
+ 		'pg_upgrade', '--no-sync',
+ 		'-d', $old->data_dir,
+ 		'-D', $new->data_dir,
+ 		'-b', $old->config_data('--bindir'),
+@@ -52,10 +52,13 @@ command_fails(
+ 		'-p', $old->port,
+ 		'-P', $new->port,
+ 		'--set-char-signedness', 'signed',
+ 		$mode
+ 	],
++	1,
++	[qr/--set-char-signedness option cannot be used/],
++	[],
+ 	'--set-char-signedness option cannot be used for upgrading from v18 or later'
+ );
+ 
+ # pg_upgrade should be successful.
+ command_ok(

@@ -1,0 +1,75 @@
+commit 1fc3403626d4aa99a81996435549e47c56c16897
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Apr 16 13:31:44 2025 -0400
+
+    Fix pg_dump --clean with partitioned indexes.
+    
+    We'd try to drop the partitions of a partitioned index separately,
+    which is disallowed by the backend, leading to an error during
+    restore.  While the error is harmless, it causes problems if you
+    try to use --single-transaction mode.
+    
+    Fortunately, there seems no need to do a DROP at all, since the
+    partition will go away silently when we drop either the parent index
+    or the partition's table.  So just make the DROP conditional on not
+    being a partition.
+    
+    Reported-by: jian he <jian.universality@gmail.com>
+    Author: jian he <jian.universality@gmail.com>
+    Reviewed-by: Pavel Stehule <pavel.stehule@gmail.com>
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/CACJufxF0QSdkjFKF4di-JGWN6CSdQYEAhGPmQJJCdkSZtd=oLg@mail.gmail.com
+    Backpatch-through: 13
+
+diff --git a/src/bin/pg_dump/pg_dump.c b/src/bin/pg_dump/pg_dump.c
+index c6e6d3b2b86..b158d96a831 100644
+--- a/src/bin/pg_dump/pg_dump.c
++++ b/src/bin/pg_dump/pg_dump.c
+@@ -17951,11 +17951,21 @@ dumpIndex(Archive *fout, const IndxInfo *indxinfo)
+ 			/* index name is not qualified in this syntax */
+ 			appendPQExpBuffer(q, " INDEX %s;\n",
+ 							  qindxname);
+ 		}
+ 
+-		appendPQExpBuffer(delq, "DROP INDEX %s;\n", qqindxname);
++		/*
++		 * If this index is a member of a partitioned index, the backend will
++		 * not allow us to drop it separately, so don't try.  It will go away
++		 * automatically when we drop either the index's table or the
++		 * partitioned index.  (If, in a selective restore with --clean, we
++		 * drop neither of those, then this index will not be dropped either.
++		 * But that's fine, and even if you think it's not, the backend won't
++		 * let us do differently.)
++		 */
++		if (indxinfo->parentidx == 0)
++			appendPQExpBuffer(delq, "DROP INDEX %s;\n", qqindxname);
+ 
+ 		if (indxinfo->dobj.dump & DUMP_COMPONENT_DEFINITION)
+ 			ArchiveEntry(fout, indxinfo->dobj.catId, indxinfo->dobj.dumpId,
+ 						 ARCHIVE_OPTS(.tag = indxinfo->dobj.name,
+ 									  .namespace = tbinfo->dobj.namespace->dobj.name,
+@@ -18004,15 +18014,19 @@ dumpIndexAttach(Archive *fout, const IndexAttachInfo *attachinfo)
+ 						  fmtQualifiedDumpable(attachinfo->parentIdx));
+ 		appendPQExpBuffer(q, "ATTACH PARTITION %s;\n",
+ 						  fmtQualifiedDumpable(attachinfo->partitionIdx));
+ 
+ 		/*
+-		 * There is no point in creating a drop query as the drop is done by
+-		 * index drop.  (If you think to change this, see also
+-		 * _printTocEntry().)  Although this object doesn't really have
+-		 * ownership as such, set the owner field anyway to ensure that the
+-		 * command is run by the correct role at restore time.
++		 * There is no need for a dropStmt since the drop is done implicitly
++		 * when we drop either the index's table or the partitioned index.
++		 * Moreover, since there's no ALTER INDEX DETACH PARTITION command,
++		 * there's no way to do it anyway.  (If you think to change this,
++		 * consider also what to do with --if-exists.)
++		 *
++		 * Although this object doesn't really have ownership as such, set the
++		 * owner field anyway to ensure that the command is run by the correct
++		 * role at restore time.
+ 		 */
+ 		ArchiveEntry(fout, attachinfo->dobj.catId, attachinfo->dobj.dumpId,
+ 					 ARCHIVE_OPTS(.tag = attachinfo->dobj.name,
+ 								  .namespace = attachinfo->dobj.namespace->dobj.name,
+ 								  .owner = attachinfo->parentIdx->indextable->rolname,

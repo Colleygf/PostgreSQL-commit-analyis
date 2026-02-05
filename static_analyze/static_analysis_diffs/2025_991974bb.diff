@@ -1,0 +1,46 @@
+commit 991974bb48886201948cd8d3f4ea7bce2c6bda4b
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Wed Jan 22 15:27:37 2025 +0530
+
+    Fix \dRp+ output when describing publications with a lower server version.
+    
+    The psql was not careful that the new column "Generated columns" won't be
+    present in the lower version. This was introduced in recent commit
+    7054186c4e.
+    
+    Author: Vignesh C
+    Reviewed-by: Peter Smith
+    Discussion: https://postgr.es/m/CALDaNm3OcXdY0EzDEKAfaK9gq2B67Mfsgxu93+_249ohyts=0g@mail.gmail.com
+
+diff --git a/src/bin/psql/describe.c b/src/bin/psql/describe.c
+index 2ef99971ac0..8c0ad8439eb 100644
+--- a/src/bin/psql/describe.c
++++ b/src/bin/psql/describe.c
+@@ -6493,16 +6493,27 @@ describePublications(const char *pattern)
+ 					  "  pg_catalog.pg_get_userbyid(pubowner) AS owner,\n"
+ 					  "  puballtables, pubinsert, pubupdate, pubdelete");
+ 	if (has_pubtruncate)
+ 		appendPQExpBufferStr(&buf,
+ 							 ", pubtruncate");
++	else
++		appendPQExpBufferStr(&buf,
++							 ", false AS pubtruncate");
++
+ 	if (has_pubgencols)
+ 		appendPQExpBufferStr(&buf,
+ 							 ", pubgencols");
++	else
++		appendPQExpBufferStr(&buf,
++							 ", false AS pubgencols");
++
+ 	if (has_pubviaroot)
+ 		appendPQExpBufferStr(&buf,
+ 							 ", pubviaroot");
++	else
++		appendPQExpBufferStr(&buf,
++							 ", false AS pubviaroot");
+ 
+ 	appendPQExpBufferStr(&buf,
+ 						 "\nFROM pg_catalog.pg_publication\n");
+ 
+ 	if (!validateSQLNamePattern(&buf, pattern, false, false,

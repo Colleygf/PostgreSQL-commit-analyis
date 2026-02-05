@@ -1,0 +1,63 @@
+commit 6af082723277eeca74f2da65e7759666bf7c7f9c
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Wed Sep 28 08:02:30 2022 -0400
+
+    Fix InitializeRelfilenumberMap for 05d4cbf9b6ba708858984b01ca0fc56d59d4ec7c
+    
+    Since relfilenodes are now 56-bits, we use bigint as the SQL type
+    to represent them, which means F_INT8EQ must be used here rather
+    than F_OIDEQ. On 64-bit machines this doesn't matter, but 32-bit
+    machines are unhappy.
+    
+    Dilip Kumar
+    
+    Discussion: http://postgr.es/m/CAFiTN-t71ciSckMzixAhrF9py7oRO6xszKi4mTRwjuucXr5tpw@mail.gmail.com
+
+diff --git a/src/backend/utils/cache/relfilenumbermap.c b/src/backend/utils/cache/relfilenumbermap.c
+index 2e0acf98f20..11427ba97eb 100644
+--- a/src/backend/utils/cache/relfilenumbermap.c
++++ b/src/backend/utils/cache/relfilenumbermap.c
+@@ -86,30 +86,32 @@ RelfilenumberMapInvalidateCallback(Datum arg, Oid relid)
+  */
+ static void
+ InitializeRelfilenumberMap(void)
+ {
+ 	HASHCTL		ctl;
+-	int			i;
+ 
+ 	/* Make sure we've initialized CacheMemoryContext. */
+ 	if (CacheMemoryContext == NULL)
+ 		CreateCacheMemoryContext();
+ 
+ 	/* build skey */
+ 	MemSet(&relfilenumber_skey, 0, sizeof(relfilenumber_skey));
+ 
+-	for (i = 0; i < 2; i++)
+-	{
+-		fmgr_info_cxt(F_OIDEQ,
+-					  &relfilenumber_skey[i].sk_func,
+-					  CacheMemoryContext);
+-		relfilenumber_skey[i].sk_strategy = BTEqualStrategyNumber;
+-		relfilenumber_skey[i].sk_subtype = InvalidOid;
+-		relfilenumber_skey[i].sk_collation = InvalidOid;
+-	}
+-
++	fmgr_info_cxt(F_OIDEQ,
++				  &relfilenumber_skey[0].sk_func,
++				  CacheMemoryContext);
++	relfilenumber_skey[0].sk_strategy = BTEqualStrategyNumber;
++	relfilenumber_skey[0].sk_subtype = InvalidOid;
++	relfilenumber_skey[0].sk_collation = InvalidOid;
+ 	relfilenumber_skey[0].sk_attno = Anum_pg_class_reltablespace;
++
++	fmgr_info_cxt(F_INT8EQ,
++				  &relfilenumber_skey[1].sk_func,
++				  CacheMemoryContext);
++	relfilenumber_skey[1].sk_strategy = BTEqualStrategyNumber;
++	relfilenumber_skey[1].sk_subtype = InvalidOid;
++	relfilenumber_skey[1].sk_collation = InvalidOid;
+ 	relfilenumber_skey[1].sk_attno = Anum_pg_class_relfilenode;
+ 
+ 	/*
+ 	 * Only create the RelfilenumberMapHash now, so we don't end up partially
+ 	 * initialized when fmgr_info_cxt() above ERRORs out with an out of memory

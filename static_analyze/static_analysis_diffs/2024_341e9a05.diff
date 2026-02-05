@@ -1,0 +1,78 @@
+commit 341e9a05e7b4c4fb2a1e539a5073dfd0e5b46735
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu Sep 5 14:36:57 2024 +0900
+
+    Fix two NULL pointer dereferences when reading custom pgstats from file
+    
+    There were two spots in pgstat_read_statsfile() where is was possible to
+    finish with a null-pointer-dereference crash for custom pgstats kinds:
+    - When reading stats for a fixed-numbered stats entry.
+    - When reading a variable stats entry with name serialization.
+    For both cases, these issues were reachable by starting a server after
+    changing shared_preload_libraries so as the stats written previously
+    could not be loaded.
+    
+    The code is changed so as the stats are ignored in this case, like the
+    other code paths doing similar sanity checks.  Two WARNINGs are added to
+    be able to debug these issues.  A test is added for the case of
+    fixed-numbered stats with the module injection_points.
+    
+    Oversights in 7949d9594582, spotted while looking at a different report.
+    
+    Discussion: https://postgr.es/m/Ztj0Jftsn4xXuXtl@paquier.xyz
+
+diff --git a/src/backend/utils/activity/pgstat.c b/src/backend/utils/activity/pgstat.c
+index b2ca3f39b7a..612158f2b96 100644
+--- a/src/backend/utils/activity/pgstat.c
++++ b/src/backend/utils/activity/pgstat.c
+@@ -1779,10 +1779,16 @@ pgstat_read_statsfile(XLogRecPtr redo)
+ 							 kind, t);
+ 						goto error;
+ 					}
+ 
+ 					info = pgstat_get_kind_info(kind);
++					if (!info)
++					{
++						elog(WARNING, "could not find information of kind %u for entry of type %c",
++							 kind, t);
++						goto error;
++					}
+ 
+ 					if (!info->fixed_amount)
+ 					{
+ 						elog(WARNING, "invalid fixed_amount in stats kind %u for entry of type %c",
+ 							 kind, t);
+@@ -1859,10 +1865,16 @@ pgstat_read_statsfile(XLogRecPtr redo)
+ 								 kind, t);
+ 							goto error;
+ 						}
+ 
+ 						kind_info = pgstat_get_kind_info(kind);
++						if (!kind_info)
++						{
++							elog(WARNING, "could not find information of kind %u for entry of type %c",
++								 kind, t);
++							goto error;
++						}
+ 
+ 						if (!kind_info->from_serialized_name)
+ 						{
+ 							elog(WARNING, "invalid from_serialized_name in stats kind %u for entry of type %c",
+ 								 kind, t);
+diff --git a/src/test/modules/injection_points/t/001_stats.pl b/src/test/modules/injection_points/t/001_stats.pl
+index 7d6070e7137..36728f16fc9 100644
+--- a/src/test/modules/injection_points/t/001_stats.pl
++++ b/src/test/modules/injection_points/t/001_stats.pl
+@@ -67,6 +67,12 @@ $numcalls = $node->safe_psql('postgres',
+ is($numcalls, '', 'number of stats after crash');
+ $fixedstats = $node->safe_psql('postgres',
+ 	"SELECT * FROM injection_points_stats_fixed();");
+ is($fixedstats, '0|0|0|0|0', 'fixed stats after crash');
+ 
++# Stop the server, disable the module, then restart.  The server
++# should be able to come up.
++$node->stop;
++$node->adjust_conf('postgresql.conf', 'shared_preload_libraries', "''");
++$node->start;
++
+ done_testing();

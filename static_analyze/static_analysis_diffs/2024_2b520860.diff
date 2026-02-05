@@ -1,0 +1,91 @@
+commit 2b520860c08ac946ec5e570065ede1c467e45618
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Wed Mar 20 11:34:00 2024 -0500
+
+    Revert "Temporary patch to help debug pg_walsummary test failures."
+    
+    Thanks to commits ea18eb7d62, b6ee30ec08, and 19a829a327, the
+    002_blocks.pl test now consistently passes, so we can remove this
+    temporary debugging code.
+    
+    This reverts commit 5ddf9973477729cf161b4ad0a1efd52f4fea9c88.
+    
+    Discussion: https://postgr.es/m/20240314210010.GA3056455%40nathanxps13
+
+diff --git a/src/backend/backup/walsummary.c b/src/backend/backup/walsummary.c
+index 4d047e1c02f..322ae3c3ad1 100644
+--- a/src/backend/backup/walsummary.c
++++ b/src/backend/backup/walsummary.c
+@@ -250,19 +250,12 @@ RemoveWalSummaryIfOlderThan(WalSummaryFile *ws, time_t cutoff_time)
+ 		return;
+ 	if (unlink(path) != 0)
+ 		ereport(ERROR,
+ 				(errcode_for_file_access(),
+ 				 errmsg("could not stat file \"%s\": %m", path)));
+-	/* XXX temporarily changed to debug buildfarm failures */
+-#if 0
+ 	ereport(DEBUG2,
+ 			(errmsg_internal("removing file \"%s\"", path)));
+-#else
+-	ereport(LOG,
+-			(errmsg_internal("removing file \"%s\" cutoff_time=%llu", path,
+-							 (unsigned long long) cutoff_time)));
+-#endif
+ }
+ 
+ /*
+  * Test whether a filename looks like a WAL summary file.
+  */
+diff --git a/src/bin/pg_walsummary/t/002_blocks.pl b/src/bin/pg_walsummary/t/002_blocks.pl
+index d4bae3d5649..52d3bd8840b 100644
+--- a/src/bin/pg_walsummary/t/002_blocks.pl
++++ b/src/bin/pg_walsummary/t/002_blocks.pl
+@@ -49,11 +49,10 @@ ok($result, "WAL summarization caught up after insert");
+ # Find the highest LSN that is summarized on disk.
+ my $summarized_lsn = $node1->safe_psql('postgres', <<EOM);
+ SELECT MAX(end_lsn) AS summarized_lsn FROM pg_available_wal_summaries()
+ EOM
+ note("after insert, summarized through $summarized_lsn");
+-note_wal_summary_dir("after insert", $node1);
+ 
+ # Update a row in the first block of the table and trigger a checkpoint.
+ $node1->safe_psql('postgres', <<EOM);
+ UPDATE mytable SET b = 'abcdefghijklmnopqrstuvwxyz' || b || '01234567890'
+ 	WHERE a = 2;
+@@ -76,36 +75,23 @@ SELECT tli, start_lsn, end_lsn from pg_available_wal_summaries()
+ EOM
+ my @lines = split(/\n/, $details);
+ is(0+@lines, 1, "got exactly one new WAL summary");
+ my ($tli, $start_lsn, $end_lsn) = split(/\|/, $lines[0]);
+ note("examining summary for TLI $tli from $start_lsn to $end_lsn");
+-note_wal_summary_dir("after new summary", $node1);
+ 
+ # Reconstruct the full pathname for the WAL summary file.
+ my $filename = sprintf "%s/pg_wal/summaries/%08s%08s%08s%08s%08s.summary",
+ 					   $node1->data_dir, $tli,
+ 					   split(m@/@, $start_lsn),
+ 					   split(m@/@, $end_lsn);
+ ok(-f $filename, "WAL summary file exists");
+-note_wal_summary_dir("after existence check", $node1);
+ 
+ # Run pg_walsummary on it. We expect exactly two blocks to be modified,
+ # block 0 and one other.
+ my ($stdout, $stderr) = run_command([ 'pg_walsummary', '-i', $filename ]);
+ note($stdout);
+ @lines = split(/\n/, $stdout);
+ like($stdout, qr/FORK main: block 0$/m, "stdout shows block 0 modified");
+ is($stderr, '', 'stderr is empty');
+ is(0+@lines, 2, "UPDATE modified 2 blocks");
+-note_wal_summary_dir("after pg_walsummary run", $node1);
+ 
+ done_testing();
+-
+-# XXX. Temporary debugging code.
+-sub note_wal_summary_dir
+-{
+-	my ($flair, $node) = @_;
+-
+-	my $wsdir = sprintf "%s/pg_wal/summaries", $node->data_dir;
+-	my @wsfiles = grep { $_ ne '.' && $_ ne '..' } slurp_dir($wsdir);
+-	note("$flair pg_wal/summaries has: @wsfiles");
+-}

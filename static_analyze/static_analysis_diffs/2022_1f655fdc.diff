@@ -1,0 +1,108 @@
+commit 1f655fdc39352c813a83a0a0f1e932af9ef2b6de
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Fri Jan 21 15:36:12 2022 -0500
+
+    Fix race condition in gettext() initialization in libpq and ecpglib.
+    
+    In libpq and ecpglib, multiple threads can concurrently enter the
+    initialization logic for message localization.  Since we set the
+    its-done flag before actually doing the work, it'd be possible
+    for some threads to reach gettext() before anyone has called
+    bindtextdomain().  Barring bugs in libintl itself, this would not
+    result in anything worse than failure to localize some early
+    messages.  Nonetheless, it's a bug, and an easy one to fix.
+    
+    Noted while investigating bug #17299 from Clemens Zeidler
+    (much thanks to Liam Bowen for followup investigation on that).
+    It currently appears that that actually *is* a bug in libintl itself,
+    but that doesn't let us off the hook for this bit.
+    
+    Back-patch to all supported versions.
+    
+    Discussion: https://postgr.es/m/17299-7270741958c0b1ab@postgresql.org
+    Discussion: https://postgr.es/m/CAE7q7Eit4Eq2=bxce=Fm8HAStECjaXUE=WBQc-sDDcgJQ7s7eg@mail.gmail.com
+
+diff --git a/src/interfaces/ecpg/ecpglib/misc.c b/src/interfaces/ecpg/ecpglib/misc.c
+index 1feb5c03e17..b8dbe5e7f3b 100644
+--- a/src/interfaces/ecpg/ecpglib/misc.c
++++ b/src/interfaces/ecpg/ecpglib/misc.c
+@@ -489,11 +489,18 @@ win32_pthread_once(volatile pthread_once_t *once, void (*fn) (void))
+ #ifdef ENABLE_NLS
+ 
+ char *
+ ecpg_gettext(const char *msgid)
+ {
+-	static bool already_bound = false;
++	/*
++	 * If multiple threads come through here at about the same time, it's okay
++	 * for more than one of them to call bindtextdomain().  But it's not okay
++	 * for any of them to reach dgettext() before bindtextdomain() is
++	 * complete, so don't set the flag till that's done.  Use "volatile" just
++	 * to be sure the compiler doesn't try to get cute.
++	 */
++	static volatile bool already_bound = false;
+ 
+ 	if (!already_bound)
+ 	{
+ 		/* dgettext() preserves errno, but bindtextdomain() doesn't */
+ #ifdef WIN32
+@@ -501,16 +508,16 @@ ecpg_gettext(const char *msgid)
+ #else
+ 		int			save_errno = errno;
+ #endif
+ 		const char *ldir;
+ 
+-		already_bound = true;
+ 		/* No relocatable lookup here because the binary could be anywhere */
+ 		ldir = getenv("PGLOCALEDIR");
+ 		if (!ldir)
+ 			ldir = LOCALEDIR;
+ 		bindtextdomain(PG_TEXTDOMAIN("ecpglib"), ldir);
++		already_bound = true;
+ #ifdef WIN32
+ 		SetLastError(save_errno);
+ #else
+ 		errno = save_errno;
+ #endif
+diff --git a/src/interfaces/libpq/fe-misc.c b/src/interfaces/libpq/fe-misc.c
+index 7fcfe08fd25..90a312bf2c2 100644
+--- a/src/interfaces/libpq/fe-misc.c
++++ b/src/interfaces/libpq/fe-misc.c
+@@ -1237,11 +1237,18 @@ PQenv2encoding(void)
+ #ifdef ENABLE_NLS
+ 
+ static void
+ libpq_binddomain(void)
+ {
+-	static bool already_bound = false;
++	/*
++	 * If multiple threads come through here at about the same time, it's okay
++	 * for more than one of them to call bindtextdomain().  But it's not okay
++	 * for any of them to return to caller before bindtextdomain() is
++	 * complete, so don't set the flag till that's done.  Use "volatile" just
++	 * to be sure the compiler doesn't try to get cute.
++	 */
++	static volatile bool already_bound = false;
+ 
+ 	if (!already_bound)
+ 	{
+ 		/* bindtextdomain() does not preserve errno */
+ #ifdef WIN32
+@@ -1249,16 +1256,16 @@ libpq_binddomain(void)
+ #else
+ 		int			save_errno = errno;
+ #endif
+ 		const char *ldir;
+ 
+-		already_bound = true;
+ 		/* No relocatable lookup here because the binary could be anywhere */
+ 		ldir = getenv("PGLOCALEDIR");
+ 		if (!ldir)
+ 			ldir = LOCALEDIR;
+ 		bindtextdomain(PG_TEXTDOMAIN("libpq"), ldir);
++		already_bound = true;
+ #ifdef WIN32
+ 		SetLastError(save_errno);
+ #else
+ 		errno = save_errno;
+ #endif

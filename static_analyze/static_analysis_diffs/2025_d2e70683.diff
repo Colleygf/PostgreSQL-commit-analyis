@@ -1,0 +1,51 @@
+commit d2e7068392b22218b83b7e275b77968027ac3d29
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Tue Mar 4 15:33:19 2025 +0200
+
+    Fix outdated comment
+    
+    Commit bc971f4025 replaced the latch-setting mechanism that the
+    comment talked about with a condition variable. And before that,
+    commit 2258e76f90 moved the code so that the comment got detached from
+    the loop that it talked about, so move the comment closer to the loop.
+
+diff --git a/src/backend/access/transam/xlogutils.c b/src/backend/access/transam/xlogutils.c
+index b61a0eb4014..c389b27f77d 100644
+--- a/src/backend/access/transam/xlogutils.c
++++ b/src/backend/access/transam/xlogutils.c
+@@ -838,15 +838,10 @@ wal_segment_close(XLogReaderState *state)
+ /*
+  * XLogReaderRoutine->page_read callback for reading local xlog files
+  *
+  * Public because it would likely be very helpful for someone writing another
+  * output method outside walsender, e.g. in a bgworker.
+- *
+- * TODO: The walsender has its own version of this, but it relies on the
+- * walsender's latch being set whenever WAL is flushed. No such infrastructure
+- * exists for normal backends, so we have to do a check/sleep/repeat style of
+- * loop for now.
+  */
+ int
+ read_local_xlog_page(XLogReaderState *state, XLogRecPtr targetPagePtr,
+ 					 int reqLen, XLogRecPtr targetRecPtr, char *cur_page)
+ {
+@@ -882,11 +877,18 @@ read_local_xlog_page_guts(XLogReaderState *state, XLogRecPtr targetPagePtr,
+ 	WALReadError errinfo;
+ 	TimeLineID	currTLI;
+ 
+ 	loc = targetPagePtr + reqLen;
+ 
+-	/* Loop waiting for xlog to be available if necessary */
++	/*
++	 * Loop waiting for xlog to be available if necessary
++	 *
++	 * TODO: The walsender has its own version of this function, which uses a
++	 * condition variable to wake up whenever WAL is flushed. We could use the
++	 * same infrastructure here, instead of the check/sleep/repeat style of
++	 * loop.
++	 */
+ 	while (1)
+ 	{
+ 		/*
+ 		 * Determine the limit of xlog we can currently read to, and what the
+ 		 * most recent timeline is.

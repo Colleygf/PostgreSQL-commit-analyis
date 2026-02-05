@@ -1,0 +1,113 @@
+commit 4f3514f201cf007a3e0c0abbf21b70a711269ab0
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Tue Aug 22 14:12:45 2023 +0200
+
+    Rename hook functions for debug_io_direct to match variable name.
+    
+    Commit 319bae9a renamed the GUC.  Rename the check and assign functions
+    to match, and alphabetize.
+    
+    Back-patch to 16.
+    
+    Author: Peter Eisentraut <peter@eisentraut.org>
+    Discussion: https://postgr.es/m/2769341e-fa28-c2ee-3e4b-53fdcaaf2271%40eisentraut.org
+
+diff --git a/src/backend/storage/file/fd.c b/src/backend/storage/file/fd.c
+index a027a8aabc2..b490a76ba7d 100644
+--- a/src/backend/storage/file/fd.c
++++ b/src/backend/storage/file/fd.c
+@@ -3882,11 +3882,11 @@ data_sync_elevel(int elevel)
+ {
+ 	return data_sync_retry ? elevel : PANIC;
+ }
+ 
+ bool
+-check_io_direct(char **newval, void **extra, GucSource source)
++check_debug_io_direct(char **newval, void **extra, GucSource source)
+ {
+ 	bool		result = true;
+ 	int			flags;
+ 
+ #if PG_O_DIRECT == 0
+@@ -3956,19 +3956,19 @@ check_io_direct(char **newval, void **extra, GucSource source)
+ #endif
+ 
+ 	if (!result)
+ 		return result;
+ 
+-	/* Save the flags in *extra, for use by assign_io_direct */
++	/* Save the flags in *extra, for use by assign_debug_io_direct */
+ 	*extra = guc_malloc(ERROR, sizeof(int));
+ 	*((int *) *extra) = flags;
+ 
+ 	return result;
+ }
+ 
+ extern void
+-assign_io_direct(const char *newval, void *extra)
++assign_debug_io_direct(const char *newval, void *extra)
+ {
+ 	int		   *flags = (int *) extra;
+ 
+ 	io_direct_flags = *flags;
+ }
+diff --git a/src/backend/utils/misc/guc_tables.c b/src/backend/utils/misc/guc_tables.c
+index f9dba43b8c0..7e00dccb210 100644
+--- a/src/backend/utils/misc/guc_tables.c
++++ b/src/backend/utils/misc/guc_tables.c
+@@ -569,11 +569,11 @@ static double phony_random_seed;
+ static char *client_encoding_string;
+ static char *datestyle_string;
+ static char *server_encoding_string;
+ static char *server_version_string;
+ static int	server_version_num;
+-static char *io_direct_string;
++static char *debug_io_direct_string;
+ 
+ #ifdef HAVE_SYSLOG
+ #define	DEFAULT_SYSLOG_FACILITY LOG_LOCAL0
+ #else
+ #define	DEFAULT_SYSLOG_FACILITY 0
+@@ -4544,13 +4544,13 @@ struct config_string ConfigureNamesString[] =
+ 		{"debug_io_direct", PGC_POSTMASTER, DEVELOPER_OPTIONS,
+ 			gettext_noop("Use direct I/O for file access."),
+ 			NULL,
+ 			GUC_LIST_INPUT | GUC_NOT_IN_SAMPLE
+ 		},
+-		&io_direct_string,
++		&debug_io_direct_string,
+ 		"",
+-		check_io_direct, assign_io_direct, NULL
++		check_debug_io_direct, assign_debug_io_direct, NULL
+ 	},
+ 
+ 	/* End-of-list marker */
+ 	{
+ 		{NULL, 0, 0, NULL, NULL}, NULL, NULL, NULL, NULL, NULL
+diff --git a/src/include/utils/guc_hooks.h b/src/include/utils/guc_hooks.h
+index 2ecb9fc0866..952293a1c30 100644
+--- a/src/include/utils/guc_hooks.h
++++ b/src/include/utils/guc_hooks.h
+@@ -47,10 +47,12 @@ extern bool check_client_encoding(char **newval, void **extra, GucSource source)
+ extern void assign_client_encoding(const char *newval, void *extra);
+ extern bool check_cluster_name(char **newval, void **extra, GucSource source);
+ extern const char *show_data_directory_mode(void);
+ extern bool check_datestyle(char **newval, void **extra, GucSource source);
+ extern void assign_datestyle(const char *newval, void *extra);
++extern bool check_debug_io_direct(char **newval, void **extra, GucSource source);
++extern void assign_debug_io_direct(const char *newval, void *extra);
+ extern bool check_default_table_access_method(char **newval, void **extra,
+ 											  GucSource source);
+ extern bool check_default_tablespace(char **newval, void **extra,
+ 									 GucSource source);
+ extern bool check_default_text_search_config(char **newval, void **extra, GucSource source);
+@@ -155,9 +157,7 @@ extern const char *show_unix_socket_permissions(void);
+ extern bool check_wal_buffers(int *newval, void **extra, GucSource source);
+ extern bool check_wal_consistency_checking(char **newval, void **extra,
+ 										   GucSource source);
+ extern void assign_wal_consistency_checking(const char *newval, void *extra);
+ extern void assign_xlog_sync_method(int new_sync_method, void *extra);
+-extern bool check_io_direct(char **newval, void **extra, GucSource source);
+-extern void assign_io_direct(const char *newval, void *extra);
+ 
+ #endif							/* GUC_HOOKS_H */

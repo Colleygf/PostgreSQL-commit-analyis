@@ -1,0 +1,60 @@
+commit cc0e7ebd304a24815c0531000a4c3693878cd96c
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Mon Mar 25 11:35:30 2024 +0200
+
+    reindexdb: Fix warning about uninitialized indices_tables_cell
+    
+    Initialize indices_tables_cell with NULL to silence the warning.  Also,
+    refactor the place of the first assignment of indices_tables_cell.
+    
+    Reported-by: Thomas Munro, David Rowley, Tom Lane, Richard Guo
+    Discussion: https://postgr.es/m/2348025.1711332418%40sss.pgh.pa.us
+    Discussion: https://postgr.es/m/E1roXs4-005UdX-1V%40gemulon.postgresql.org
+
+diff --git a/src/bin/scripts/reindexdb.c b/src/bin/scripts/reindexdb.c
+index a46b07d97a6..904c196fbba 100644
+--- a/src/bin/scripts/reindexdb.c
++++ b/src/bin/scripts/reindexdb.c
+@@ -275,11 +275,11 @@ reindex_one_database(ConnParams *cparams, ReindexType type,
+ 					 bool verbose, bool concurrently, int concurrentCons,
+ 					 const char *tablespace)
+ {
+ 	PGconn	   *conn;
+ 	SimpleStringListCell *cell;
+-	SimpleStringListCell *indices_tables_cell;
++	SimpleStringListCell *indices_tables_cell = NULL;
+ 	bool		parallel = concurrentCons > 1;
+ 	SimpleStringList *process_list = user_list;
+ 	SimpleStringList *indices_tables_list = NULL;
+ 	ReindexType process_type = type;
+ 	ParallelSlotArray *sa;
+@@ -364,16 +364,24 @@ reindex_one_database(ConnParams *cparams, ReindexType type,
+ 				 * accordingly reorder the list of indices too.
+ 				 */
+ 				indices_tables_list = get_parallel_object_list(conn, process_type,
+ 															   user_list, echo);
+ 
+-				if (indices_tables_list)
+-					indices_tables_cell = indices_tables_list->head;
+-
+-				/* Bail out if nothing to process */
+-				if (process_list == NULL)
++				/*
++				 * Bail out if nothing to process.  'user_list' was modified
++				 * in-place, so check if it has at least one cell.
++				 */
++				if (user_list->head == NULL)
+ 					return;
++
++				/*
++				 * Assuming 'user_list' is not empty, 'indices_tables_list'
++				 * shouldn't be empty as well.
++				 */
++				Assert(indices_tables_list != NULL);
++				indices_tables_cell = indices_tables_list->head;
++
+ 				break;
+ 
+ 			case REINDEX_SYSTEM:
+ 				/* not supported */
+ 				Assert(false);

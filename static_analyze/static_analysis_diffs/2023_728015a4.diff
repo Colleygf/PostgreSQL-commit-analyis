@@ -1,0 +1,82 @@
+commit 728015a47016dcd734c516e43f326ae491b6a3d2
+Author: Andres Freund <andres@anarazel.de>
+Date:   Fri Apr 7 14:02:46 2023 -0700
+
+    Fix table name clash in recently introduced test
+    
+    A few buildfarm animals recently started complaining about the "child"
+    relation already existing. e056c557aef added a new child table to inherit.sql,
+    but triggers.sql, running in the same parallel group, also uses a child table.
+    
+    Rename the new table to inh_child. It maybe worth renaming child, parent in
+    other tests as well, but that's work for another day.
+    
+    Discussion: https://postgr.es/m/20230407204530.52q3v5cu5x6dj676@awork3.anarazel.de
+
+diff --git a/src/test/regress/expected/inherit.out b/src/test/regress/expected/inherit.out
+index 9c463732b6d..b3fd089acc9 100644
+--- a/src/test/regress/expected/inherit.out
++++ b/src/test/regress/expected/inherit.out
+@@ -2183,27 +2183,27 @@ drop cascades to table c2
+ drop cascades to table d1
+ -- test child table with inherited columns and
+ -- with explicitly specified not null constraints
+ create table inh_parent_1(f1 int);
+ create table inh_parent_2(f2 text);
+-create table child(f1 int not null, f2 text not null) inherits(inh_parent_1, inh_parent_2);
++create table inh_child(f1 int not null, f2 text not null) inherits(inh_parent_1, inh_parent_2);
+ NOTICE:  merging column "f1" with inherited definition
+ NOTICE:  merging column "f2" with inherited definition
+ -- show constraint info
+ select conrelid::regclass, conname, contype, coninhcount, conislocal
+  from pg_constraint where contype = 'n' and
+- conrelid in ('inh_parent_1'::regclass, 'inh_parent_2'::regclass, 'child'::regclass)
++ conrelid in ('inh_parent_1'::regclass, 'inh_parent_2'::regclass, 'inh_child'::regclass)
+  order by 2, 1;
+- conrelid |      conname      | contype | coninhcount | conislocal 
+-----------+-------------------+---------+-------------+------------
+- child    | child_f1_not_null | n       |           0 | t
+- child    | child_f2_not_null | n       |           0 | t
++ conrelid  |        conname        | contype | coninhcount | conislocal 
++-----------+-----------------------+---------+-------------+------------
++ inh_child | inh_child_f1_not_null | n       |           0 | t
++ inh_child | inh_child_f2_not_null | n       |           0 | t
+ (2 rows)
+ 
+--- also drops child table
++-- also drops inh_child table
+ drop table inh_parent_1 cascade;
+-NOTICE:  drop cascades to table child
++NOTICE:  drop cascades to table inh_child
+ drop table inh_parent_2;
+ -- test multi layer inheritance tree
+ create table inh_p1(f1 int not null);
+ create table inh_p2(f1 int not null);
+ create table inh_p3(f2 int);
+diff --git a/src/test/regress/sql/inherit.sql b/src/test/regress/sql/inherit.sql
+index b2bd530cb4d..2ec18de4b8d 100644
+--- a/src/test/regress/sql/inherit.sql
++++ b/src/test/regress/sql/inherit.sql
+@@ -846,19 +846,19 @@ drop table inh_parent cascade;
+ 
+ -- test child table with inherited columns and
+ -- with explicitly specified not null constraints
+ create table inh_parent_1(f1 int);
+ create table inh_parent_2(f2 text);
+-create table child(f1 int not null, f2 text not null) inherits(inh_parent_1, inh_parent_2);
++create table inh_child(f1 int not null, f2 text not null) inherits(inh_parent_1, inh_parent_2);
+ 
+ -- show constraint info
+ select conrelid::regclass, conname, contype, coninhcount, conislocal
+  from pg_constraint where contype = 'n' and
+- conrelid in ('inh_parent_1'::regclass, 'inh_parent_2'::regclass, 'child'::regclass)
++ conrelid in ('inh_parent_1'::regclass, 'inh_parent_2'::regclass, 'inh_child'::regclass)
+  order by 2, 1;
+ 
+--- also drops child table
++-- also drops inh_child table
+ drop table inh_parent_1 cascade;
+ drop table inh_parent_2;
+ 
+ -- test multi layer inheritance tree
+ create table inh_p1(f1 int not null);

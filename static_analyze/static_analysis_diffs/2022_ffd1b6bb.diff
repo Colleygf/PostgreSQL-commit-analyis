@@ -1,0 +1,129 @@
+commit ffd1b6bb6f8a2ffc929699772610c6925364dbb3
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Jul 27 13:35:40 2022 +0900
+
+    Add overflow protection for block-related data in WAL records
+    
+    XLogRecordBlockHeader, the header holding the information for the data
+    related to a block, tracks the length of the data appended to the WAL
+    record with data_length (uint16).  This limitation in size was not
+    enforced by the public routine in charge of registering the data
+    assembled later to form the WAL record inserted, XLogRegisterBufData().
+    Incorrectly used, it could lead to the generation of records with some
+    of its data overflowed.  This commit adds some safeguards to prevent
+    that for the block data, complaining immediately if attempting to add to
+    a record block information with a size larger than UINT16_MAX, which is
+    the limit implied by the internal logic.
+    
+    Note that this also adjusts XLogRegisterData() and XLogRegisterBufData()
+    so as the length of the WAL record data given by the caller is unsigned,
+    matching with what gets stored in XLogRecData->len.
+    
+    Extracted from a larger patch by the same author.  The original patch
+    includes more protections when assembling a record in full that will be
+    looked at separately later.
+    
+    Author: Matthias van de Meent
+    Reviewed-by: Andres Freund, Heikki Linnakangas, Michael Paquier, David
+    Zhang
+    Discussion: https://postgr.es/m/CAEze2WgGiw+LZt+vHf8tWqB_6VxeLsMeoAuod0N=ij1q17n5pw@mail.gmail.com
+
+diff --git a/src/backend/access/transam/xloginsert.c b/src/backend/access/transam/xloginsert.c
+index f3c29fa9091..24f9755e5d8 100644
+--- a/src/backend/access/transam/xloginsert.c
++++ b/src/backend/access/transam/xloginsert.c
+@@ -346,11 +346,11 @@ XLogRegisterBlock(uint8 block_id, RelFileLocator *rlocator, ForkNumber forknum,
+  *
+  * The data is appended to the "main chunk", available at replay with
+  * XLogRecGetData().
+  */
+ void
+-XLogRegisterData(char *data, int len)
++XLogRegisterData(char *data, uint32 len)
+ {
+ 	XLogRecData *rdata;
+ 
+ 	Assert(begininsert_called);
+ 
+@@ -384,11 +384,11 @@ XLogRegisterData(char *data, int len)
+  * reconstruct the changes to the page, you might as well just log a full
+  * copy of it. (the "main data" that's not associated with a block is not
+  * limited)
+  */
+ void
+-XLogRegisterBufData(uint8 block_id, char *data, int len)
++XLogRegisterBufData(uint8 block_id, char *data, uint32 len)
+ {
+ 	registered_buffer *regbuf;
+ 	XLogRecData *rdata;
+ 
+ 	Assert(begininsert_called);
+@@ -397,12 +397,20 @@ XLogRegisterBufData(uint8 block_id, char *data, int len)
+ 	regbuf = &registered_buffers[block_id];
+ 	if (!regbuf->in_use)
+ 		elog(ERROR, "no block with id %d registered with WAL insertion",
+ 			 block_id);
+ 
+-	if (num_rdatas >= max_rdatas)
++	/*
++	 * Check against max_rdatas and ensure we do not register more data per
++	 * buffer than can be handled by the physical data format; i.e. that
++	 * regbuf->rdata_len does not grow beyond what
++	 * XLogRecordBlockHeader->data_length can hold.
++	 */
++	if (num_rdatas >= max_rdatas ||
++		regbuf->rdata_len + len > UINT16_MAX)
+ 		elog(ERROR, "too much WAL data");
++
+ 	rdata = &rdatas[num_rdatas++];
+ 
+ 	rdata->data = data;
+ 	rdata->len = len;
+ 
+@@ -754,16 +762,22 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
+ 			total_len += bimg.length;
+ 		}
+ 
+ 		if (needs_data)
+ 		{
++			/*
++			 * When copying to XLogRecordBlockHeader, the length is narrowed
++			 * to an uint16.  Double-check that it is still correct.
++			 */
++			Assert(regbuf->rdata_len <= UINT16_MAX);
++
+ 			/*
+ 			 * Link the caller-supplied rdata chain for this buffer to the
+ 			 * overall list.
+ 			 */
+ 			bkpb.fork_flags |= BKPBLOCK_HAS_DATA;
+-			bkpb.data_length = regbuf->rdata_len;
++			bkpb.data_length = (uint16) regbuf->rdata_len;
+ 			total_len += regbuf->rdata_len;
+ 
+ 			rdt_datas_last->next = regbuf->rdata_head;
+ 			rdt_datas_last = regbuf->rdata_tail;
+ 		}
+diff --git a/src/include/access/xloginsert.h b/src/include/access/xloginsert.h
+index c04f77b173a..aed4643d1c5 100644
+--- a/src/include/access/xloginsert.h
++++ b/src/include/access/xloginsert.h
+@@ -41,16 +41,16 @@
+ /* prototypes for public functions in xloginsert.c: */
+ extern void XLogBeginInsert(void);
+ extern void XLogSetRecordFlags(uint8 flags);
+ extern XLogRecPtr XLogInsert(RmgrId rmid, uint8 info);
+ extern void XLogEnsureRecordSpace(int max_block_id, int ndatas);
+-extern void XLogRegisterData(char *data, int len);
++extern void XLogRegisterData(char *data, uint32 len);
+ extern void XLogRegisterBuffer(uint8 block_id, Buffer buffer, uint8 flags);
+ extern void XLogRegisterBlock(uint8 block_id, RelFileLocator *rlocator,
+ 							  ForkNumber forknum, BlockNumber blknum, char *page,
+ 							  uint8 flags);
+-extern void XLogRegisterBufData(uint8 block_id, char *data, int len);
++extern void XLogRegisterBufData(uint8 block_id, char *data, uint32 len);
+ extern void XLogResetInsertion(void);
+ extern bool XLogCheckBufferNeedsBackup(Buffer buffer);
+ 
+ extern XLogRecPtr log_newpage(RelFileLocator *rlocator, ForkNumber forkNum,
+ 							  BlockNumber blk, char *page, bool page_std);

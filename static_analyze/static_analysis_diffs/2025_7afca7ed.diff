@@ -1,0 +1,55 @@
+commit 7afca7edef751b8d7c0f5b6402ffcefc11c67fdd
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Fri Apr 4 13:49:00 2025 +0300
+
+    Relax assertion in finding correct GiST parent
+    
+    Commit 28d3c2ddcf introduced an assertion that if the memorized
+    downlink location in the insertion stack isn't valid, the parent's
+    LSN should've changed too. Turns out that was too strict. In
+    gistFindCorrectParent(), if we walk right, we update the parent's
+    block number and clear its memorized 'downlinkoffnum'. That triggered
+    the assertion on next call to gistFindCorrectParent(), if the parent
+    needed to be split too. Relax the assertion, so that it's OK if
+    downlinkOffnum is InvalidOffsetNumber.
+    
+    Backpatch to v13-, all supported versions. The assertion was added in
+    commit 28d3c2ddcf in v12.
+    
+    Reported-by: Alexander Lakhin <exclusion@gmail.com>
+    Reviewed-by: Tender Wang <tndrwang@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/18396-03cac9beb2f7aac3@postgresql.org
+
+diff --git a/src/backend/access/gist/gist.c b/src/backend/access/gist/gist.c
+index 1840f04bfbf..7b24380c978 100644
+--- a/src/backend/access/gist/gist.c
++++ b/src/backend/access/gist/gist.c
+@@ -1046,16 +1046,23 @@ gistFindCorrectParent(Relation r, GISTInsertStack *child, bool is_build)
+ 	}
+ 
+ 	/*
+ 	 * The page has changed since we looked. During normal operation, every
+ 	 * update of a page changes its LSN, so the LSN we memorized should have
+-	 * changed too. During index build, however, we don't WAL-log the changes
+-	 * until we have built the index, so the LSN doesn't change. There is no
+-	 * concurrent activity during index build, but we might have changed the
+-	 * parent ourselves.
++	 * changed too.
++	 *
++	 * During index build, however, we don't WAL-log the changes until we have
++	 * built the index, so the LSN doesn't change. There is no concurrent
++	 * activity during index build, but we might have changed the parent
++	 * ourselves.
++	 *
++	 * We will also get here if child->downlinkoffnum is invalid. That happens
++	 * if 'parent' had been updated by an earlier call to this function on its
++	 * grandchild, which had to move right.
+ 	 */
+-	Assert(parent->lsn != PageGetLSN(parent->page) || is_build);
++	Assert(parent->lsn != PageGetLSN(parent->page) || is_build ||
++		   child->downlinkoffnum == InvalidOffsetNumber);
+ 
+ 	/*
+ 	 * Scan the page to re-find the downlink. If the page was split, it might
+ 	 * have moved to a different page, so follow the right links until we find
+ 	 * it.

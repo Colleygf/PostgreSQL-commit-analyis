@@ -1,0 +1,76 @@
+commit 701d918a426b394620ce4d046533f77262c70829
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Fri May 6 09:24:06 2022 -0400
+
+    Fix misleading comments about background worker registration.
+    
+    Since 6bc8ef0b7f1f1df3998745a66e1790e27424aa0c, the maximum number
+    of backends can't change as background workers are registered, but
+    these comments still reflect the way things worked prior to that.
+    
+    Also, per recent discussion, some modules call SetConfigOption()
+    from _PG_init(). It's not entirely clear to me whether we want to
+    regard that as a fully supported operation, but since we know it's
+    a thing that happens, it at least deserves a mention in the comments,
+    so add that.
+    
+    Nathan Bossart, reviewed by Anton A. Melnikov
+    
+    Discussion: http://postgr.es/m/20220419154658.GA2487941@nathanxps13
+
+diff --git a/src/backend/postmaster/postmaster.c b/src/backend/postmaster/postmaster.c
+index 964a56dec46..ce4007bb2c7 100644
+--- a/src/backend/postmaster/postmaster.c
++++ b/src/backend/postmaster/postmaster.c
+@@ -1003,14 +1003,12 @@ PostmasterMain(int argc, char *argv[])
+ 	 * repeat the test.
+ 	 */
+ 	LocalProcessControlFile(false);
+ 
+ 	/*
+-	 * Register the apply launcher.  Since it registers a background worker,
+-	 * it needs to be called before InitializeMaxBackends(), and it's probably
+-	 * a good idea to call it before any modules had chance to take the
+-	 * background worker slots.
++	 * Register the apply launcher.  It's probably a good idea to call this
++	 * before any modules had a chance to take the background worker slots.
+ 	 */
+ 	ApplyLauncherRegister();
+ 
+ 	/*
+ 	 * process any libraries that should be preloaded at postmaster start
+@@ -1027,12 +1025,12 @@ PostmasterMain(int argc, char *argv[])
+ 		LoadedSSL = true;
+ 	}
+ #endif
+ 
+ 	/*
+-	 * Now that loadable modules have had their chance to register background
+-	 * workers, calculate MaxBackends.
++	 * Now that loadable modules have had their chance to alter any GUCs,
++	 * calculate MaxBackends.
+ 	 */
+ 	InitializeMaxBackends();
+ 
+ 	/*
+ 	 * Now that loadable modules have had their chance to request additional
+diff --git a/src/backend/utils/init/postinit.c b/src/backend/utils/init/postinit.c
+index 38e5b54a15a..d297ba08295 100644
+--- a/src/backend/utils/init/postinit.c
++++ b/src/backend/utils/init/postinit.c
+@@ -536,13 +536,12 @@ pg_split_opts(char **argv, int *argcp, const char *optstr)
+ }
+ 
+ /*
+  * Initialize MaxBackends value from config options.
+  *
+- * This must be called after modules have had the chance to register background
+- * workers in shared_preload_libraries, and before shared memory size is
+- * determined.
++ * This must be called after modules have had the chance to alter GUCs in
++ * shared_preload_libraries and before shared memory size is determined.
+  *
+  * Note that in EXEC_BACKEND environment, the value is passed down from
+  * postmaster to subprocesses via BackendParameters in SubPostmasterMain; only
+  * postmaster itself and processes not under postmaster control should call
+  * this.

@@ -1,0 +1,91 @@
+commit e8583126833a53f4eebe28a8de45d128f01ff664
+Author: Tomas Vondra <tomas.vondra@postgresql.org>
+Date:   Mon Mar 20 09:51:50 2023 +0100
+
+    Fix netmask handling in inet_minmax_multi_ops
+    
+    When calculating distance in brin_minmax_multi_distance_inet(), the
+    netmask was applied incorrectly. This results in (seemingly) incorrect
+    ordering of values, triggering an assert.
+    
+    For builds without asserts this is mostly harmless - we may merge other
+    ranges, possibly resulting in slightly less efficient index. But it's
+    still correct and the greedy algorithm doesn't guarantee optimality
+    anyway.
+    
+    Backpatch to 14, where minmax-multi indexes were introduced.
+    
+    Reported by Dmitry Dolgov, investigation and fix by me.
+    
+    Reported-by: Dmitry Dolgov
+    Backpatch-through: 14
+    Discussion: https://postgr.es/m/17774-c6f3e36dd4471e67@postgresql.org
+
+diff --git a/src/backend/access/brin/brin_minmax_multi.c b/src/backend/access/brin/brin_minmax_multi.c
+index 0ace6035beb..cdf78cdeccc 100644
+--- a/src/backend/access/brin/brin_minmax_multi.c
++++ b/src/backend/access/brin/brin_minmax_multi.c
+@@ -2362,18 +2362,18 @@ brin_minmax_multi_distance_inet(PG_FUNCTION_ARGS)
+ 	for (i = 0; i < len; i++)
+ 	{
+ 		unsigned char mask;
+ 		int			nbits;
+ 
+-		nbits = lena - (i * 8);
++		nbits = Max(0, lena - (i * 8));
+ 		if (nbits < 8)
+ 		{
+ 			mask = (0xFF << (8 - nbits));
+ 			addra[i] = (addra[i] & mask);
+ 		}
+ 
+-		nbits = lenb - (i * 8);
++		nbits = Max(0, lenb - (i * 8));
+ 		if (nbits < 8)
+ 		{
+ 			mask = (0xFF << (8 - nbits));
+ 			addrb[i] = (addrb[i] & mask);
+ 		}
+diff --git a/src/test/regress/expected/brin_multi.out b/src/test/regress/expected/brin_multi.out
+index fbbfb6710ce..861a06ef8ca 100644
+--- a/src/test/regress/expected/brin_multi.out
++++ b/src/test/regress/expected/brin_multi.out
+@@ -349,10 +349,16 @@ SELECT brin_desummarize_range('brinidx_multi', 0);
+ VACUUM brintest_multi;  -- force a summarization cycle in brinidx
+ -- Try inserting a values with NaN, to test distance calculation.
+ insert into public.brintest_multi (float4col) values (real 'nan');
+ insert into public.brintest_multi (float8col) values (real 'nan');
+ UPDATE brintest_multi SET int8col = int8col * int4col;
++-- Test handling of inet netmasks with inet_minmax_multi_ops
++CREATE TABLE brin_test_inet (a inet);
++CREATE INDEX ON brin_test_inet USING brin (a inet_minmax_multi_ops);
++INSERT INTO brin_test_inet VALUES ('127.0.0.1/0');
++INSERT INTO brin_test_inet VALUES ('0.0.0.0/12');
++DROP TABLE brin_test_inet;
+ -- Tests for brin_summarize_new_values
+ SELECT brin_summarize_new_values('brintest_multi'); -- error, not an index
+ ERROR:  "brintest_multi" is not an index
+ SELECT brin_summarize_new_values('tenk1_unique1'); -- error, not a BRIN index
+ ERROR:  "tenk1_unique1" is not a BRIN index
+diff --git a/src/test/regress/sql/brin_multi.sql b/src/test/regress/sql/brin_multi.sql
+index 49f26072ec6..070455257c0 100644
+--- a/src/test/regress/sql/brin_multi.sql
++++ b/src/test/regress/sql/brin_multi.sql
+@@ -355,10 +355,17 @@ VACUUM brintest_multi;  -- force a summarization cycle in brinidx
+ insert into public.brintest_multi (float4col) values (real 'nan');
+ insert into public.brintest_multi (float8col) values (real 'nan');
+ 
+ UPDATE brintest_multi SET int8col = int8col * int4col;
+ 
++-- Test handling of inet netmasks with inet_minmax_multi_ops
++CREATE TABLE brin_test_inet (a inet);
++CREATE INDEX ON brin_test_inet USING brin (a inet_minmax_multi_ops);
++INSERT INTO brin_test_inet VALUES ('127.0.0.1/0');
++INSERT INTO brin_test_inet VALUES ('0.0.0.0/12');
++DROP TABLE brin_test_inet;
++
+ -- Tests for brin_summarize_new_values
+ SELECT brin_summarize_new_values('brintest_multi'); -- error, not an index
+ SELECT brin_summarize_new_values('tenk1_unique1'); -- error, not a BRIN index
+ SELECT brin_summarize_new_values('brinidx_multi'); -- ok, no change expected
+ 

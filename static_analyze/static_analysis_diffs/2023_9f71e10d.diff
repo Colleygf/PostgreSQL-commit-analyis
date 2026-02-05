@@ -1,0 +1,74 @@
+commit 9f71e10d65fa2db7cde9fe1554f89a9526904eb9
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu Sep 28 14:05:25 2023 -0400
+
+    Fix checking of index expressions in CompareIndexInfo().
+    
+    This code was sloppy about comparison of index columns that
+    are expressions.  It didn't reliably reject cases where one
+    index has an expression where the other has a plain column,
+    and it could index off the start of the attmap array, leading
+    to a Valgrind complaint (though an actual crash seems unlikely).
+    
+    I'm not sure that the expression-vs-column sloppiness leads
+    to any visible problem in practice, because the subsequent
+    comparison of the two expression lists would reject cases
+    where the indexes have different numbers of expressions
+    overall.  Maybe we could falsely match indexes having the
+    same expressions in different column positions, but it'd
+    require unlucky contents of the word before the attmap array.
+    It's not too surprising that no problem has been reported
+    from the field.  Nonetheless, this code is clearly wrong.
+    
+    Per bug #18135 from Alexander Lakhin.  Back-patch to all
+    supported branches.
+    
+    Discussion: https://postgr.es/m/18135-532f4a755e71e4d2@postgresql.org
+
+diff --git a/src/backend/catalog/index.c b/src/backend/catalog/index.c
+index 716de171a45..3d5adab2c53 100644
+--- a/src/backend/catalog/index.c
++++ b/src/backend/catalog/index.c
+@@ -2557,26 +2557,35 @@ CompareIndexInfo(const IndexInfo *info1, const IndexInfo *info2,
+ 	if (info1->ii_NumIndexKeyAttrs != info2->ii_NumIndexKeyAttrs)
+ 		return false;
+ 
+ 	/*
+ 	 * and columns match through the attribute map (actual attribute numbers
+-	 * might differ!)  Note that this implies that index columns that are
++	 * might differ!)  Note that this checks that index columns that are
+ 	 * expressions appear in the same positions.  We will next compare the
+ 	 * expressions themselves.
+ 	 */
+ 	for (i = 0; i < info1->ii_NumIndexAttrs; i++)
+ 	{
+ 		if (attmap->maplen < info2->ii_IndexAttrNumbers[i])
+ 			elog(ERROR, "incorrect attribute map");
+ 
+-		/* ignore expressions at this stage */
+-		if ((info1->ii_IndexAttrNumbers[i] != InvalidAttrNumber) &&
+-			(attmap->attnums[info2->ii_IndexAttrNumbers[i] - 1] !=
+-			 info1->ii_IndexAttrNumbers[i]))
+-			return false;
++		/* ignore expressions for now (but check their collation/opfamily) */
++		if (!(info1->ii_IndexAttrNumbers[i] == InvalidAttrNumber &&
++			  info2->ii_IndexAttrNumbers[i] == InvalidAttrNumber))
++		{
++			/* fail if just one index has an expression in this column */
++			if (info1->ii_IndexAttrNumbers[i] == InvalidAttrNumber ||
++				info2->ii_IndexAttrNumbers[i] == InvalidAttrNumber)
++				return false;
++
++			/* both are columns, so check for match after mapping */
++			if (attmap->attnums[info2->ii_IndexAttrNumbers[i] - 1] !=
++				info1->ii_IndexAttrNumbers[i])
++				return false;
++		}
+ 
+-		/* collation and opfamily is not valid for including columns */
++		/* collation and opfamily are not valid for included columns */
+ 		if (i >= info1->ii_NumIndexKeyAttrs)
+ 			continue;
+ 
+ 		if (collations1[i] != collations2[i])
+ 			return false;

@@ -1,0 +1,98 @@
+commit 7e187a7386cc922c8f770c0460bfc43f4806bd15
+Author: Richard Guo <rguo@postgresql.org>
+Date:   Mon Jul 22 11:29:21 2024 +0900
+
+    Fix unstable test in select_parallel.sql
+    
+    One test case added in 22d946b0f verifies the plan of a non-parallel
+    nestloop join.  The planner's choice of join order is arbitrary, and
+    slight variations in underlying statistics could result in a different
+    displayed plan.  To stabilize the test result, here we enforce the
+    join order using a lateral join.
+    
+    While here, modify the test case to verify that parallel nestloop join
+    is not generated if the inner path is not parallel-safe, which is what
+    we wanted to test in 22d946b0f.
+    
+    Reported-by: Alexander Lakhin as per buildfarm
+    Author: Richard Guo
+    Discussion: https://postgr.es/m/7c09a439-e48d-5460-cfa0-a371b1a57066@gmail.com
+
+diff --git a/src/test/regress/expected/select_parallel.out b/src/test/regress/expected/select_parallel.out
+index 7487ea0b820..5a603f86b73 100644
+--- a/src/test/regress/expected/select_parallel.out
++++ b/src/test/regress/expected/select_parallel.out
+@@ -654,11 +654,11 @@ select  count(*) from tenk1, tenk2 where tenk1.unique1 = tenk2.unique1;
+ reset enable_hashjoin;
+ reset enable_nestloop;
+ -- test parallel nestloop join path with materialization of the inner path
+ alter table tenk2 set (parallel_workers = 0);
+ explain (costs off)
+-	select * from tenk1 t1, tenk2 t2 where t1.two > t2.two;
++select * from tenk1 t1, tenk2 t2 where t1.two > t2.two;
+                 QUERY PLAN                 
+ -------------------------------------------
+  Gather
+    Workers Planned: 4
+    ->  Nested Loop
+@@ -666,22 +666,27 @@ explain (costs off)
+          ->  Parallel Seq Scan on tenk1 t1
+          ->  Materialize
+                ->  Seq Scan on tenk2 t2
+ (7 rows)
+ 
+--- the joinrel is not parallel-safe due to the OFFSET clause in the subquery
++-- test that parallel nestloop join is not generated if the inner path is
++-- not parallel-safe
+ explain (costs off)
+-	select * from tenk1 t1, (select * from tenk2 t2 offset 0) t2 where t1.two > t2.two;
++select * from tenk1 t1
++    left join lateral
++      (select t1.unique1 as x, * from tenk2 t2 order by 1) t2
++    on true
++where t1.two > t2.two;
+                 QUERY PLAN                 
+ -------------------------------------------
+  Nested Loop
+-   Join Filter: (t1.two > t2.two)
+    ->  Gather
+          Workers Planned: 4
+          ->  Parallel Seq Scan on tenk1 t1
+-   ->  Materialize
+-         ->  Seq Scan on tenk2 t2
++   ->  Subquery Scan on t2
++         Filter: (t1.two > t2.two)
++         ->  Seq Scan on tenk2 t2_1
+ (7 rows)
+ 
+ alter table tenk2 reset (parallel_workers);
+ -- test gather merge
+ set enable_hashagg = false;
+diff --git a/src/test/regress/sql/select_parallel.sql b/src/test/regress/sql/select_parallel.sql
+index 9b019d31ed7..c7df8f775ce 100644
+--- a/src/test/regress/sql/select_parallel.sql
++++ b/src/test/regress/sql/select_parallel.sql
+@@ -267,15 +267,20 @@ reset enable_hashjoin;
+ reset enable_nestloop;
+ 
+ -- test parallel nestloop join path with materialization of the inner path
+ alter table tenk2 set (parallel_workers = 0);
+ explain (costs off)
+-	select * from tenk1 t1, tenk2 t2 where t1.two > t2.two;
++select * from tenk1 t1, tenk2 t2 where t1.two > t2.two;
+ 
+--- the joinrel is not parallel-safe due to the OFFSET clause in the subquery
++-- test that parallel nestloop join is not generated if the inner path is
++-- not parallel-safe
+ explain (costs off)
+-	select * from tenk1 t1, (select * from tenk2 t2 offset 0) t2 where t1.two > t2.two;
++select * from tenk1 t1
++    left join lateral
++      (select t1.unique1 as x, * from tenk2 t2 order by 1) t2
++    on true
++where t1.two > t2.two;
+ alter table tenk2 reset (parallel_workers);
+ 
+ -- test gather merge
+ set enable_hashagg = false;
+ 

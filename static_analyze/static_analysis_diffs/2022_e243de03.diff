@@ -1,0 +1,44 @@
+commit e243de03fb4583dd4a9f0afb41493727d7946c02
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Wed Jun 22 13:11:49 2022 -0400
+
+    amcheck: Fix incorrect use of VARATT_IS_COMPRESSED.
+    
+    The macro is being applied to a TOAST pointer, not a varlena header.
+    Therefore the use of VARATT_IS_COMPRESSED() is wrong. We can check
+    VARATT_EXTERNAL_IS_COMPRESSED(), but then we don't need the length
+    check that follows.
+    
+    Report and fix by Kyotaro Horiguchi.
+    
+    Discussion: http://postgr.es/m/20220517.162719.1671558681467343711.horikyota.ntt@gmail.com
+
+diff --git a/contrib/amcheck/verify_heapam.c b/contrib/amcheck/verify_heapam.c
+index c875f3e5a2a..e488f5e234b 100644
+--- a/contrib/amcheck/verify_heapam.c
++++ b/contrib/amcheck/verify_heapam.c
+@@ -1383,23 +1383,15 @@ check_tuple_attribute(HeapCheckContext *ctx)
+ 						  psprintf("toast value %u rawsize %d exceeds limit %d",
+ 								   toast_pointer.va_valueid,
+ 								   toast_pointer.va_rawsize,
+ 								   VARLENA_SIZE_LIMIT));
+ 
+-	if (VARATT_IS_COMPRESSED(&toast_pointer))
++	if (VARATT_EXTERNAL_IS_COMPRESSED(toast_pointer))
+ 	{
+ 		ToastCompressionId cmid;
+ 		bool		valid = false;
+ 
+-		/* Compression should never expand the attribute */
+-		if (VARATT_EXTERNAL_GET_EXTSIZE(toast_pointer) > toast_pointer.va_rawsize - VARHDRSZ)
+-			report_corruption(ctx,
+-							  psprintf("toast value %u external size %u exceeds maximum expected for rawsize %d",
+-									   toast_pointer.va_valueid,
+-									   VARATT_EXTERNAL_GET_EXTSIZE(toast_pointer),
+-									   toast_pointer.va_rawsize));
+-
+ 		/* Compressed attributes should have a valid compression method */
+ 		cmid = TOAST_COMPRESS_METHOD(&toast_pointer);
+ 		switch (cmid)
+ 		{
+ 				/* List of all valid compression method IDs */

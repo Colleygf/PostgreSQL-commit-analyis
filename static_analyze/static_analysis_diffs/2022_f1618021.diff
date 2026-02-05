@@ -1,0 +1,122 @@
+commit f16180216d0a6dcefd76fef4121227b63df46681
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Wed Jul 13 11:57:25 2022 +0200
+
+    Fix flag tests in src/test/modules/test_oat_hooks
+    
+    In what must have been a copy'n paste mistake, all the flag tests use
+    the same flag rather than a different flag each.  The bug is not
+    suprising, considering that it's dead code; add a minimal, testimonial
+    line to cover it.
+    
+    This is all pretty inconsequential, because this is just example code,
+    but it had better be correct.
+    
+    Discussion: https://postgr.es/m/20220712152059.fwli2majwgzdmh4r@alvherre.pgsql
+
+diff --git a/src/test/modules/test_oat_hooks/expected/test_oat_hooks.out b/src/test/modules/test_oat_hooks/expected/test_oat_hooks.out
+index c9b6eb20d37..30828a7da39 100644
+--- a/src/test/modules/test_oat_hooks/expected/test_oat_hooks.out
++++ b/src/test/modules/test_oat_hooks/expected/test_oat_hooks.out
+@@ -81,10 +81,15 @@ NOTICE:  in object access: superuser finished create (subId=0x0) [explicit]
+ NOTICE:  in object access: superuser attempting create (subId=0x0) [internal]
+ NOTICE:  in object access: superuser finished create (subId=0x0) [internal]
+ NOTICE:  in object access: superuser attempting create (subId=0x0) [internal]
+ NOTICE:  in object access: superuser finished create (subId=0x0) [internal]
+ NOTICE:  in process utility: superuser finished CreateStmt
++CREATE INDEX regress_test_table_t_idx ON regress_test_table (t);
++NOTICE:  in process utility: superuser attempting IndexStmt
++NOTICE:  in object access: superuser attempting create (subId=0x0) [explicit]
++NOTICE:  in object access: superuser finished create (subId=0x0) [explicit]
++NOTICE:  in process utility: superuser finished IndexStmt
+ GRANT SELECT ON Table regress_test_table TO public;
+ NOTICE:  in process utility: superuser attempting GrantStmt
+ NOTICE:  in process utility: superuser finished GrantStmt
+ CREATE FUNCTION regress_test_func (t text) RETURNS text AS $$
+ 	SELECT $1;
+@@ -278,16 +283,22 @@ NOTICE:  in process utility: superuser finished alter system
+ ALTER SYSTEM RESET work_mem;
+ NOTICE:  in process utility: superuser attempting alter system
+ NOTICE:  in object_access_hook_str: superuser attempting alter (subId=0x2000, alter system) [work_mem]
+ NOTICE:  in object_access_hook_str: superuser finished alter (subId=0x2000, alter system) [work_mem]
+ NOTICE:  in process utility: superuser finished alter system
+--- Clean up
++-- try labelled drops
+ RESET SESSION AUTHORIZATION;
+ NOTICE:  in process utility: superuser attempting set
+ NOTICE:  in object_access_hook_str: superuser attempting alter (subId=0x1000, set) [session_authorization]
+ NOTICE:  in object_access_hook_str: superuser finished alter (subId=0x1000, set) [session_authorization]
+ NOTICE:  in process utility: superuser finished set
++DROP INDEX CONCURRENTLY regress_test_table_t_idx;
++NOTICE:  in process utility: superuser attempting DropStmt
++NOTICE:  in object access: superuser attempting drop (subId=0x0) [concurrent drop,]
++NOTICE:  in object access: superuser finished drop (subId=0x0) [concurrent drop,]
++NOTICE:  in process utility: superuser finished DropStmt
++-- Clean up
+ SET test_oat_hooks.audit = false;
+ NOTICE:  in process utility: superuser attempting set
+ DROP ROLE regress_role_joe;  -- fails
+ ERROR:  role "regress_role_joe" cannot be dropped because some objects depend on it
+ DETAIL:  privileges for parameter test_oat_hooks.user_var1
+diff --git a/src/test/modules/test_oat_hooks/sql/test_oat_hooks.sql b/src/test/modules/test_oat_hooks/sql/test_oat_hooks.sql
+index d692f52d922..d0cca8c44eb 100644
+--- a/src/test/modules/test_oat_hooks/sql/test_oat_hooks.sql
++++ b/src/test/modules/test_oat_hooks/sql/test_oat_hooks.sql
+@@ -36,10 +36,11 @@ GRANT ALL ON PARAMETER "none.such" TO PUBLIC;
+ REVOKE ALL ON PARAMETER "none.such" FROM PUBLIC;
+ 
+ -- Create objects for use in the test
+ CREATE USER regress_test_user;
+ CREATE TABLE regress_test_table (t text);
++CREATE INDEX regress_test_table_t_idx ON regress_test_table (t);
+ GRANT SELECT ON Table regress_test_table TO public;
+ CREATE FUNCTION regress_test_func (t text) RETURNS text AS $$
+ 	SELECT $1;
+ $$ LANGUAGE sql;
+ GRANT EXECUTE ON FUNCTION regress_test_func (text) TO public;
+@@ -86,13 +87,15 @@ SELECT regress_test_func('arg');
+ SET work_mem = 8192;
+ RESET work_mem;
+ ALTER SYSTEM SET work_mem = 8192;
+ ALTER SYSTEM RESET work_mem;
+ 
+--- Clean up
++-- try labelled drops
+ RESET SESSION AUTHORIZATION;
++DROP INDEX CONCURRENTLY regress_test_table_t_idx;
+ 
++-- Clean up
+ SET test_oat_hooks.audit = false;
+ DROP ROLE regress_role_joe;  -- fails
+ REVOKE ALL PRIVILEGES ON PARAMETER
+ 	none.such, another.bogus,
+ 	test_oat_hooks.user_var1, test_oat_hooks.super_var1,
+diff --git a/src/test/modules/test_oat_hooks/test_oat_hooks.c b/src/test/modules/test_oat_hooks/test_oat_hooks.c
+index 1f40d632e07..900d597f5dd 100644
+--- a/src/test/modules/test_oat_hooks/test_oat_hooks.c
++++ b/src/test/modules/test_oat_hooks/test_oat_hooks.c
+@@ -1793,19 +1793,19 @@ accesstype_arg_to_string(ObjectAccessType access, void *arg)
+ 				ObjectAccessDrop *drop_arg = (ObjectAccessDrop *) arg;
+ 
+ 				return psprintf("%s%s%s%s%s%s",
+ 								((drop_arg->dropflags & PERFORM_DELETION_INTERNAL)
+ 								 ? "internal action," : ""),
+-								((drop_arg->dropflags & PERFORM_DELETION_INTERNAL)
++								((drop_arg->dropflags & PERFORM_DELETION_CONCURRENTLY)
+ 								 ? "concurrent drop," : ""),
+-								((drop_arg->dropflags & PERFORM_DELETION_INTERNAL)
++								((drop_arg->dropflags & PERFORM_DELETION_QUIETLY)
+ 								 ? "suppress notices," : ""),
+-								((drop_arg->dropflags & PERFORM_DELETION_INTERNAL)
++								((drop_arg->dropflags & PERFORM_DELETION_SKIP_ORIGINAL)
+ 								 ? "keep original object," : ""),
+-								((drop_arg->dropflags & PERFORM_DELETION_INTERNAL)
++								((drop_arg->dropflags & PERFORM_DELETION_SKIP_EXTENSIONS)
+ 								 ? "keep extensions," : ""),
+-								((drop_arg->dropflags & PERFORM_DELETION_INTERNAL)
++								((drop_arg->dropflags & PERFORM_DELETION_CONCURRENT_LOCK)
+ 								 ? "normal concurrent drop," : ""));
+ 			}
+ 			break;
+ 		case OAT_POST_ALTER:
+ 			{

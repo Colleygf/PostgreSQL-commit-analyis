@@ -1,0 +1,121 @@
+commit 798b19d27b28e6dec3ae5134d396882d3197dfe8
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu Oct 23 11:47:46 2025 -0400
+
+    Fix resource leaks in PL/Python error reporting, redux.
+    
+    Commit c6f7f11d8 intended to prevent leaking any PyObject reference
+    counts in edge cases (such as out-of-memory during string
+    construction), but actually it introduced a leak in the normal case.
+    Repeating an error-trapping operation often enough would lead to
+    session-lifespan memory bloat.  The problem is that I failed to
+    think about the fact that PyObject_GetAttrString() increments the
+    refcount of the returned PyObject, so that simply walking down the
+    list of error frame objects causes all but the first one to have
+    their refcount incremented.
+    
+    I experimented with several more-or-less-complex ways around that,
+    and eventually concluded that the right fix is simply to drop the
+    newly-obtained refcount as soon as we walk to the next frame
+    object in PLy_traceback.  This sounds unsafe, but it's perfectly
+    okay because the caller holds a refcount on the first frame object
+    and each frame object holds a refcount on the next one; so the
+    current frame object can't disappear underneath us.
+    
+    By the same token, we can simplify the caller's cleanup back to
+    simply dropping its refcount on the first object.  Cleanup of
+    each frame object will lead in turn to the refcount of the next
+    one going to zero.
+    
+    I also added a couple of comments explaining why PLy_elog_impl()
+    doesn't try to free the strings acquired from PLy_get_spi_error_data()
+    or PLy_get_error_data().  That's because I got here by looking at a
+    Coverity complaint about how those strings might get leaked.  They
+    are not leaked, but in testing that I discovered this other leak.
+    
+    Back-patch, as c6f7f11d8 was.  It's a bit nervous-making to be
+    putting such a fix into v13, which is only a couple weeks from its
+    final release; but I can't see that leaving a recently-introduced
+    leak in place is a better idea.
+    
+    Author: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/1203918.1761184159@sss.pgh.pa.us
+    Backpatch-through: 13
+
+diff --git a/src/pl/plpython/plpy_elog.c b/src/pl/plpython/plpy_elog.c
+index a7c664f1ca1..e109888cced 100644
+--- a/src/pl/plpython/plpy_elog.c
++++ b/src/pl/plpython/plpy_elog.c
+@@ -141,18 +141,11 @@ PLy_elog_impl(int elevel, const char *fmt,...)
+ 	}
+ 	PG_FINALLY();
+ 	{
+ 		Py_XDECREF(exc);
+ 		Py_XDECREF(val);
+-		/* Must release all the objects in the traceback stack */
+-		while (tb != NULL && tb != Py_None)
+-		{
+-			PyObject   *tb_prev = tb;
+-
+-			tb = PyObject_GetAttrString(tb, "tb_next");
+-			Py_DECREF(tb_prev);
+-		}
++		Py_XDECREF(tb);
+ 		/* For neatness' sake, also release our string buffers */
+ 		if (fmt)
+ 			pfree(emsg.data);
+ 		if (xmsg)
+ 			pfree(xmsg);
+@@ -341,10 +334,21 @@ PLy_traceback(PyObject *e, PyObject *v, PyObject *tb,
+ 
+ 		/* Advance to the next frame. */
+ 		tb = PyObject_GetAttrString(tb, "tb_next");
+ 		if (tb == NULL)
+ 			elog(ERROR, "could not traverse Python traceback");
++
++		/*
++		 * Release the refcount that PyObject_GetAttrString acquired on the
++		 * next frame object.  We don't need it, because our caller has a
++		 * refcount on the first frame object and the frame objects each have
++		 * a refcount on the next one.  If we tried to hold this refcount
++		 * longer, it would greatly complicate cleanup in the event of a
++		 * failure in the above PG_TRY block.
++		 */
++		Py_DECREF(tb);
++
+ 		(*tb_depth)++;
+ 	}
+ 
+ 	/* Return the traceback. */
+ 	*tbmsg = tbstr.data;
+@@ -374,10 +378,14 @@ PLy_get_sqlerrcode(PyObject *exc, int *sqlerrcode)
+ 	Py_DECREF(sqlstate);
+ }
+ 
+ /*
+  * Extract the error data from a SPIError
++ *
++ * Note: the returned string values are pointers into the given PyObject.
++ * They must not be free()'d, and are not guaranteed to be valid once
++ * we stop holding a reference on the PyObject.
+  */
+ static void
+ PLy_get_spi_error_data(PyObject *exc, int *sqlerrcode, char **detail,
+ 					   char **hint, char **query, int *position,
+ 					   char **schema_name, char **table_name,
+@@ -410,10 +418,15 @@ PLy_get_spi_error_data(PyObject *exc, int *sqlerrcode, char **detail,
+ /*
+  * Extract the error data from an Error.
+  *
+  * Note: position and query attributes are never set for Error so, unlike
+  * PLy_get_spi_error_data, this function doesn't return them.
++ *
++ * Note: the returned string values are palloc'd in the current context.
++ * While our caller could pfree them later, there's no real need to do so,
++ * and it would be complicated to handle both this convention and that of
++ * PLy_get_spi_error_data.
+  */
+ static void
+ PLy_get_error_data(PyObject *exc, int *sqlerrcode, char **detail, char **hint,
+ 				   char **schema_name, char **table_name, char **column_name,
+ 				   char **datatype_name, char **constraint_name)

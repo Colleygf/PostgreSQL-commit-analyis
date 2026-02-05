@@ -1,0 +1,90 @@
+commit eef4a33f62f7300765b5ffa8c966fa2fba50d176
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu Jan 23 16:03:48 2025 +0900
+
+    Add error pattern checks for some TAP tests for non-existing objects
+    
+    Some tests are updated to use command_fails_like(), gaining a check for
+    the error output generated.  The test changed in pg_amcheck has come up
+    after noticing that an incorrect option name still made the test to
+    pass, while the command failed.  The three other tests changed in
+    src/bin/scripts/ have been noticed by me, in passing.
+    
+    Author: Dagfinn Ilmari Mannsåker, Michael Paquier
+    Discussion: https://postgr.es/m/87bjvy50cs.fsf@wibble.ilmari.org
+
+diff --git a/src/bin/pg_amcheck/t/002_nonesuch.pl b/src/bin/pg_amcheck/t/002_nonesuch.pl
+index f6011d000b7..2697f1c1b1a 100644
+--- a/src/bin/pg_amcheck/t/002_nonesuch.pl
++++ b/src/bin/pg_amcheck/t/002_nonesuch.pl
+@@ -83,11 +83,14 @@ $node->command_checks_all(
+ # Test connecting with a non-existent user
+ 
+ # Failing to connect to the initial database due to bad username is an error.
+ $node->command_checks_all(
+ 	[ 'pg_amcheck', '--username' => 'no_such_user', 'postgres' ],
+-	1, [qr/^$/], [], 'checking with a non-existent user');
++	1,
++	[qr/^$/],
++	[qr/role "no_such_user" does not exist/],
++	'checking with a non-existent user');
+ 
+ #########################################
+ # Test checking databases without amcheck installed
+ 
+ # Attempting to check a database by name where amcheck is not installed should
+diff --git a/src/bin/scripts/t/010_clusterdb.pl b/src/bin/scripts/t/010_clusterdb.pl
+index a4e4d468578..65a32b6c4c5 100644
+--- a/src/bin/scripts/t/010_clusterdb.pl
++++ b/src/bin/scripts/t/010_clusterdb.pl
+@@ -19,11 +19,13 @@ $node->start;
+ $node->issues_sql_like(
+ 	['clusterdb'],
+ 	qr/statement: CLUSTER;/,
+ 	'SQL CLUSTER run');
+ 
+-$node->command_fails([ 'clusterdb', '--table' => 'nonexistent' ],
++$node->command_fails_like(
++	[ 'clusterdb', '--table' => 'nonexistent' ],
++	qr/relation "nonexistent" does not exist/,
+ 	'fails with nonexistent table');
+ 
+ $node->safe_psql('postgres',
+ 	'CREATE TABLE test1 (a int); CREATE INDEX test1x ON test1 (a); CLUSTER test1 USING test1x'
+ );
+diff --git a/src/bin/scripts/t/050_dropdb.pl b/src/bin/scripts/t/050_dropdb.pl
+index 9db0345119f..d0bf4924ce4 100644
+--- a/src/bin/scripts/t/050_dropdb.pl
++++ b/src/bin/scripts/t/050_dropdb.pl
+@@ -26,11 +26,13 @@ $node->safe_psql('postgres', 'CREATE DATABASE foobar2');
+ $node->issues_sql_like(
+ 	[ 'dropdb', '--force', 'foobar2' ],
+ 	qr/statement: DROP DATABASE foobar2 WITH \(FORCE\);/,
+ 	'SQL DROP DATABASE (FORCE) run');
+ 
+-$node->command_fails([ 'dropdb', 'nonexistent' ],
++$node->command_fails_like(
++	[ 'dropdb', 'nonexistent' ],
++	qr/database "nonexistent" does not exist/,
+ 	'fails with nonexistent database');
+ 
+ # check that invalid database can be dropped with dropdb
+ $node->safe_psql(
+ 	'postgres', q(
+diff --git a/src/bin/scripts/t/070_dropuser.pl b/src/bin/scripts/t/070_dropuser.pl
+index 2c432fbdb63..5f100978446 100644
+--- a/src/bin/scripts/t/070_dropuser.pl
++++ b/src/bin/scripts/t/070_dropuser.pl
+@@ -20,9 +20,11 @@ $node->safe_psql('postgres', 'CREATE ROLE regress_foobar1');
+ $node->issues_sql_like(
+ 	[ 'dropuser', 'regress_foobar1' ],
+ 	qr/statement: DROP ROLE regress_foobar1/,
+ 	'SQL DROP ROLE run');
+ 
+-$node->command_fails([ 'dropuser', 'regress_nonexistent' ],
++$node->command_fails_like(
++	[ 'dropuser', 'regress_nonexistent' ],
++	qr/role "regress_nonexistent" does not exist/,
+ 	'fails with nonexistent user');
+ 
+ done_testing();

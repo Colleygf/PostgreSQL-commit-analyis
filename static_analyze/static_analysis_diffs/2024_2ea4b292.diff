@@ -1,0 +1,63 @@
+commit 2ea4b29277222efe59dc25ed8385c8bcb1a3ed0f
+Author: David Rowley <drowley@postgresql.org>
+Date:   Wed May 1 17:04:52 2024 +1200
+
+    Fix typos and incorrect type in read_stream.c
+    
+    max_ios should be int rather than int16, otherwise there's not much
+    point in doing:
+    
+    max_ios = Min(max_ios, PG_INT16_MAX);
+    
+    Discussion: https://postgr.es/m/CAApHDvr9Un-XpDr_+AFdOGM38O2K8SpfoHimqZ838gguTGYBiQ@mail.gmail.com
+
+diff --git a/src/backend/storage/aio/read_stream.c b/src/backend/storage/aio/read_stream.c
+index 634cf4f0d10..74b9bae6313 100644
+--- a/src/backend/storage/aio/read_stream.c
++++ b/src/backend/storage/aio/read_stream.c
+@@ -24,16 +24,16 @@
+  * already.  There is no benefit to looking ahead more than one block, so
+  * distance is 1.  This is the default initial assumption.
+  *
+  * B) I/O is necessary, but fadvise is undesirable because the access is
+  * sequential, or impossible because direct I/O is enabled or the system
+- * doesn't support advice.  There is no benefit in looking ahead more than
+- * io_combine_limit, because in this case only goal is larger read system
++ * doesn't support fadvise.  There is no benefit in looking ahead more than
++ * io_combine_limit, because in this case the only goal is larger read system
+  * calls.  Looking further ahead would pin many buffers and perform
+  * speculative work looking ahead for no benefit.
+  *
+- * C) I/O is necesssary, it appears random, and this system supports fadvise.
++ * C) I/O is necessary, it appears random, and this system supports fadvise.
+  * We'll look further ahead in order to reach the configured level of I/O
+  * concurrency.
+  *
+  * The distance increases rapidly and decays slowly, so that it moves towards
+  * those levels as different I/O patterns are discovered.  For example, a
+@@ -416,11 +416,11 @@ read_stream_begin_relation(int flags,
+ 						   size_t per_buffer_data_size)
+ {
+ 	ReadStream *stream;
+ 	size_t		size;
+ 	int16		queue_size;
+-	int16		max_ios;
++	int			max_ios;
+ 	int			strategy_pin_limit;
+ 	uint32		max_pinned_buffers;
+ 	Oid			tablespace_id;
+ 	SMgrRelation smgr;
+ 
+@@ -445,10 +445,12 @@ read_stream_begin_relation(int flags,
+ 	}
+ 	else if (flags & READ_STREAM_MAINTENANCE)
+ 		max_ios = get_tablespace_maintenance_io_concurrency(tablespace_id);
+ 	else
+ 		max_ios = get_tablespace_io_concurrency(tablespace_id);
++
++	/* Cap to INT16_MAX to avoid overflowing below */
+ 	max_ios = Min(max_ios, PG_INT16_MAX);
+ 
+ 	/*
+ 	 * Choose the maximum number of buffers we're prepared to pin.  We try to
+ 	 * pin fewer if we can, though.  We clamp it to at least io_combine_limit

@@ -1,0 +1,50 @@
+commit a8395677840c37f6988d7d6420d551d0b744e6bd
+Author: Jeff Davis <jdavis@postgresql.org>
+Date:   Wed Aug 21 09:19:21 2024 -0700
+
+    Fix obsolete comments in varstr_cmp().
+
+diff --git a/src/backend/utils/adt/varlena.c b/src/backend/utils/adt/varlena.c
+index f2ecef000a0..7c6391a2760 100644
+--- a/src/backend/utils/adt/varlena.c
++++ b/src/backend/utils/adt/varlena.c
+@@ -1519,16 +1519,16 @@ check_collation_set(Oid collid)
+ 				 errmsg("could not determine which collation to use for string comparison"),
+ 				 errhint("Use the COLLATE clause to set the collation explicitly.")));
+ 	}
+ }
+ 
+-/* varstr_cmp()
+- * Comparison function for text strings with given lengths.
+- * Includes locale support, but must copy strings to temporary memory
+- *	to allow null-termination for inputs to strcoll().
+- * Returns an integer less than, equal to, or greater than zero, indicating
+- * whether arg1 is less than, equal to, or greater than arg2.
++/*
++ * varstr_cmp()
++ *
++ * Comparison function for text strings with given lengths, using the
++ * appropriate locale. Returns an integer less than, equal to, or greater than
++ * zero, indicating whether arg1 is less than, equal to, or greater than arg2.
+  *
+  * Note: many functions that depend on this are marked leakproof; therefore,
+  * avoid reporting the actual contents of the input when throwing errors.
+  * All errors herein should be things that can't happen except on corrupt
+  * data, anyway; otherwise we will have trouble with indexing strings that
+@@ -1539,16 +1539,10 @@ varstr_cmp(const char *arg1, int len1, const char *arg2, int len2, Oid collid)
+ {
+ 	int			result;
+ 
+ 	check_collation_set(collid);
+ 
+-	/*
+-	 * Unfortunately, there is no strncoll(), so in the non-C locale case we
+-	 * have to do some memory copying.  This turns out to be significantly
+-	 * slower, so we optimize the case where LC_COLLATE is C.  We also try to
+-	 * optimize relatively-short strings by avoiding palloc/pfree overhead.
+-	 */
+ 	if (lc_collate_is_c(collid))
+ 	{
+ 		result = memcmp(arg1, arg2, Min(len1, len2));
+ 		if ((result == 0) && (len1 != len2))
+ 			result = (len1 < len2) ? -1 : 1;

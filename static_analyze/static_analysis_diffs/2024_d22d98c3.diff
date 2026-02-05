@@ -1,0 +1,55 @@
+commit d22d98c341713a260c1d821a62e83c19e27defa0
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Tue Jan 16 08:57:35 2024 +0100
+
+    Assert that partition inherits from only one parent in MergeAttributes()
+    
+    A partition inherits only from one partitioned table and thus inherits
+    a column definition only once.  Assert the same in MergeAttributes()
+    and simplify a condition accordingly.
+    
+    Similar definition exists about line 3068 in the same function.
+    
+    Author: Ashutosh Bapat <ashutosh.bapat.oss@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/CAExHW5uOykuTC+C6R1yDSp=o8Q83jr8xJdZxgPkxfZ1Ue5RRGg@mail.gmail.com
+
+diff --git a/src/backend/commands/tablecmds.c b/src/backend/commands/tablecmds.c
+index fdcd09bc5eb..1f6073fb972 100644
+--- a/src/backend/commands/tablecmds.c
++++ b/src/backend/commands/tablecmds.c
+@@ -2719,10 +2719,16 @@ MergeAttributes(List *columns, const List *supers, char relpersistence,
+ 			{
+ 				Oid			defTypeId;
+ 				int32		deftypmod;
+ 				Oid			defCollId;
+ 
++				/*
++				 * Partitions have only one parent and have no column
++				 * definitions of their own, so conflict should never occur.
++				 */
++				Assert(!is_partition);
++
+ 				/*
+ 				 * Yes, try to merge the two column definitions.
+ 				 */
+ 				ereport(NOTICE,
+ 						(errmsg("merging multiple inherited definitions of column \"%s\"",
+@@ -2790,16 +2796,13 @@ MergeAttributes(List *columns, const List *supers, char relpersistence,
+ 								 errdetail("%s versus %s", def->compression, compression)));
+ 				}
+ 
+ 				/*
+ 				 * In regular inheritance, columns in the parent's primary key
+-				 * get an extra not-null constraint.  Partitioning doesn't
+-				 * need this, because the PK itself is going to be cloned to
+-				 * the partition.
++				 * get an extra not-null constraint.
+ 				 */
+-				if (!is_partition &&
+-					bms_is_member(parent_attno - FirstLowInvalidHeapAttributeNumber,
++				if (bms_is_member(parent_attno - FirstLowInvalidHeapAttributeNumber,
+ 								  pkattrs))
+ 				{
+ 					CookedConstraint *nn;
+ 
+ 					nn = palloc(sizeof(CookedConstraint));

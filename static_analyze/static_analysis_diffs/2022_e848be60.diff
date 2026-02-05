@@ -1,0 +1,67 @@
+commit e848be60b5cf9a883765ea8e98c411e7fef0c1c6
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Mon Nov 14 10:43:33 2022 +0530
+
+    Fix cleanup lock acquisition in SPLIT_ALLOCATE_PAGE replay.
+    
+    During XLOG_HASH_SPLIT_ALLOCATE_PAGE replay, we were checking for a
+    cleanup lock on the new bucket page after acquiring an exclusive lock on
+    it and raising a PANIC error on failure. However, it is quite possible
+    that checkpointer can acquire the pin on the same page before acquiring a
+    lock on it, and then the replay will lead to an error. So instead, directly
+    acquire the cleanup lock on the new bucket page during
+    XLOG_HASH_SPLIT_ALLOCATE_PAGE replay operation.
+    
+    Reported-by: Andres Freund
+    Author: Robert Haas
+    Reviewed-By: Amit Kapila, Andres Freund, Vignesh C
+    Backpatch-through: 11
+    Discussion: https://postgr.es/m/20220810022617.fvjkjiauaykwrbse@awork3.anarazel.de
+
+diff --git a/src/backend/access/hash/hash_xlog.c b/src/backend/access/hash/hash_xlog.c
+index e88213c7425..a24a1c39081 100644
+--- a/src/backend/access/hash/hash_xlog.c
++++ b/src/backend/access/hash/hash_xlog.c
+@@ -349,15 +349,14 @@ hash_xlog_split_allocate_page(XLogReaderState *record)
+ 		PageSetLSN(oldpage, lsn);
+ 		MarkBufferDirty(oldbuf);
+ 	}
+ 
+ 	/* replay the record for new bucket */
+-	newbuf = XLogInitBufferForRedo(record, 1);
++	XLogReadBufferForRedoExtended(record, 1, RBM_ZERO_AND_CLEANUP_LOCK, true,
++								  &newbuf);
+ 	_hash_initbuf(newbuf, xlrec->new_bucket, xlrec->new_bucket,
+ 				  xlrec->new_bucket_flag, true);
+-	if (!IsBufferCleanupOK(newbuf))
+-		elog(PANIC, "hash_xlog_split_allocate_page: failed to acquire cleanup lock");
+ 	MarkBufferDirty(newbuf);
+ 	PageSetLSN(BufferGetPage(newbuf), lsn);
+ 
+ 	/*
+ 	 * We can release the lock on old bucket early as well but doing here to
+diff --git a/src/backend/access/hash/hashpage.c b/src/backend/access/hash/hashpage.c
+index d2edcd46172..55b2929ad51 100644
+--- a/src/backend/access/hash/hashpage.c
++++ b/src/backend/access/hash/hashpage.c
+@@ -803,13 +803,17 @@ restart_expand:
+ 	}
+ 
+ 	/*
+ 	 * Physically allocate the new bucket's primary page.  We want to do this
+ 	 * before changing the metapage's mapping info, in case we can't get the
+-	 * disk space.  Ideally, we don't need to check for cleanup lock on new
+-	 * bucket as no other backend could find this bucket unless meta page is
+-	 * updated.  However, it is good to be consistent with old bucket locking.
++	 * disk space.
++	 *
++	 * XXX It doesn't make sense to call _hash_getnewbuf first, zeroing the
++	 * buffer, and then only afterwards check whether we have a cleanup lock.
++	 * However, since no scan can be accessing the buffer yet, any concurrent
++	 * accesses will just be from processes like the bgwriter or checkpointer
++	 * which don't care about its contents, so it doesn't really matter.
+ 	 */
+ 	buf_nblkno = _hash_getnewbuf(rel, start_nblkno, MAIN_FORKNUM);
+ 	if (!IsBufferCleanupOK(buf_nblkno))
+ 	{
+ 		_hash_relbuf(rel, buf_oblkno);

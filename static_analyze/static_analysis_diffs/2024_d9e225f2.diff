@@ -1,0 +1,62 @@
+commit d9e225f275b7d27e6d2b196f5c528f9ad8a39abf
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Fri Feb 16 10:13:51 2024 +0530
+
+    Change the LOG level in 040_standby_failover_slots_sync.pl to DEBUG2.
+    
+    Temporarily change the log level of 040_standby_failover_slots_sync.pl to
+    DEBUG2. This is to get more information about BF failures. We will reset
+    it back to default once the tests are stabilized.
+    
+    Author: Hou Zhijie
+    Reviewed-by: Amit Kapila
+    Discussion: https://postgr.es/m/514f6f2f-6833-4539-39f1-96cd1e011f23@enterprisedb.com
+    Discussion: https://postgr.es/m/OS0PR01MB571633C23B2A4CAC5FB0371A944C2@OS0PR01MB5716.jpnprd01.prod.outlook.com
+
+diff --git a/src/test/recovery/t/040_standby_failover_slots_sync.pl b/src/test/recovery/t/040_standby_failover_slots_sync.pl
+index 7ad5f2eb11a..edbfeb36652 100644
+--- a/src/test/recovery/t/040_standby_failover_slots_sync.pl
++++ b/src/test/recovery/t/040_standby_failover_slots_sync.pl
+@@ -128,18 +128,24 @@ my $standby1 = PostgreSQL::Test::Cluster->new('standby1');
+ $standby1->init_from_backup(
+ 	$primary, $backup_name,
+ 	has_streaming => 1,
+ 	has_restoring => 1);
+ 
++# Increase the log_min_messages setting to DEBUG2 on both the standby and
++# primary to debug test failures, if any.
+ my $connstr_1 = $primary->connstr;
+ $standby1->append_conf(
+ 	'postgresql.conf', qq(
+ hot_standby_feedback = on
+ primary_slot_name = 'sb1_slot'
+ primary_conninfo = '$connstr_1 dbname=postgres'
++log_min_messages = 'debug2'
+ ));
+ 
++$primary->append_conf('postgresql.conf', "log_min_messages = 'debug2'");
++$primary->reload;
++
+ $primary->psql('postgres',
+ 	q{SELECT pg_create_logical_replication_slot('lsub2_slot', 'test_decoding', false, false, true);}
+ );
+ 
+ $primary->psql('postgres',
+@@ -263,10 +269,17 @@ is( $standby1->safe_psql(
+ 		q{SELECT conflict_reason IS NULL AND synced AND NOT temporary FROM pg_replication_slots WHERE slot_name = 'lsub1_slot';}
+ 	),
+ 	"t",
+ 	'logical slot is re-synced');
+ 
++# Reset the log_min_messages to the default value.
++$primary->append_conf('postgresql.conf', "log_min_messages = 'warning'");
++$primary->reload;
++
++$standby1->append_conf('postgresql.conf', "log_min_messages = 'warning'");
++$standby1->reload;
++
+ ##################################################
+ # Test that a synchronized slot can not be decoded, altered or dropped by the
+ # user
+ ##################################################
+ 

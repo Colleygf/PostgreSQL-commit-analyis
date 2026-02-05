@@ -1,0 +1,50 @@
+commit 58445651dbc6182e1ff4100f6428ba6a261407f9
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri Jun 21 08:17:23 2024 +0200
+
+    Fix make build on MinGW
+    
+    Revert a couple of the simplifications done in commit 721856ff24b
+    because platforms without ln -s, where LN_S='cp -pR', such as MinGW,
+    required the specific previous incantations.
+    
+    Reported-by: Noah Misch <noah@leadboat.com>
+    Discussion: https://www.postgresql.org/message-id/20240616193448.28@rfd.leadboat.com
+
+diff --git a/src/backend/Makefile b/src/backend/Makefile
+index 6700aec0396..84302cc6dab 100644
+--- a/src/backend/Makefile
++++ b/src/backend/Makefile
+@@ -131,22 +131,28 @@ submake-utils-headers:
+ .PHONY: submake-catalog-headers submake-nodes-headers submake-utils-headers
+ 
+ # Make symlinks for these headers in the include directory. That way
+ # we can cut down on the -I options. Also, a symlink is automatically
+ # up to date when we update the base file.
++#
++# The point of the prereqdir incantation in some of the rules below is to
++# force the symlink to use an absolute path rather than a relative path.
++# This is needed to support platforms without ln -s.
+ 
+ .PHONY: generated-headers
+ 
+ generated-headers: $(top_builddir)/src/include/storage/lwlocknames.h $(top_builddir)/src/include/utils/wait_event_types.h submake-catalog-headers submake-nodes-headers submake-utils-headers parser/gram.h
+ 
+ $(top_builddir)/src/include/storage/lwlocknames.h: storage/lmgr/lwlocknames.h
+-	rm -f '$@'
+-	$(LN_S) ../../backend/$< '$@'
++	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
++	  cd '$(dir $@)' && rm -f $(notdir $@) && \
++	  $(LN_S) "$$prereqdir/$(notdir $<)" .
+ 
+ $(top_builddir)/src/include/utils/wait_event_types.h: utils/activity/wait_event_types.h
+-	rm -f '$@'
+-	$(LN_S) ../../backend/$< '$@'
++	prereqdir=`cd '$(dir $<)' >/dev/null && pwd` && \
++	  cd '$(dir $@)' && rm -f $(notdir $@) && \
++	  $(LN_S) "$$prereqdir/$(notdir $<)" .
+ 
+ utils/probes.o: utils/probes.d $(SUBDIROBJS)
+ 	$(DTRACE) $(DTRACEFLAGS) -C -G -s $(call expand_subsys,$^) -o $@
+ 
+ 

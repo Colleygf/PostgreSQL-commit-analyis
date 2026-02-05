@@ -1,0 +1,127 @@
+commit 99c754129d787ea4ce3b34b9f4c5f5e74c45ab6a
+Author: David Rowley <drowley@postgresql.org>
+Date:   Fri Apr 22 16:02:15 2022 +1200
+
+    Fix performance regression in tuplesort specializations
+    
+    697492434 added 3 new qsort specialization functions aimed to improve the
+    performance of sorting many of the common pass-by-value data types when
+    they're the leading or only sort key.
+    
+    Unfortunately, that has caused a performance regression when sorting
+    datasets where many of the values being compared were equal.  What was
+    happening here was that we were falling back to the standard sort
+    comparison function to handle tiebreaks.  When the two given Datums
+    compared equally we would incur both the overhead of an indirect function
+    call to the standard comparer to perform the tiebreak and also the
+    standard comparer function would go and compare the leading key needlessly
+    all over again.
+    
+    Here improve the situation in the 3 new comparison functions.  We now
+    return 0 directly when the two Datums compare equally and we're performing
+    a 1-key sort.
+    
+    Here we don't do anything to help the multi-key sort case where the
+    leading key uses one of the sort specializations functions.  On testing
+    this case, even when the leading key's values are all equal, there
+    appeared to be no performance regression.  Let's leave it up to future
+    work to optimize that case so that the tiebreak function no longer
+    re-compares the leading key over again.
+    
+    Another possible fix for this would have been to add 3 additional sort
+    specialization functions to handle single-key sorts for these
+    pass-by-value types.  The reason we didn't do that here is that we may
+    deem some other sort specialization to be more useful than single-key
+    sorts.  It may be impractical to have sort specialization functions for
+    every single combination of what may be useful and it was already decided
+    that further analysis into which ones are the most useful would be delayed
+    until the v16 cycle.  Let's not let this regression force our hand into
+    trying to make that decision for v15.
+    
+    Author: David Rowley
+    Reviewed-by: John Naylor
+    Discussion: https://postgr.es/m/CA+hUKGJRbzaAOUtBUcjF5hLtaSHnJUqXmtiaLEoi53zeWSizeA@mail.gmail.com
+
+diff --git a/src/backend/utils/sort/tuplesort.c b/src/backend/utils/sort/tuplesort.c
+index 10e89e52087..e8da988a73c 100644
+--- a/src/backend/utils/sort/tuplesort.c
++++ b/src/backend/utils/sort/tuplesort.c
+@@ -434,11 +434,15 @@ struct Tuplesortstate
+ 	TupleDesc	tupDesc;
+ 	SortSupport sortKeys;		/* array of length nKeys */
+ 
+ 	/*
+ 	 * This variable is shared by the single-key MinimalTuple case and the
+-	 * Datum case (which both use qsort_ssup()).  Otherwise it's NULL.
++	 * Datum case (which both use qsort_ssup()).  Otherwise, it's NULL.  The
++	 * presence of a value in this field is also checked by various sort
++	 * specialization functions as an optimization when comparing the leading
++	 * key in a tiebreak situation to determine if there are any subsequent
++	 * keys to sort on.
+ 	 */
+ 	SortSupport onlyKey;
+ 
+ 	/*
+ 	 * Additional state for managing "abbreviated key" sortsupport routines
+@@ -699,10 +703,17 @@ qsort_tuple_unsigned_compare(SortTuple *a, SortTuple *b, Tuplesortstate *state)
+ 										  b->datum1, b->isnull1,
+ 										  &state->sortKeys[0]);
+ 	if (compare != 0)
+ 		return compare;
+ 
++	/*
++	 * No need to waste effort calling the tiebreak function when there are
++	 * no other keys to sort on.
++	 */
++	if (state->onlyKey != NULL)
++		return 0;
++
+ 	return state->comparetup(a, b, state);
+ }
+ 
+ /* Used if first key's comparator is ssup_datum_signed_compare */
+ static pg_attribute_always_inline int
+@@ -711,13 +722,21 @@ qsort_tuple_signed_compare(SortTuple *a, SortTuple *b, Tuplesortstate *state)
+ 	int			compare;
+ 
+ 	compare = ApplySignedSortComparator(a->datum1, a->isnull1,
+ 										b->datum1, b->isnull1,
+ 										&state->sortKeys[0]);
++
+ 	if (compare != 0)
+ 		return compare;
+ 
++	/*
++	 * No need to waste effort calling the tiebreak function when there are
++	 * no other keys to sort on.
++	 */
++	if (state->onlyKey != NULL)
++		return 0;
++
+ 	return state->comparetup(a, b, state);
+ }
+ 
+ /* Used if first key's comparator is ssup_datum_int32_compare */
+ static pg_attribute_always_inline int
+@@ -726,13 +745,21 @@ qsort_tuple_int32_compare(SortTuple *a, SortTuple *b, Tuplesortstate *state)
+ 	int			compare;
+ 
+ 	compare = ApplyInt32SortComparator(a->datum1, a->isnull1,
+ 										b->datum1, b->isnull1,
+ 										&state->sortKeys[0]);
++
+ 	if (compare != 0)
+ 		return compare;
+ 
++	/*
++	 * No need to waste effort calling the tiebreak function when there are
++	 * no other keys to sort on.
++	 */
++	if (state->onlyKey != NULL)
++		return 0;
++
+ 	return state->comparetup(a, b, state);
+ }
+ 
+ /*
+  * Special versions of qsort just for SortTuple objects.  qsort_tuple() sorts

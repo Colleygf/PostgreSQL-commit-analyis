@@ -1,0 +1,148 @@
+commit 71cb84ec69a38444c48bd8d3b5451b2da157848b
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Dec 5 09:28:29 2022 +0900
+
+    Add LSN location in some error messages related to WAL pages
+    
+    The error messages reported during any failures while reading or
+    validating the header of a WAL currently includes only the offset of the
+    page but not the compiled LSN referring to the page, requiring an extra
+    step to compile it if looking at the surroundings with pg_waldump or
+    similar.  Adding this information costs a bit in translation, but also
+    eases debugging.
+    
+    Author: Bharath Rupireddy
+    Reviewed-by:  Álvaro Herrera, Kyotaro Horiguchi, Maxim Orlov, Michael
+    Paquier
+    Discussion: https://postgr.es/m/CALj2ACWV=FCddsxcGbVOA=cvPyMr75YCFbSQT6g4KDj=gcJK4g@mail.gmail.com
+
+diff --git a/src/backend/access/transam/xlogreader.c b/src/backend/access/transam/xlogreader.c
+index 93f667b2544..a38a80e0490 100644
+--- a/src/backend/access/transam/xlogreader.c
++++ b/src/backend/access/transam/xlogreader.c
+@@ -1224,13 +1224,14 @@ XLogReaderValidatePageHeader(XLogReaderState *state, XLogRecPtr recptr,
+ 		char		fname[MAXFNAMELEN];
+ 
+ 		XLogFileName(fname, state->seg.ws_tli, segno, state->segcxt.ws_segsize);
+ 
+ 		report_invalid_record(state,
+-							  "invalid magic number %04X in WAL segment %s, offset %u",
++							  "invalid magic number %04X in WAL segment %s, LSN %X/%X, offset %u",
+ 							  hdr->xlp_magic,
+ 							  fname,
++							  LSN_FORMAT_ARGS(recptr),
+ 							  offset);
+ 		return false;
+ 	}
+ 
+ 	if ((hdr->xlp_info & ~XLP_ALL_FLAGS) != 0)
+@@ -1238,13 +1239,14 @@ XLogReaderValidatePageHeader(XLogReaderState *state, XLogRecPtr recptr,
+ 		char		fname[MAXFNAMELEN];
+ 
+ 		XLogFileName(fname, state->seg.ws_tli, segno, state->segcxt.ws_segsize);
+ 
+ 		report_invalid_record(state,
+-							  "invalid info bits %04X in WAL segment %s, offset %u",
++							  "invalid info bits %04X in WAL segment %s, LSN %X/%X, offset %u",
+ 							  hdr->xlp_info,
+ 							  fname,
++							  LSN_FORMAT_ARGS(recptr),
+ 							  offset);
+ 		return false;
+ 	}
+ 
+ 	if (hdr->xlp_info & XLP_LONG_HEADER)
+@@ -1279,13 +1281,14 @@ XLogReaderValidatePageHeader(XLogReaderState *state, XLogRecPtr recptr,
+ 
+ 		XLogFileName(fname, state->seg.ws_tli, segno, state->segcxt.ws_segsize);
+ 
+ 		/* hmm, first page of file doesn't have a long header? */
+ 		report_invalid_record(state,
+-							  "invalid info bits %04X in WAL segment %s, offset %u",
++							  "invalid info bits %04X in WAL segment %s, LSN %X/%X, offset %u",
+ 							  hdr->xlp_info,
+ 							  fname,
++							  LSN_FORMAT_ARGS(recptr),
+ 							  offset);
+ 		return false;
+ 	}
+ 
+ 	/*
+@@ -1298,13 +1301,14 @@ XLogReaderValidatePageHeader(XLogReaderState *state, XLogRecPtr recptr,
+ 		char		fname[MAXFNAMELEN];
+ 
+ 		XLogFileName(fname, state->seg.ws_tli, segno, state->segcxt.ws_segsize);
+ 
+ 		report_invalid_record(state,
+-							  "unexpected pageaddr %X/%X in WAL segment %s, offset %u",
++							  "unexpected pageaddr %X/%X in WAL segment %s, LSN %X/%X, offset %u",
+ 							  LSN_FORMAT_ARGS(hdr->xlp_pageaddr),
+ 							  fname,
++							  LSN_FORMAT_ARGS(recptr),
+ 							  offset);
+ 		return false;
+ 	}
+ 
+ 	/*
+@@ -1323,14 +1327,15 @@ XLogReaderValidatePageHeader(XLogReaderState *state, XLogRecPtr recptr,
+ 			char		fname[MAXFNAMELEN];
+ 
+ 			XLogFileName(fname, state->seg.ws_tli, segno, state->segcxt.ws_segsize);
+ 
+ 			report_invalid_record(state,
+-								  "out-of-sequence timeline ID %u (after %u) in WAL segment %s, offset %u",
++								  "out-of-sequence timeline ID %u (after %u) in WAL segment %s, LSN %X/%X, offset %u",
+ 								  hdr->xlp_tli,
+ 								  state->latestPageTLI,
+ 								  fname,
++								  LSN_FORMAT_ARGS(recptr),
+ 								  offset);
+ 			return false;
+ 		}
+ 	}
+ 	state->latestPagePtr = recptr;
+diff --git a/src/backend/access/transam/xlogrecovery.c b/src/backend/access/transam/xlogrecovery.c
+index 41ffc57da9c..97b882564ff 100644
+--- a/src/backend/access/transam/xlogrecovery.c
++++ b/src/backend/access/transam/xlogrecovery.c
+@@ -3073,13 +3073,14 @@ ReadRecord(XLogPrefetcher *xlogprefetcher, int emode,
+ 			offset = XLogSegmentOffset(xlogreader->latestPagePtr,
+ 									   wal_segment_size);
+ 			XLogFileName(fname, xlogreader->seg.ws_tli, segno,
+ 						 wal_segment_size);
+ 			ereport(emode_for_corrupt_record(emode, xlogreader->EndRecPtr),
+-					(errmsg("unexpected timeline ID %u in WAL segment %s, offset %u",
++					(errmsg("unexpected timeline ID %u in WAL segment %s, LSN %X/%X, offset %u",
+ 							xlogreader->latestPageTLI,
+ 							fname,
++							LSN_FORMAT_ARGS(xlogreader->latestPagePtr),
+ 							offset)));
+ 			record = NULL;
+ 		}
+ 
+ 		if (record)
+@@ -3278,18 +3279,20 @@ retry:
+ 		if (r < 0)
+ 		{
+ 			errno = save_errno;
+ 			ereport(emode_for_corrupt_record(emode, targetPagePtr + reqLen),
+ 					(errcode_for_file_access(),
+-					 errmsg("could not read from WAL segment %s, offset %u: %m",
+-							fname, readOff)));
++					 errmsg("could not read from WAL segment %s, LSN %X/%X, offset %u: %m",
++							fname, LSN_FORMAT_ARGS(targetPagePtr),
++							readOff)));
+ 		}
+ 		else
+ 			ereport(emode_for_corrupt_record(emode, targetPagePtr + reqLen),
+ 					(errcode(ERRCODE_DATA_CORRUPTED),
+-					 errmsg("could not read from WAL segment %s, offset %u: read %d of %zu",
+-							fname, readOff, r, (Size) XLOG_BLCKSZ)));
++					 errmsg("could not read from WAL segment %s, LSN %X/%X, offset %u: read %d of %zu",
++							fname, LSN_FORMAT_ARGS(targetPagePtr),
++							readOff, r, (Size) XLOG_BLCKSZ)));
+ 		goto next_record_is_invalid;
+ 	}
+ 	pgstat_report_wait_end();
+ 
+ 	Assert(targetSegNo == readSegNo);

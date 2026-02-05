@@ -1,0 +1,181 @@
+commit db19a5061ce954320f47a65c169081cbb2d920f8
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Tue Jan 21 15:24:49 2025 +0100
+
+    Reword recent error messages: "should" -> "must"
+    
+    Most were introduced in the 17 timeframe.  The ones in wparser_def.c are
+    very old.
+    
+    I also changed "JSON path expression for column \"%s\" should return
+    single item without wrapper" to "JSON path expression for column \"%s\"
+    must return single item when no wrapper is requested" to avoid
+    ambiguity.
+    
+    Backpatch to 17.
+    
+    Crickets: https://postgr.es/m/202501131819.26ors7oouafu@alvherre.pgsql
+
+diff --git a/src/backend/tsearch/wparser_def.c b/src/backend/tsearch/wparser_def.c
+index f26923d044b..79bcd32a063 100644
+--- a/src/backend/tsearch/wparser_def.c
++++ b/src/backend/tsearch/wparser_def.c
+@@ -2669,23 +2669,23 @@ prsd_headline(PG_FUNCTION_ARGS)
+ 	if (!highlightall)
+ 	{
+ 		if (min_words >= max_words)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+-					 errmsg("MinWords should be less than MaxWords")));
++					 errmsg("%s must be less than %s", "MinWords", "MaxWords")));
+ 		if (min_words <= 0)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+-					 errmsg("MinWords should be positive")));
++					 errmsg("%s must be positive", "MinWords")));
+ 		if (shortword < 0)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+-					 errmsg("ShortWord should be >= 0")));
++					 errmsg("%s must be >= 0", "ShortWord")));
+ 		if (max_fragments < 0)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+-					 errmsg("MaxFragments should be >= 0")));
++					 errmsg("%s must be >= 0", "MaxFragments")));
+ 	}
+ 
+ 	/* Locate words and phrases matching the query */
+ 	if (query->size > 0)
+ 	{
+diff --git a/src/backend/utils/adt/jsonpath_exec.c b/src/backend/utils/adt/jsonpath_exec.c
+index f6dfcb11a62..960fdec3dba 100644
+--- a/src/backend/utils/adt/jsonpath_exec.c
++++ b/src/backend/utils/adt/jsonpath_exec.c
+@@ -3975,17 +3975,17 @@ JsonPathQuery(Datum jb, JsonPath *jp, JsonWrapper wrapper, bool *empty,
+ 		}
+ 
+ 		if (column_name)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_MORE_THAN_ONE_SQL_JSON_ITEM),
+-					 errmsg("JSON path expression for column \"%s\" should return single item without wrapper",
++					 errmsg("JSON path expression for column \"%s\" must return single item when no wrapper is requested",
+ 							column_name),
+ 					 errhint("Use the WITH WRAPPER clause to wrap SQL/JSON items into an array.")));
+ 		else
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_MORE_THAN_ONE_SQL_JSON_ITEM),
+-					 errmsg("JSON path expression in JSON_QUERY should return single item without wrapper"),
++					 errmsg("JSON path expression in JSON_QUERY must return single item when no wrapper is requested"),
+ 					 errhint("Use the WITH WRAPPER clause to wrap SQL/JSON items into an array.")));
+ 	}
+ 
+ 	if (singleton)
+ 		return JsonbPGetDatum(JsonbValueToJsonb(singleton));
+@@ -4039,16 +4039,16 @@ JsonPathValue(Datum jb, JsonPath *jp, bool *empty, bool *error, List *vars,
+ 		}
+ 
+ 		if (column_name)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_MORE_THAN_ONE_SQL_JSON_ITEM),
+-					 errmsg("JSON path expression for column \"%s\" should return single scalar item",
++					 errmsg("JSON path expression for column \"%s\" must return single scalar item",
+ 							column_name)));
+ 		else
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_MORE_THAN_ONE_SQL_JSON_ITEM),
+-					 errmsg("JSON path expression in JSON_VALUE should return single scalar item")));
++					 errmsg("JSON path expression in JSON_VALUE must return single scalar item")));
+ 	}
+ 
+ 	res = JsonValueListHead(&found);
+ 	if (res->type == jbvBinary && JsonContainerIsScalar(res->val.binary.data))
+ 		JsonbExtractScalar(res->val.binary.data, res);
+@@ -4063,16 +4063,16 @@ JsonPathValue(Datum jb, JsonPath *jp, bool *empty, bool *error, List *vars,
+ 		}
+ 
+ 		if (column_name)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_SQL_JSON_SCALAR_REQUIRED),
+-					 errmsg("JSON path expression for column \"%s\" should return single scalar item",
++					 errmsg("JSON path expression for column \"%s\" must return single scalar item",
+ 							column_name)));
+ 		else
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_SQL_JSON_SCALAR_REQUIRED),
+-					 errmsg("JSON path expression in JSON_VALUE should return single scalar item")));
++					 errmsg("JSON path expression in JSON_VALUE must return single scalar item")));
+ 	}
+ 
+ 	if (res->type == jbvNull)
+ 		return NULL;
+ 
+diff --git a/src/test/regress/expected/sqljson_jsontable.out b/src/test/regress/expected/sqljson_jsontable.out
+index d62d32241d3..458c5aaa5b0 100644
+--- a/src/test/regress/expected/sqljson_jsontable.out
++++ b/src/test/regress/expected/sqljson_jsontable.out
+@@ -708,11 +708,11 @@ SELECT * FROM JSON_TABLE(jsonb '{"a": 123}', '$' || '.' || 'a' COLUMNS (foo int)
+ ERROR:  only string constants are supported in JSON_TABLE path specification
+ LINE 1: SELECT * FROM JSON_TABLE(jsonb '{"a": 123}', '$' || '.' || '...
+                                                      ^
+ -- JsonPathQuery() error message mentioning column name
+ SELECT * FROM JSON_TABLE('{"a": [{"b": "1"}, {"b": "2"}]}', '$' COLUMNS (b json path '$.a[*].b' ERROR ON ERROR));
+-ERROR:  JSON path expression for column "b" should return single item without wrapper
++ERROR:  JSON path expression for column "b" must return single item when no wrapper is requested
+ HINT:  Use the WITH WRAPPER clause to wrap SQL/JSON items into an array.
+ -- JSON_TABLE: nested paths
+ -- Duplicate path names
+ SELECT * FROM JSON_TABLE(
+ 	jsonb '[]', '$' AS a
+diff --git a/src/test/regress/expected/sqljson_queryfuncs.out b/src/test/regress/expected/sqljson_queryfuncs.out
+index 329ef674961..5a35aeb7bba 100644
+--- a/src/test/regress/expected/sqljson_queryfuncs.out
++++ b/src/test/regress/expected/sqljson_queryfuncs.out
+@@ -342,19 +342,19 @@ SELECT JSON_VALUE(jsonb '[]', '$');
+ ------------
+  
+ (1 row)
+ 
+ SELECT JSON_VALUE(jsonb '[]', '$' ERROR ON ERROR);
+-ERROR:  JSON path expression in JSON_VALUE should return single scalar item
++ERROR:  JSON path expression in JSON_VALUE must return single scalar item
+ SELECT JSON_VALUE(jsonb '{}', '$');
+  json_value 
+ ------------
+  
+ (1 row)
+ 
+ SELECT JSON_VALUE(jsonb '{}', '$' ERROR ON ERROR);
+-ERROR:  JSON path expression in JSON_VALUE should return single scalar item
++ERROR:  JSON path expression in JSON_VALUE must return single scalar item
+ SELECT JSON_VALUE(jsonb '1', '$.a');
+  json_value 
+ ------------
+  
+ (1 row)
+@@ -406,11 +406,11 @@ SELECT JSON_VALUE(jsonb '1', 'lax $.a' DEFAULT '2' ON EMPTY DEFAULT '3' ON ERROR
+ (1 row)
+ 
+ SELECT JSON_VALUE(jsonb '1', 'lax $.a' ERROR ON EMPTY DEFAULT '3' ON ERROR);
+ ERROR:  no SQL/JSON item found for specified path
+ SELECT JSON_VALUE(jsonb '[1,2]', '$[*]' ERROR ON ERROR);
+-ERROR:  JSON path expression in JSON_VALUE should return single scalar item
++ERROR:  JSON path expression in JSON_VALUE must return single scalar item
+ SELECT JSON_VALUE(jsonb '[1,2]', '$[*]' DEFAULT '0' ON ERROR);
+  json_value 
+ ------------
+  0
+ (1 row)
+@@ -804,11 +804,11 @@ SELECT JSON_QUERY(jsonb '[]', '$[*]' ERROR ON ERROR);	-- NULL ON EMPTY
+ ------------
+  
+ (1 row)
+ 
+ SELECT JSON_QUERY(jsonb '[1,2]', '$[*]' ERROR ON ERROR);
+-ERROR:  JSON path expression in JSON_QUERY should return single item without wrapper
++ERROR:  JSON path expression in JSON_QUERY must return single item when no wrapper is requested
+ HINT:  Use the WITH WRAPPER clause to wrap SQL/JSON items into an array.
+ SELECT JSON_QUERY(jsonb '[1,2]', '$[*]' DEFAULT '"empty"' ON ERROR);
+  json_query 
+ ------------
+  "empty"

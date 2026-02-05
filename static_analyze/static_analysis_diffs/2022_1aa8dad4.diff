@@ -1,0 +1,126 @@
+commit 1aa8dad41ffad99923a658389ee948e88394491c
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Aug 3 17:33:42 2022 -0400
+
+    Fix incorrect tests for SRFs in relation_can_be_sorted_early().
+    
+    Commit fac1b470a thought we could check for set-returning functions
+    by testing only the top-level node in an expression tree.  This is
+    wrong in itself, and to make matters worse it encouraged others
+    to make the same mistake, by exporting tlist.c's special-purpose
+    IS_SRF_CALL() as a widely-visible macro.  I can't find any evidence
+    that anyone's taken the bait, but it was only a matter of time.
+    
+    Use expression_returns_set() instead, and stuff the IS_SRF_CALL()
+    genie back in its bottle, this time with a warning label.  I also
+    added a couple of cross-reference comments.
+    
+    After a fair amount of fooling around, I've despaired of making
+    a robust test case that exposes the bug reliably, so no test case
+    here.  (Note that the test case added by fac1b470a is itself
+    broken, in that it doesn't notice if you remove the code change.
+    The repro given by the bug submitter currently doesn't fail either
+    in v15 or HEAD, though I suspect that may indicate an unrelated bug.)
+    
+    Per bug #17564 from Martijn van Oosterhout.  Back-patch to v13,
+    as the faulty patch was.
+    
+    Discussion: https://postgr.es/m/17564-c7472c2f90ef2da3@postgresql.org
+
+diff --git a/src/backend/nodes/nodeFuncs.c b/src/backend/nodes/nodeFuncs.c
+index 4cb1744da6c..c334daae392 100644
+--- a/src/backend/nodes/nodeFuncs.c
++++ b/src/backend/nodes/nodeFuncs.c
+@@ -758,10 +758,16 @@ expression_returns_set_walker(Node *node, void *context)
+ 		if (expr->opretset)
+ 			return true;
+ 		/* else fall through to check args */
+ 	}
+ 
++	/*
++	 * If you add any more cases that return sets, also fix
++	 * expression_returns_set_rows() in clauses.c and IS_SRF_CALL() in
++	 * tlist.c.
++	 */
++
+ 	/* Avoid recursion for some cases that parser checks not to return a set */
+ 	if (IsA(node, Aggref))
+ 		return false;
+ 	if (IsA(node, GroupingFunc))
+ 		return false;
+diff --git a/src/backend/optimizer/path/equivclass.c b/src/backend/optimizer/path/equivclass.c
+index 60c0e3f1089..79912955485 100644
+--- a/src/backend/optimizer/path/equivclass.c
++++ b/src/backend/optimizer/path/equivclass.c
+@@ -984,11 +984,11 @@ relation_can_be_sorted_early(PlannerInfo *root, RelOptInfo *rel,
+ 		 * Reject expressions involving set-returning functions, as those
+ 		 * can't be computed early either.  (Note: this test and the following
+ 		 * one are effectively checking properties of targetexpr, so there's
+ 		 * no point in asking whether some other EC member would be better.)
+ 		 */
+-		if (IS_SRF_CALL((Node *) em->em_expr))
++		if (expression_returns_set((Node *) em->em_expr))
+ 			continue;
+ 
+ 		/*
+ 		 * If requested, reject expressions that are not parallel-safe.  We
+ 		 * check this last because it's a rather expensive test.
+@@ -1012,11 +1012,11 @@ relation_can_be_sorted_early(PlannerInfo *root, RelOptInfo *rel,
+ 	 * Reject expressions involving set-returning functions, as those can't be
+ 	 * computed early either.  (There's no point in looking for another EC
+ 	 * member in this case; since SRFs can't appear in WHERE, they cannot
+ 	 * belong to multi-member ECs.)
+ 	 */
+-	if (IS_SRF_CALL((Node *) em->em_expr))
++	if (expression_returns_set((Node *) em->em_expr))
+ 		return false;
+ 
+ 	return true;
+ }
+ 
+diff --git a/src/backend/optimizer/util/tlist.c b/src/backend/optimizer/util/tlist.c
+index fe9a9d7d896..784a1af82df 100644
+--- a/src/backend/optimizer/util/tlist.c
++++ b/src/backend/optimizer/util/tlist.c
+@@ -19,10 +19,21 @@
+ #include "optimizer/cost.h"
+ #include "optimizer/optimizer.h"
+ #include "optimizer/tlist.h"
+ 
+ 
++/*
++ * Test if an expression node represents a SRF call.  Beware multiple eval!
++ *
++ * Please note that this is only meant for use in split_pathtarget_at_srfs();
++ * if you use it anywhere else, your code is almost certainly wrong for SRFs
++ * nested within expressions.  Use expression_returns_set() instead.
++ */
++#define IS_SRF_CALL(node) \
++	((IsA(node, FuncExpr) && ((FuncExpr *) (node))->funcretset) || \
++	 (IsA(node, OpExpr) && ((OpExpr *) (node))->opretset))
++
+ /*
+  * Data structures for split_pathtarget_at_srfs().  To preserve the identity
+  * of sortgroupref items even if they are textually equal(), what we track is
+  * not just bare expressions but expressions plus their sortgroupref indexes.
+  */
+diff --git a/src/include/optimizer/optimizer.h b/src/include/optimizer/optimizer.h
+index 7be1e5906b1..409005bae95 100644
+--- a/src/include/optimizer/optimizer.h
++++ b/src/include/optimizer/optimizer.h
+@@ -22,15 +22,10 @@
+ #ifndef OPTIMIZER_H
+ #define OPTIMIZER_H
+ 
+ #include "nodes/parsenodes.h"
+ 
+-/* Test if an expression node represents a SRF call.  Beware multiple eval! */
+-#define IS_SRF_CALL(node) \
+-	((IsA(node, FuncExpr) && ((FuncExpr *) (node))->funcretset) || \
+-	 (IsA(node, OpExpr) && ((OpExpr *) (node))->opretset))
+-
+ /*
+  * We don't want to include nodes/pathnodes.h here, because non-planner
+  * code should generally treat PlannerInfo as an opaque typedef.
+  * But we'd like such code to use that typedef name, so define the
+  * typedef either here or in pathnodes.h, whichever is read first.

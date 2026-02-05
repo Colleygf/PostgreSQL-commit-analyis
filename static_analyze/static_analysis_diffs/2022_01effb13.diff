@@ -1,0 +1,58 @@
+commit 01effb130420ba06b3fb441274415bd07c8a87b0
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Wed Apr 6 09:15:05 2022 +0200
+
+    Fix unsigned output format in SLRU error reporting
+    
+    Avoid printing signed values as unsigned.  (No impact in practice
+    expected.)
+    
+    Author: Pavel Borisov <pashkin.elfe@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/CALT9ZEHN7hWJo6MgJKqoDMGj%3DGOzQU50wTvOYZXDj7x%3DsUK-kw%40mail.gmail.com
+
+diff --git a/src/backend/access/transam/slru.c b/src/backend/access/transam/slru.c
+index 30a476ed5dc..d34732cb41f 100644
+--- a/src/backend/access/transam/slru.c
++++ b/src/backend/access/transam/slru.c
+@@ -947,36 +947,36 @@ SlruReportIOError(SlruCtl ctl, int pageno, TransactionId xid)
+ 			break;
+ 		case SLRU_SEEK_FAILED:
+ 			ereport(ERROR,
+ 					(errcode_for_file_access(),
+ 					 errmsg("could not access status of transaction %u", xid),
+-					 errdetail("Could not seek in file \"%s\" to offset %u: %m.",
++					 errdetail("Could not seek in file \"%s\" to offset %d: %m.",
+ 							   path, offset)));
+ 			break;
+ 		case SLRU_READ_FAILED:
+ 			if (errno)
+ 				ereport(ERROR,
+ 						(errcode_for_file_access(),
+ 						 errmsg("could not access status of transaction %u", xid),
+-						 errdetail("Could not read from file \"%s\" at offset %u: %m.",
++						 errdetail("Could not read from file \"%s\" at offset %d: %m.",
+ 								   path, offset)));
+ 			else
+ 				ereport(ERROR,
+ 						(errmsg("could not access status of transaction %u", xid),
+-						 errdetail("Could not read from file \"%s\" at offset %u: read too few bytes.", path, offset)));
++						 errdetail("Could not read from file \"%s\" at offset %d: read too few bytes.", path, offset)));
+ 			break;
+ 		case SLRU_WRITE_FAILED:
+ 			if (errno)
+ 				ereport(ERROR,
+ 						(errcode_for_file_access(),
+ 						 errmsg("could not access status of transaction %u", xid),
+-						 errdetail("Could not write to file \"%s\" at offset %u: %m.",
++						 errdetail("Could not write to file \"%s\" at offset %d: %m.",
+ 								   path, offset)));
+ 			else
+ 				ereport(ERROR,
+ 						(errmsg("could not access status of transaction %u", xid),
+-						 errdetail("Could not write to file \"%s\" at offset %u: wrote too few bytes.",
++						 errdetail("Could not write to file \"%s\" at offset %d: wrote too few bytes.",
+ 								   path, offset)));
+ 			break;
+ 		case SLRU_FSYNC_FAILED:
+ 			ereport(data_sync_elevel(ERROR),
+ 					(errcode_for_file_access(),

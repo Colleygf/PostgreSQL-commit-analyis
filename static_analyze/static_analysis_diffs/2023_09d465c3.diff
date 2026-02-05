@@ -1,0 +1,87 @@
+commit 09d465c397165f99c37e9002a4e7b281111d2580
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Tue Jan 17 17:13:18 2023 -0500
+
+    Doc: fix a few oddly-spelled SGML ID attributes.
+    
+    Avoid use of "_" in SGML IDs.  Awhile back that was actually
+    disallowed by the toolchain, as a consequence of which our convention
+    has been to use "-" instead.  Fix a couple of stragglers that are
+    particularly inconsistent with that convention and with related IDs.
+    
+    This is just neatnik-ism, so no need for back-patch.
+    
+    Discussion: https://postgr.es/m/769446.1673478332@sss.pgh.pa.us
+
+diff --git a/doc/src/sgml/config.sgml b/doc/src/sgml/config.sgml
+index 77574e2d4ec..89d53f2a645 100644
+--- a/doc/src/sgml/config.sgml
++++ b/doc/src/sgml/config.sgml
+@@ -6060,11 +6060,11 @@ SELECT * FROM parent WHERE key = 2400;
+         plans.  See <xref linkend="runtime-config-query-geqo"/>.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
+-     <varlistentry id="guc-plan-cache_mode" xreflabel="plan_cache_mode">
++     <varlistentry id="guc-plan-cache-mode" xreflabel="plan_cache_mode">
+       <term><varname>plan_cache_mode</varname> (<type>enum</type>)
+       <indexterm>
+        <primary><varname>plan_cache_mode</varname> configuration parameter</primary>
+       </indexterm>
+       </term>
+diff --git a/doc/src/sgml/pgbuffercache.sgml b/doc/src/sgml/pgbuffercache.sgml
+index fc101cf1908..7b118f2030b 100644
+--- a/doc/src/sgml/pgbuffercache.sgml
++++ b/doc/src/sgml/pgbuffercache.sgml
+@@ -181,14 +181,14 @@
+ 
+  <sect2 id="pgbuffercache-summary">
+   <title>The <function>pg_buffercache_summary()</function> Function</title>
+ 
+   <para>
+-   The definitions of the columns exposed by the function are shown in <xref linkend="pgbuffercache_summary-columns"/>.
++   The definitions of the columns exposed by the function are shown in <xref linkend="pgbuffercache-summary-columns"/>.
+   </para>
+ 
+-  <table id="pgbuffercache_summary-columns">
++  <table id="pgbuffercache-summary-columns">
+    <title><function>pg_buffercache_summary()</function> Output Columns</title>
+    <tgroup cols="1">
+     <thead>
+      <row>
+       <entry role="catalog_table_entry"><para role="column_definition">
+diff --git a/doc/src/sgml/ref/pg_checksums.sgml b/doc/src/sgml/ref/pg_checksums.sgml
+index bab9501ce09..a3d0b0f0a3d 100644
+--- a/doc/src/sgml/ref/pg_checksums.sgml
++++ b/doc/src/sgml/ref/pg_checksums.sgml
+@@ -31,11 +31,11 @@ PostgreSQL documentation
+     <replaceable class="parameter">datadir</replaceable>
+    </group>
+   </cmdsynopsis>
+  </refsynopsisdiv>
+ 
+- <refsect1 id="r1-app-pg_checksums-1">
++ <refsect1 id="r1-app-pgchecksums-1">
+   <title>Description</title>
+   <para>
+    <application>pg_checksums</application> checks, enables or disables data
+    checksums in a <productname>PostgreSQL</productname> cluster.  The server
+    must be shut down cleanly before running
+diff --git a/doc/src/sgml/ref/prepare.sgml b/doc/src/sgml/ref/prepare.sgml
+index aae91946c75..f9e0cdc69a1 100644
+--- a/doc/src/sgml/ref/prepare.sgml
++++ b/doc/src/sgml/ref/prepare.sgml
+@@ -137,11 +137,11 @@ PREPARE <replaceable class="parameter">name</replaceable> [ ( <replaceable class
+    prepared statement has no parameters, then this is moot and a generic
+    plan is always used.)
+   </para>
+ 
+   <para>
+-   By default (that is, when <xref linkend="guc-plan-cache_mode"/> is set
++   By default (that is, when <xref linkend="guc-plan-cache-mode"/> is set
+    to <literal>auto</literal>), the server will automatically choose
+    whether to use a generic or custom plan for a prepared statement that
+    has parameters.  The current rule for this is that the first five
+    executions are done with custom plans and the average estimated cost of
+    those plans is calculated.  Then a generic plan is created and its

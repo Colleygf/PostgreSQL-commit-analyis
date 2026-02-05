@@ -1,0 +1,71 @@
+commit 49c2c5fcb1e1e4311f08687f78dd9121330ae637
+Author: Andres Freund <andres@anarazel.de>
+Date:   Wed Feb 8 18:19:36 2023 -0800
+
+    Fix bugs in GetSafeSnapshotBlockingPids(), introduced in 96003717645
+    
+    While removing the use of SHM_QUEUE from predicate.c, in 96003717645, I made
+    two mistakes in GetSafeSnapshotBlockingPids():
+    - Removed the check for output_size
+    - Previously, when the first loop didn't find a matching proc, sxact would be
+      NULL. But with naive use of dlist_foreach() it ends up as the value of the
+      last iteration.
+    
+    The second issue is the cause of occasional failures in the deadlock-hard and
+    deadlock-soft isolation tests that we have been observing on CI. The issue was
+    very hard to reproduce, as it requires the transactions.sql regression test to
+    run at the same time as the deadlock-{hard,soft} isolation test.
+    
+    I did not find other similar mistakes in 96003717645.
+    
+    Discussion: https://postgr.es/m/20230208221145.bwzhancellclrgia@awork3.anarazel.de
+
+diff --git a/src/backend/storage/lmgr/predicate.c b/src/backend/storage/lmgr/predicate.c
+index 11decb74b2a..bfc352aed86 100644
+--- a/src/backend/storage/lmgr/predicate.c
++++ b/src/backend/storage/lmgr/predicate.c
+@@ -1561,33 +1561,40 @@ GetSafeSnapshot(Snapshot origSnapshot)
+ int
+ GetSafeSnapshotBlockingPids(int blocked_pid, int *output, int output_size)
+ {
+ 	int			num_written = 0;
+ 	dlist_iter	iter;
+-	SERIALIZABLEXACT *sxact = NULL;
++	SERIALIZABLEXACT *blocking_sxact = NULL;
+ 
+ 	LWLockAcquire(SerializableXactHashLock, LW_SHARED);
+ 
+ 	/* Find blocked_pid's SERIALIZABLEXACT by linear search. */
+ 	dlist_foreach(iter, &PredXact->activeList)
+ 	{
+-		sxact = dlist_container(SERIALIZABLEXACT, xactLink, iter.cur);
++		SERIALIZABLEXACT *sxact =
++			dlist_container(SERIALIZABLEXACT, xactLink, iter.cur);
+ 
+ 		if (sxact->pid == blocked_pid)
++		{
++			blocking_sxact = sxact;
+ 			break;
++		}
+ 	}
+ 
+ 	/* Did we find it, and is it currently waiting in GetSafeSnapshot? */
+-	if (sxact != NULL && SxactIsDeferrableWaiting(sxact))
++	if (blocking_sxact != NULL && SxactIsDeferrableWaiting(blocking_sxact))
+ 	{
+ 		/* Traverse the list of possible unsafe conflicts collecting PIDs. */
+-		dlist_foreach(iter, &sxact->possibleUnsafeConflicts)
++		dlist_foreach(iter, &blocking_sxact->possibleUnsafeConflicts)
+ 		{
+ 			RWConflict	possibleUnsafeConflict =
+ 			dlist_container(RWConflictData, inLink, iter.cur);
+ 
+ 			output[num_written++] = possibleUnsafeConflict->sxactOut->pid;
++
++			if (num_written >= output_size)
++				break;
+ 		}
+ 	}
+ 
+ 	LWLockRelease(SerializableXactHashLock);
+ 

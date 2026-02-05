@@ -1,0 +1,68 @@
+commit 571f7f70865cdaf1a49e7934208ad139575e3f03
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Tue Jul 9 09:00:45 2024 +0530
+
+    To improve the code, move the error check in logical_read_xlog_page().
+    
+    Commit 0fdab27ad6 changed the code to wait for WAL to be available before
+    determining the timeline but forgot to move the failure check.
+    
+    This change is to make the related code easier to understand and enhance
+    otherwise there is no bug in the current code.
+    
+    In the passing, improve the nearby comments to explain why we determine
+    am_cascading_walsender after waiting for the required WAL.
+    
+    Author: Peter Smith
+    Reviewed-by: Bertrand Drouvot, Amit Kapila
+    Discussion: https://postgr.es/m/CAHut+PvqX49fusLyXspV1Mmd_EekPtXG0oT146vZjcb9XDvNgw@mail.gmail.com
+
+diff --git a/src/backend/replication/walsender.c b/src/backend/replication/walsender.c
+index 754f505c139..2d1a9ec900f 100644
+--- a/src/backend/replication/walsender.c
++++ b/src/backend/replication/walsender.c
+@@ -1055,20 +1055,25 @@ logical_read_xlog_page(XLogReaderState *state, XLogRecPtr targetPagePtr, int req
+ 	XLogSegNo	segno;
+ 	TimeLineID	currTLI;
+ 
+ 	/*
+ 	 * Make sure we have enough WAL available before retrieving the current
+-	 * timeline. This is needed to determine am_cascading_walsender accurately
+-	 * which is needed to determine the current timeline.
++	 * timeline.
+ 	 */
+ 	flushptr = WalSndWaitForWal(targetPagePtr + reqLen);
+ 
++	/* Fail if not enough (implies we are going to shut down) */
++	if (flushptr < targetPagePtr + reqLen)
++		return -1;
++
+ 	/*
+ 	 * Since logical decoding is also permitted on a standby server, we need
+ 	 * to check if the server is in recovery to decide how to get the current
+-	 * timeline ID (so that it also cover the promotion or timeline change
+-	 * cases).
++	 * timeline ID (so that it also covers the promotion or timeline change
++	 * cases). We must determine am_cascading_walsender after waiting for the
++	 * required WAL so that it is correct when the walsender wakes up after a
++	 * promotion.
+ 	 */
+ 	am_cascading_walsender = RecoveryInProgress();
+ 
+ 	if (am_cascading_walsender)
+ 		GetXLogReplayRecPtr(&currTLI);
+@@ -1079,14 +1084,10 @@ logical_read_xlog_page(XLogReaderState *state, XLogRecPtr targetPagePtr, int req
+ 	sendTimeLineIsHistoric = (state->currTLI != currTLI);
+ 	sendTimeLine = state->currTLI;
+ 	sendTimeLineValidUpto = state->currTLIValidUntil;
+ 	sendTimeLineNextTLI = state->nextTLI;
+ 
+-	/* fail if not (implies we are going to shut down) */
+-	if (flushptr < targetPagePtr + reqLen)
+-		return -1;
+-
+ 	if (targetPagePtr + XLOG_BLCKSZ <= flushptr)
+ 		count = XLOG_BLCKSZ;	/* more than one block available */
+ 	else
+ 		count = flushptr - targetPagePtr;	/* part of the page available */
+ 

@@ -1,0 +1,60 @@
+commit eb39610f82679e015dd990a3fbba1c62e399c32a
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Jun 1 16:15:47 2022 -0400
+
+    Fix pl/perl test case so it will still work under Perl 5.36.
+    
+    Perl 5.36 has reclassified the warning condition that this test
+    case used, so that the expected error fails to appear.  Tweak
+    the test so it instead exercises a case that's handled the same
+    way in all Perl versions of interest.
+    
+    This appears to meet our standards for back-patching into
+    out-of-support branches: it changes no user-visible behavior
+    but enables testing of old branches with newer tools.
+    Hence, back-patch as far as 9.2.
+    
+    Dagfinn Ilmari Mannsåker, per report from Jitka Plesníková.
+    
+    Discussion: https://postgr.es/m/564579.1654093326@sss.pgh.pa.us
+
+diff --git a/src/pl/plperl/expected/plperl.out b/src/pl/plperl/expected/plperl.out
+index d8a1ff5dd8d..e3d7c8896a2 100644
+--- a/src/pl/plperl/expected/plperl.out
++++ b/src/pl/plperl/expected/plperl.out
+@@ -722,13 +722,13 @@ CONTEXT:  PL/Perl anonymous code block
+ -- runtime error: "Can't use string ("foo") as a SCALAR ref while "strict refs" in use
+ DO $do$ use strict; my $name = "foo"; my $ref = $$name; $do$ LANGUAGE plperl;
+ ERROR:  Can't use string ("foo") as a SCALAR ref while "strict refs" in use at line 1.
+ CONTEXT:  PL/Perl anonymous code block
+ -- check that we can "use warnings" (in this case to turn a warn into an error)
+--- yields "ERROR:  Useless use of sort in scalar context."
+-DO $do$ use warnings FATAL => qw(void) ; my @y; my $x = sort @y; 1; $do$ LANGUAGE plperl;
+-ERROR:  Useless use of sort in scalar context at line 1.
++-- yields "ERROR:  Useless use of sort in void context."
++DO $do$ use warnings FATAL => qw(void) ; my @y; sort @y; 1; $do$ LANGUAGE plperl;
++ERROR:  Useless use of sort in void context at line 1.
+ CONTEXT:  PL/Perl anonymous code block
+ -- make sure functions marked as VOID without an explicit return work
+ CREATE OR REPLACE FUNCTION myfuncs() RETURNS void AS $$
+    $_SHARED{myquote} = sub {
+        my $arg = shift;
+diff --git a/src/pl/plperl/sql/plperl.sql b/src/pl/plperl/sql/plperl.sql
+index b0d950b2304..bb0b8ce4cb6 100644
+--- a/src/pl/plperl/sql/plperl.sql
++++ b/src/pl/plperl/sql/plperl.sql
+@@ -467,12 +467,12 @@ DO $$ use blib; $$ LANGUAGE plperl;
+ -- check that we can "use" a module that has already been loaded
+ -- runtime error: "Can't use string ("foo") as a SCALAR ref while "strict refs" in use
+ DO $do$ use strict; my $name = "foo"; my $ref = $$name; $do$ LANGUAGE plperl;
+ 
+ -- check that we can "use warnings" (in this case to turn a warn into an error)
+--- yields "ERROR:  Useless use of sort in scalar context."
+-DO $do$ use warnings FATAL => qw(void) ; my @y; my $x = sort @y; 1; $do$ LANGUAGE plperl;
++-- yields "ERROR:  Useless use of sort in void context."
++DO $do$ use warnings FATAL => qw(void) ; my @y; sort @y; 1; $do$ LANGUAGE plperl;
+ 
+ -- make sure functions marked as VOID without an explicit return work
+ CREATE OR REPLACE FUNCTION myfuncs() RETURNS void AS $$
+    $_SHARED{myquote} = sub {
+        my $arg = shift;

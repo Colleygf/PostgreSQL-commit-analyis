@@ -1,0 +1,136 @@
+commit ca3067cc573d7c1ed617cfb959ae8507be17f1aa
+Author: Andres Freund <andres@anarazel.de>
+Date:   Sat Mar 22 17:30:44 2025 -0400
+
+    aio: Change prefix of PgAioResultStatus values to PGAIO_RS_
+    
+    The previous prefix wasn't consistent with the naming of other AIO related
+    enum values. It seems best to rename it before the users are introduced.
+    
+    Reported-by: Melanie Plageman <melanieplageman@gmail.com>
+    Discussion: https://postgr.es/m/CAAKRu_Yb+JzQpNsgUxCB0gBi+sE-mi_HmcJF6ALnmO4W+UgwpA@mail.gmail.com
+
+diff --git a/src/backend/storage/aio/aio.c b/src/backend/storage/aio/aio.c
+index 3ed4b1dfdac..29f57f9cd1c 100644
+--- a/src/backend/storage/aio/aio.c
++++ b/src/backend/storage/aio/aio.c
+@@ -214,11 +214,11 @@ pgaio_io_acquire_nb(struct ResourceOwnerData *resowner, PgAioReturn *ret)
+ 			pgaio_io_resowner_register(ioh);
+ 
+ 		if (ret)
+ 		{
+ 			ioh->report_return = ret;
+-			ret->result.status = ARS_UNKNOWN;
++			ret->result.status = PGAIO_RS_UNKNOWN;
+ 		}
+ 
+ 		return ioh;
+ 	}
+ 
+@@ -667,11 +667,11 @@ pgaio_io_reclaim(PgAioHandle *ioh)
+ 	ioh->flags = 0;
+ 	ioh->num_callbacks = 0;
+ 	ioh->handle_data_len = 0;
+ 	ioh->report_return = NULL;
+ 	ioh->result = 0;
+-	ioh->distilled_result.status = ARS_UNKNOWN;
++	ioh->distilled_result.status = PGAIO_RS_UNKNOWN;
+ 
+ 	/* XXX: the barrier is probably superfluous */
+ 	pg_write_barrier();
+ 	ioh->generation++;
+ 
+@@ -827,17 +827,17 @@ pgaio_io_get_state_name(PgAioHandle *ioh)
+ const char *
+ pgaio_result_status_string(PgAioResultStatus rs)
+ {
+ 	switch (rs)
+ 	{
+-		case ARS_UNKNOWN:
++		case PGAIO_RS_UNKNOWN:
+ 			return "UNKNOWN";
+-		case ARS_OK:
++		case PGAIO_RS_OK:
+ 			return "OK";
+-		case ARS_PARTIAL:
++		case PGAIO_RS_PARTIAL:
+ 			return "PARTIAL";
+-		case ARS_ERROR:
++		case PGAIO_RS_ERROR:
+ 			return "ERROR";
+ 	}
+ 
+ 	return NULL;				/* silence compiler */
+ }
+diff --git a/src/backend/storage/aio/aio_callback.c b/src/backend/storage/aio/aio_callback.c
+index d5a2cca28f1..09f03f296f5 100644
+--- a/src/backend/storage/aio/aio_callback.c
++++ b/src/backend/storage/aio/aio_callback.c
+@@ -162,12 +162,12 @@ void
+ pgaio_result_report(PgAioResult result, const PgAioTargetData *target_data, int elevel)
+ {
+ 	PgAioHandleCallbackID cb_id = result.id;
+ 	const PgAioHandleCallbacksEntry *ce = &aio_handle_cbs[cb_id];
+ 
+-	Assert(result.status != ARS_UNKNOWN);
+-	Assert(result.status != ARS_OK);
++	Assert(result.status != PGAIO_RS_UNKNOWN);
++	Assert(result.status != PGAIO_RS_OK);
+ 
+ 	if (ce->cb->report == NULL)
+ 		elog(ERROR, "callback %d/%s does not have report callback",
+ 			 result.id, ce->name);
+ 
+@@ -218,11 +218,11 @@ pgaio_io_call_complete_shared(PgAioHandle *ioh)
+ 	START_CRIT_SECTION();
+ 
+ 	Assert(ioh->target > PGAIO_TID_INVALID && ioh->target < PGAIO_TID_COUNT);
+ 	Assert(ioh->op > PGAIO_OP_INVALID && ioh->op < PGAIO_OP_COUNT);
+ 
+-	result.status = ARS_OK;		/* low level IO is always considered OK */
++	result.status = PGAIO_RS_OK;	/* low level IO is always considered OK */
+ 	result.result = ioh->result;
+ 	result.id = PGAIO_HCB_INVALID;
+ 	result.error_data = 0;
+ 
+ 	/*
+diff --git a/src/backend/storage/aio/aio_init.c b/src/backend/storage/aio/aio_init.c
+index 2ede7e80b65..885c3940c66 100644
+--- a/src/backend/storage/aio/aio_init.c
++++ b/src/backend/storage/aio/aio_init.c
+@@ -200,11 +200,11 @@ AioShmemInit(void)
+ 			ioh->iovec_off = iovec_off;
+ 			ioh->handle_data_len = 0;
+ 			ioh->report_return = NULL;
+ 			ioh->resowner = NULL;
+ 			ioh->num_callbacks = 0;
+-			ioh->distilled_result.status = ARS_UNKNOWN;
++			ioh->distilled_result.status = PGAIO_RS_UNKNOWN;
+ 			ioh->flags = 0;
+ 
+ 			ConditionVariableInit(&ioh->cv);
+ 
+ 			dclist_push_tail(&bs->idle_ios, &ioh->node);
+diff --git a/src/include/storage/aio_types.h b/src/include/storage/aio_types.h
+index a5cc658efbd..dddda3a3e2f 100644
+--- a/src/include/storage/aio_types.h
++++ b/src/include/storage/aio_types.h
+@@ -71,14 +71,14 @@ typedef union PgAioTargetData
+ /*
+  * The status of an AIO operation.
+  */
+ typedef enum PgAioResultStatus
+ {
+-	ARS_UNKNOWN,				/* not yet completed / uninitialized */
+-	ARS_OK,
+-	ARS_PARTIAL,				/* did not fully succeed, but no error */
+-	ARS_ERROR,
++	PGAIO_RS_UNKNOWN,			/* not yet completed / uninitialized */
++	PGAIO_RS_OK,
++	PGAIO_RS_PARTIAL,			/* did not fully succeed, but no error */
++	PGAIO_RS_ERROR,
+ } PgAioResultStatus;
+ 
+ 
+ /*
+  * Result of IO operation, visible only to the initiator of IO.

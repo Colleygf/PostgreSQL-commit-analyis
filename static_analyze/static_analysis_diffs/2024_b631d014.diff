@@ -1,0 +1,125 @@
+commit b631d014987b9411ed0eeb7dcba9e0a8599bc3cf
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Tue Jun 4 18:02:13 2024 -0400
+
+    Fix pl/tcl's handling of errors from Tcl_ListObjGetElements().
+    
+    In a procedure or function returning tuple, we use that function to
+    parse the Tcl script's result, which is supposed to be a Tcl list.
+    If it isn't, you get an error.  Commit 26abb50c4 incautiously
+    supposed that we could use throw_tcl_error() to report such an error.
+    That doesn't actually work, because low-level functions like
+    Tcl_ListObjGetElements() don't fill Tcl's errorInfo variable.
+    The result is either a null-pointer-dereference crash or emission
+    of misleading context information describing the previous Tcl error.
+    
+    Back off to just reporting the interpreter's result string, and
+    improve throw_tcl_error()'s comment to explain when to use it.
+    
+    Also, although the similar code in pltcl_trigger_handler() avoided
+    this mistake, it was using a fairly confusing wording of the
+    error message.  Improve that while we're here.
+    
+    Per report from A. Kozhemyakin.  Back-patch to all supported
+    branches.
+    
+    Erik Wienhold and Tom Lane
+    
+    Discussion: https://postgr.es/m/6a2a1c40-2b2c-4a33-8b72-243c0766fcda@postgrespro.ru
+
+diff --git a/src/pl/tcl/expected/pltcl_call.out b/src/pl/tcl/expected/pltcl_call.out
+index e4498375ec1..7bb5dffe5d7 100644
+--- a/src/pl/tcl/expected/pltcl_call.out
++++ b/src/pl/tcl/expected/pltcl_call.out
+@@ -64,9 +64,17 @@ BEGIN
+   RAISE NOTICE '_a: %, _b: %', _a, _b;
+ END
+ $$;
+ NOTICE:  a: 10
+ NOTICE:  _a: 10, _b: 20
++-- syntax error in result tuple
++CREATE PROCEDURE test_proc10(INOUT a text)
++LANGUAGE pltcl
++AS $$
++return [list a {$a + $a}])
++$$;
++CALL test_proc10('abc');
++ERROR:  could not parse function return value: list element in braces followed by ")" instead of space
+ DROP PROCEDURE test_proc1;
+ DROP PROCEDURE test_proc2;
+ DROP PROCEDURE test_proc3;
+ DROP TABLE test1;
+diff --git a/src/pl/tcl/pltcl.c b/src/pl/tcl/pltcl.c
+index 18d14a2b982..5b9c030c8d8 100644
+--- a/src/pl/tcl/pltcl.c
++++ b/src/pl/tcl/pltcl.c
+@@ -1024,11 +1024,14 @@ pltcl_func_handler(PG_FUNCTION_ARGS, pltcl_call_state *call_state,
+ 		call_state->attinmeta = TupleDescGetAttInMetadata(td);
+ 
+ 		/* Convert function result to tuple */
+ 		resultObj = Tcl_GetObjResult(interp);
+ 		if (Tcl_ListObjGetElements(interp, resultObj, &resultObjc, &resultObjv) == TCL_ERROR)
+-			throw_tcl_error(interp, prodesc->user_proname);
++			ereport(ERROR,
++					(errcode(ERRCODE_EXTERNAL_ROUTINE_EXCEPTION),
++					 errmsg("could not parse function return value: %s",
++							utf_u2e(Tcl_GetStringResult(interp)))));
+ 
+ 		tup = pltcl_build_tuple_result(interp, resultObjv, resultObjc,
+ 									   call_state);
+ 		retval = HeapTupleGetDatum(tup);
+ 	}
+@@ -1290,11 +1293,11 @@ pltcl_trigger_handler(PG_FUNCTION_ARGS, pltcl_call_state *call_state,
+ 	 ************************************************************/
+ 	if (Tcl_ListObjGetElements(interp, Tcl_GetObjResult(interp),
+ 							   &result_Objc, &result_Objv) != TCL_OK)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_E_R_I_E_TRIGGER_PROTOCOL_VIOLATED),
+-				 errmsg("could not split return value from trigger: %s",
++				 errmsg("could not parse trigger return value: %s",
+ 						utf_u2e(Tcl_GetStringResult(interp)))));
+ 
+ 	/* Convert function result to tuple */
+ 	rettup = pltcl_build_tuple_result(interp, result_Objv, result_Objc,
+ 									  call_state);
+@@ -1353,10 +1356,14 @@ pltcl_event_trigger_handler(PG_FUNCTION_ARGS, pltcl_call_state *call_state,
+ }
+ 
+ 
+ /**********************************************************************
+  * throw_tcl_error	- ereport an error returned from the Tcl interpreter
++ *
++ * Caution: use this only to report errors returned by Tcl_EvalObjEx() or
++ * other variants of Tcl_Eval().  Other functions may not fill "errorInfo",
++ * so it could be unset or even contain details from some previous error.
+  **********************************************************************/
+ static void
+ throw_tcl_error(Tcl_Interp *interp, const char *proname)
+ {
+ 	/*
+diff --git a/src/pl/tcl/sql/pltcl_call.sql b/src/pl/tcl/sql/pltcl_call.sql
+index 37efbdefc23..fe64361c732 100644
+--- a/src/pl/tcl/sql/pltcl_call.sql
++++ b/src/pl/tcl/sql/pltcl_call.sql
+@@ -69,10 +69,21 @@ BEGIN
+   RAISE NOTICE '_a: %, _b: %', _a, _b;
+ END
+ $$;
+ 
+ 
++-- syntax error in result tuple
++
++CREATE PROCEDURE test_proc10(INOUT a text)
++LANGUAGE pltcl
++AS $$
++return [list a {$a + $a}])
++$$;
++
++CALL test_proc10('abc');
++
++
+ DROP PROCEDURE test_proc1;
+ DROP PROCEDURE test_proc2;
+ DROP PROCEDURE test_proc3;
+ 
+ DROP TABLE test1;

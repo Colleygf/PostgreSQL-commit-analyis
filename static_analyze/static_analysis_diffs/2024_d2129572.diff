@@ -1,0 +1,80 @@
+commit d212957254de85aad934e2601e5a07661db268fb
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Fri Feb 2 21:12:30 2024 +0200
+
+    Fix bug in bulk extending temp relation after failure
+    
+    A ResourceOwnerEnlarge() call was missing. That led to an error:
+    
+    ERROR:  ResourceOwnerRemember called but array was full
+    
+    and an assertion failure, if you tried to extend a temp relation again
+    after a failure. Alexander's test case used running out of disk space
+    to trigger the original failure.
+    
+    This bug was introduced in the large ResourceOwner rewrite commit
+    b8bff07daa. Before that, the UnpinLocalBuffer() call guaranteed that
+    the subsequent PinLocalBuffer() will succeed, but after the rewrite,
+    releasing an old resource doesn't guarantee that there is space for a
+    new one.
+    
+    Add a comment explaining why the UnpinBuffer + PinBuffer calls in
+    BufferAlloc(), with no ResourceOwnerEnlarge() in between, are safe.
+    
+    Reported-by: Alexander Lakhin
+    Discussion: https://www.postgresql.org/message-id/dc574fea-c83e-a600-08cd-10881762e4fa@gmail.com
+
+diff --git a/src/backend/storage/buffer/localbuf.c b/src/backend/storage/buffer/localbuf.c
+index 1be4f4f8daf..1f02fed250e 100644
+--- a/src/backend/storage/buffer/localbuf.c
++++ b/src/backend/storage/buffer/localbuf.c
+@@ -372,10 +372,13 @@ ExtendBufferedRelLocal(BufferManagerRelation bmr,
+ 		bool		found;
+ 
+ 		victim_buf_id = -buffers[i] - 1;
+ 		victim_buf_hdr = GetLocalBufferDescriptor(victim_buf_id);
+ 
++		/* in case we need to pin an existing buffer below */
++		ResourceOwnerEnlarge(CurrentResourceOwner);
++
+ 		InitBufferTag(&tag, &bmr.smgr->smgr_rlocator.locator, fork, first_block + i);
+ 
+ 		hresult = (LocalBufferLookupEnt *)
+ 			hash_search(LocalBufHash, (void *) &tag, HASH_ENTER, &found);
+ 		if (found)
+@@ -644,10 +647,12 @@ InitLocalBuffers(void)
+ 
+ /*
+  * XXX: We could have a slightly more efficient version of PinLocalBuffer()
+  * that does not support adjusting the usagecount - but so far it does not
+  * seem worth the trouble.
++ *
++ * Note that ResourceOwnerEnlarge() must have been done already.
+  */
+ bool
+ PinLocalBuffer(BufferDesc *buf_hdr, bool adjust_usagecount)
+ {
+ 	uint32		buf_state;
+diff --git a/src/backend/utils/resowner/resowner.c b/src/backend/utils/resowner/resowner.c
+index 67cc332e80d..aa199b23ffd 100644
+--- a/src/backend/utils/resowner/resowner.c
++++ b/src/backend/utils/resowner/resowner.c
+@@ -546,12 +546,17 @@ ResourceOwnerRemember(ResourceOwner owner, Datum value, const ResourceOwnerDesc
+ }
+ 
+ /*
+  * Forget that an object is owned by a ResourceOwner
+  *
+- * Note: if same resource ID is associated with the ResourceOwner more than
++ * Note: If same resource ID is associated with the ResourceOwner more than
+  * once, one instance is removed.
++ *
++ * Note: Forgetting a resource does not guarantee that there is room to
++ * remember a new resource.  One exception is when you forget the most
++ * recently remembered resource; that does make room for a new remember call.
++ * Some code callers rely on that exception.
+  */
+ void
+ ResourceOwnerForget(ResourceOwner owner, Datum value, const ResourceOwnerDesc *kind)
+ {
+ 	/*

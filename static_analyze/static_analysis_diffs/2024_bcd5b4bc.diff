@@ -1,0 +1,66 @@
+commit bcd5b4bcbefc8b99be3678cf9c6c990a0c28f68e
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Tue Jan 23 14:20:14 2024 -0600
+
+    Fix crash in autoprewarm.
+    
+    Commit abb0b4fc03 moved the shared state for autoprewarm to a
+    dynamic shared memory (DSM) segment, but it left apw_detach_shmem()
+    in the on_shmem_exit callback list for the autoprewarm leader
+    process.  This is a problem because shmem_exit() detaches all the
+    DSM segments prior to calling the on_shmem_exit callbacks, thus
+    producing segfaults in the exit path for the autoprewarm leader
+    process.
+    
+    To fix, move apw_detach_shmem() to the before_shmem_exit callback
+    list.  This commit also adds a check to pg_prewarm's test that the
+    server shut down normally.  It might be worth making this a common
+    check for all shutdowns in TAP tests, but that is left as a future
+    exercise.
+    
+    Reported-by: Andres Freund
+    Reviewed-by: Andres Freund, Álvaro Herrera
+    Discussion: https://postgr.es/m/20240122204117.swton324xcoodnyi%40awork3.anarazel.de
+
+diff --git a/contrib/pg_prewarm/autoprewarm.c b/contrib/pg_prewarm/autoprewarm.c
+index 9ea6c2252ad..06ee21d4963 100644
+--- a/contrib/pg_prewarm/autoprewarm.c
++++ b/contrib/pg_prewarm/autoprewarm.c
+@@ -162,12 +162,18 @@ autoprewarm_main(Datum main_arg)
+ 
+ 	/* Create (if necessary) and attach to our shared memory area. */
+ 	if (apw_init_shmem())
+ 		first_time = false;
+ 
+-	/* Set on-detach hook so that our PID will be cleared on exit. */
+-	on_shmem_exit(apw_detach_shmem, 0);
++	/*
++	 * Set on-detach hook so that our PID will be cleared on exit.
++	 *
++	 * NB: Autoprewarm's state is stored in a DSM segment, and DSM segments
++	 * are detached before calling the on_shmem_exit callbacks, so we must put
++	 * apw_detach_shmem in the before_shmem_exit callback list.
++	 */
++	before_shmem_exit(apw_detach_shmem, 0);
+ 
+ 	/*
+ 	 * Store our PID in the shared memory area --- unless there's already
+ 	 * another worker running, in which case just exit.
+ 	 */
+diff --git a/contrib/pg_prewarm/t/001_basic.pl b/contrib/pg_prewarm/t/001_basic.pl
+index bcd23a69146..825d3448ee5 100644
+--- a/contrib/pg_prewarm/t/001_basic.pl
++++ b/contrib/pg_prewarm/t/001_basic.pl
+@@ -53,6 +53,12 @@ $node->wait_for_log(
+ 	"autoprewarm successfully prewarmed [1-9][0-9]* of [0-9]+ previously-loaded blocks"
+ );
+ 
+ $node->stop;
+ 
++# control file should indicate normal shut down
++command_like(
++	[ 'pg_controldata', $node->data_dir() ],
++	qr/Database cluster state:\s*shut down/,
++	'cluster shut down normally');
++
+ done_testing();

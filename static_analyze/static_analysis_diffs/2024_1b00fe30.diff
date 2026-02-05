@@ -1,0 +1,78 @@
+commit 1b00fe30a67774e55c5fc776096a3c96f1a147d2
+Author: Andrew Dunstan <andrew@dunslane.net>
+Date:   Thu Apr 4 11:27:51 2024 -0400
+
+    Fix warnings re typedef redefinition in ea7b4e9a2a and 3311ea86ed
+    
+    Per gripe from Tom Lane and the buildfarm
+
+diff --git a/src/common/jsonapi.c b/src/common/jsonapi.c
+index 3d1bd37ac26..0bc3e426b20 100644
+--- a/src/common/jsonapi.c
++++ b/src/common/jsonapi.c
+@@ -76,33 +76,37 @@ typedef enum
+ 
+ /*
+  * struct containing the 3 stacks used in non-recursive parsing,
+  * and the token and value for scalars that need to be preserved
+  * across calls.
++ *
++ * typedef appears in jsonapi.h
+  */
+-typedef struct JsonParserStack
++struct JsonParserStack
+ {
+ 	int			stack_size;
+ 	char	   *prediction;
+ 	int			pred_index;
+ 	/* these two are indexed by lex_level */
+ 	char	  **fnames;
+ 	bool	   *fnull;
+ 	JsonTokenType scalar_tok;
+ 	char	   *scalar_val;
+-} JsonParserStack;
++};
+ 
+ /*
+  * struct containing state used when there is a possible partial token at the
+  * end of a json chunk when we are doing incremental parsing.
++ *
++ * typedef appears in jsonapi.h
+  */
+-typedef struct JsonIncrementalState
++struct JsonIncrementalState
+ {
+ 	bool		is_last_chunk;
+ 	bool		partial_completed;
+ 	StringInfoData partial_token;
+-} JsonIncrementalState;
++};
+ 
+ /*
+  * constants and macros used in the nonrecursive parser
+  */
+ #define JSON_NUM_TERMINALS 13
+diff --git a/src/common/parse_manifest.c b/src/common/parse_manifest.c
+index 040c5597df4..970a756ce8a 100644
+--- a/src/common/parse_manifest.c
++++ b/src/common/parse_manifest.c
+@@ -89,16 +89,17 @@ typedef struct
+ 	char	   *manifest_version;
+ 	char	   *manifest_system_identifier;
+ 	char	   *manifest_checksum;
+ } JsonManifestParseState;
+ 
+-typedef struct JsonManifestParseIncrementalState
++/* typedef appears in parse_manifest.h */
++struct JsonManifestParseIncrementalState
+ {
+ 	JsonLexContext lex;
+ 	JsonSemAction sem;
+ 	pg_cryptohash_ctx *manifest_ctx;
+-} JsonManifestParseIncrementalState;
++};
+ 
+ static JsonParseErrorType json_manifest_object_start(void *state);
+ static JsonParseErrorType json_manifest_object_end(void *state);
+ static JsonParseErrorType json_manifest_array_start(void *state);
+ static JsonParseErrorType json_manifest_array_end(void *state);

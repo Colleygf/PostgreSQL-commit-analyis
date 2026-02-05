@@ -1,0 +1,183 @@
+commit 84fd3bc141039b32f25c3c9f6157163a56ab5f66
+Author: David Rowley <drowley@postgresql.org>
+Date:   Mon Apr 21 10:41:18 2025 +1200
+
+    Fix a few duplicate words in comments
+    
+    These are all new to v18
+    
+    Author: David Rowley <dgrowleyml@gmail.com>
+    Discussion: https://postgr.es/m/CAApHDvrMcr8XD107H3NV=WHgyBcu=sx5+7=WArr-n_cWUqdFXQ@mail.gmail.com
+
+diff --git a/contrib/amcheck/verify_heapam.c b/contrib/amcheck/verify_heapam.c
+index 2152d8ee577..aa9cccd1da4 100644
+--- a/contrib/amcheck/verify_heapam.c
++++ b/contrib/amcheck/verify_heapam.c
+@@ -458,11 +458,11 @@ verify_heapam(PG_FUNCTION_ARGS)
+ 		stream_data = &stream_skip_data.range;
+ 	}
+ 	else
+ 	{
+ 		/*
+-		 * It would not be safe to naively use use batchmode, as
++		 * It would not be safe to naively use batchmode, as
+ 		 * heapcheck_read_stream_next_unskippable takes locks. It shouldn't be
+ 		 * too hard to convert though.
+ 		 */
+ 		stream_cb = heapcheck_read_stream_next_unskippable;
+ 		stream_flags = READ_STREAM_DEFAULT;
+diff --git a/contrib/pg_buffercache/pg_buffercache_pages.c b/contrib/pg_buffercache/pg_buffercache_pages.c
+index 6bfb9fb669e..4b007f6e1b0 100644
+--- a/contrib/pg_buffercache/pg_buffercache_pages.c
++++ b/contrib/pg_buffercache/pg_buffercache_pages.c
+@@ -448,12 +448,12 @@ pg_buffercache_numa_pages(PG_FUNCTION_ARGS)
+ 		 * We don't hold the partition locks, so we don't get a consistent
+ 		 * snapshot across all buffers, but we do grab the buffer header
+ 		 * locks, so the information of each buffer is self-consistent.
+ 		 *
+ 		 * This loop touches and stores addresses into os_page_ptrs[] as input
+-		 * to one big big move_pages(2) inquiry system call. Basically we ask
+-		 * for all memory pages for NBuffers.
++		 * to one big move_pages(2) inquiry system call. Basically we ask for
++		 * all memory pages for NBuffers.
+ 		 */
+ 		startptr = (char *) TYPEALIGN_DOWN(os_page_size, (char *) BufferGetBlock(1));
+ 		idx = 0;
+ 		for (i = 0; i < NBuffers; i++)
+ 		{
+diff --git a/src/backend/access/nbtree/nbtpreprocesskeys.c b/src/backend/access/nbtree/nbtpreprocesskeys.c
+index 4f525f7b26f..1cc99e6cdf2 100644
+--- a/src/backend/access/nbtree/nbtpreprocesskeys.c
++++ b/src/backend/access/nbtree/nbtpreprocesskeys.c
+@@ -2049,11 +2049,11 @@ _bt_preprocess_array_keys_final(IndexScanDesc scan, int *keyDataMap)
+  *
+  * _bt_preprocess_array_keys helper function.  Returns the estimated size of
+  * the scan's BTArrayKeyInfo array, which is guaranteed to be large enough to
+  * fit every so->arrayKeys[] entry.
+  *
+- * Also sets *numSkipArrayKeys_out to the number of of skip arrays caller must
++ * Also sets *numSkipArrayKeys_out to the number of skip arrays caller must
+  * add to the scan keys it'll output.  Caller must add this many skip arrays:
+  * one array for each of the most significant attributes that lack a = input
+  * key (IS NULL keys count as = input keys here).  The specific attributes
+  * that need skip arrays are indicated by initializing skip_eq_ops_out[] arg
+  * 0-based attribute offset to a valid = op strategy Oid.  We'll only ever set
+diff --git a/src/backend/access/nbtree/nbtutils.c b/src/backend/access/nbtree/nbtutils.c
+index 9e27302fe81..8b025796127 100644
+--- a/src/backend/access/nbtree/nbtutils.c
++++ b/src/backend/access/nbtree/nbtutils.c
+@@ -2595,11 +2595,11 @@ _bt_set_startikey(IndexScanDesc scan, BTReadPageState *pstate)
+ 
+ 			/* Safe, scalar inequality satisfied by every tuple */
+ 			continue;
+ 		}
+ 
+-		/* Some = key (could be a a scalar = key, could be an array = key) */
++		/* Some = key (could be a scalar = key, could be an array = key) */
+ 		Assert(key->sk_strategy == BTEqualStrategyNumber);
+ 
+ 		if (!(key->sk_flags & SK_SEARCHARRAY))
+ 		{
+ 			/*
+diff --git a/src/backend/executor/execPartition.c b/src/backend/executor/execPartition.c
+index 9435cc21fe7..3f8a4cb5244 100644
+--- a/src/backend/executor/execPartition.c
++++ b/src/backend/executor/execPartition.c
+@@ -1981,12 +1981,12 @@ ExecInitPartitionExecPruning(PlanState *planstate,
+ 	 *
+ 	 * This also re-sequences subplan indexes contained in prunestate to
+ 	 * account for any that were removed due to initial pruning; refer to the
+ 	 * condition in InitExecPartitionPruneContexts() that is used to determine
+ 	 * whether to do this.  If no exec pruning needs to be done, we would thus
+-	 * leave the maps to be in an invalid invalid state, but that's ok since
+-	 * that data won't be consulted again (cf initial Assert in
++	 * leave the maps to be in an invalid state, but that's ok since that data
++	 * won't be consulted again (cf initial Assert in
+ 	 * ExecFindMatchingSubPlans).
+ 	 */
+ 	if (prunestate->do_exec_prune)
+ 		InitExecPartitionPruneContexts(prunestate, planstate,
+ 									   *initially_valid_subplans,
+diff --git a/src/backend/utils/adt/pg_locale.c b/src/backend/utils/adt/pg_locale.c
+index ab6317de5ae..a858f27cadc 100644
+--- a/src/backend/utils/adt/pg_locale.c
++++ b/src/backend/utils/adt/pg_locale.c
+@@ -549,11 +549,11 @@ PGLC_localeconv(void)
+ 						&tmp) != 0)
+ 		elog(ERROR,
+ 			 "could not get lconv for LC_MONETARY = \"%s\", LC_NUMERIC = \"%s\": %m",
+ 			 locale_monetary, locale_numeric);
+ 
+-	/* Must copy data now now so we can re-encode it. */
++	/* Must copy data now so we can re-encode it. */
+ 	extlconv = &tmp;
+ 	worklconv.decimal_point = strdup(extlconv->decimal_point);
+ 	worklconv.thousands_sep = strdup(extlconv->thousands_sep);
+ 	worklconv.grouping = strdup(extlconv->grouping);
+ 	worklconv.int_curr_symbol = strdup(extlconv->int_curr_symbol);
+diff --git a/src/backend/utils/mmgr/mcxt.c b/src/backend/utils/mmgr/mcxt.c
+index 468d0250b2e..68f1cbcf9c2 100644
+--- a/src/backend/utils/mmgr/mcxt.c
++++ b/src/backend/utils/mmgr/mcxt.c
+@@ -1476,22 +1476,22 @@ ProcessGetMemoryContextInterrupt(void)
+ 	 */
+ 	compute_contexts_count_and_ids(contexts, context_id_lookup, &stats_count,
+ 								   summary);
+ 
+ 	/*
+-	 * Allocate memory in this process's DSA for storing statistics of the the
++	 * Allocate memory in this process's DSA for storing statistics of the
+ 	 * memory contexts upto max_stats, for contexts that don't fit within a
+ 	 * limit, a cumulative total is written as the last record in the DSA
+ 	 * segment.
+ 	 */
+ 	stats_num = Min(stats_count, max_stats);
+ 
+ 	LWLockAcquire(&memCxtArea->lw_lock, LW_EXCLUSIVE);
+ 
+ 	/*
+-	 * Create a DSA and send handle to the the client process after storing
+-	 * the context statistics. If number of contexts exceed a predefined
++	 * Create a DSA and send handle to the client process after storing the
++	 * context statistics. If number of contexts exceed a predefined
+ 	 * limit(8MB), a cumulative total is stored for such contexts.
+ 	 */
+ 	if (memCxtArea->memstats_dsa_handle == DSA_HANDLE_INVALID)
+ 	{
+ 		MemoryContext oldcontext = CurrentMemoryContext;
+diff --git a/src/bin/pg_upgrade/relfilenumber.c b/src/bin/pg_upgrade/relfilenumber.c
+index 79bc474a0bb..2959c07f0b8 100644
+--- a/src/bin/pg_upgrade/relfilenumber.c
++++ b/src/bin/pg_upgrade/relfilenumber.c
+@@ -422,12 +422,12 @@ swap_catalog_files(FileNameMap *maps, int size, const char *old_catalog_dir,
+ 		/*
+ 		 * We don't fsync() the database files in the file synchronization
+ 		 * stage of pg_upgrade in swap mode, so we need to synchronize them
+ 		 * ourselves.  We only do this for the catalog files because they were
+ 		 * created during pg_restore with fsync=off.  We assume that the user
+-		 * data files files were properly persisted to disk when the user last
+-		 * shut it down.
++		 * data files were properly persisted to disk when the user last shut
++		 * it down.
+ 		 */
+ 		if (user_opts.do_sync)
+ 			sync_queue_push(dest);
+ 	}
+ 	if (errno)
+diff --git a/src/include/storage/aio.h b/src/include/storage/aio.h
+index 9fe9d9ad9fa..f3726bc3dc5 100644
+--- a/src/include/storage/aio.h
++++ b/src/include/storage/aio.h
+@@ -157,11 +157,11 @@ typedef union
+  */
+ struct PgAioTargetInfo
+ {
+ 	/*
+ 	 * To support executing using worker processes, the file descriptor for an
+-	 * IO may need to be be reopened in a different process.
++	 * IO may need to be reopened in a different process.
+ 	 */
+ 	void		(*reopen) (PgAioHandle *ioh);
+ 
+ 	/* describe the target of the IO, used for log messages and views */
+ 	char	   *(*describe_identity) (const PgAioTargetData *sd);

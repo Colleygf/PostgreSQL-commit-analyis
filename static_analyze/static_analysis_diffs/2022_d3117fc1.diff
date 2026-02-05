@@ -1,0 +1,64 @@
+commit d3117fc1a3e87717a57be0153408e5387e265e1b
+Author: John Naylor <john.naylor@postgresql.org>
+Date:   Tue Jul 12 11:13:41 2022 +0700
+
+    Fix out-of-bounds read in json_lex_string
+    
+    Commit 3838fa269 added a lookahead loop to allow building strings multiple
+    bytes at a time. This loop could exit because it reached the end of input,
+    yet did not check for that before checking if we reached the end of a
+    valid string. To fix, put the end of string check back in the outer loop.
+    
+    Per Valgrind animal skink
+
+diff --git a/src/common/jsonapi.c b/src/common/jsonapi.c
+index 694417bb388..fefd1d24d90 100644
+--- a/src/common/jsonapi.c
++++ b/src/common/jsonapi.c
+@@ -684,10 +684,12 @@ json_lex_string(JsonLexContext *lex)
+ 		if (s >= end)
+ 		{
+ 			lex->token_terminator = s;
+ 			return JSON_INVALID_TOKEN;
+ 		}
++		else if (*s == '"')
++			break;
+ 		else if (*s == '\\')
+ 		{
+ 			/* OK, we have an escape character. */
+ 			s++;
+ 			if (s >= end)
+@@ -868,25 +870,25 @@ json_lex_string(JsonLexContext *lex)
+ 			}
+ 
+ 			if (lex->strval != NULL)
+ 				appendBinaryStringInfo(lex->strval, s, p - s);
+ 
+-			if (*p == '"')
+-			{
+-				/* Hooray, we found the end of the string! */
+-				lex->prev_token_terminator = lex->token_terminator;
+-				lex->token_terminator = p + 1;
+-				return JSON_SUCCESS;
+-			}
+-
+ 			/*
+ 			 * s will be incremented at the top of the loop, so set it to just
+ 			 * behind our lookahead position
+ 			 */
+ 			s = p - 1;
+ 		}
+ 	}
++
++	if (hi_surrogate != -1)
++		return JSON_UNICODE_LOW_SURROGATE;
++
++	/* Hooray, we found the end of the string! */
++	lex->prev_token_terminator = lex->token_terminator;
++	lex->token_terminator = s + 1;
++	return JSON_SUCCESS;
+ }
+ 
+ /*
+  * The next token in the input stream is known to be a number; lex it.
+  *

@@ -1,0 +1,127 @@
+commit 50547a3fae0ce62e74c1d2175c7949937f2c69fc
+Author: Peter Geoghegan <pg@bowt.ie>
+Date:   Wed Apr 19 10:42:39 2023 -0700
+
+    Fix wal_consistency_checking enhanced desc output.
+    
+    Recent enhancements to rmgr desc routines that made the output summarize
+    certain block data (added by commits 7d8219a4 and 1c453cfd) dealt with
+    records that lack relevant block data (and so have nothing to give a
+    more detailed summary of) by testing !DecodedBkpBlock.has_image.  As a
+    result, more detailed descriptions of block data were not output when
+    wal_consistency_checking was enabled.
+    
+    This bug affected records with summarizable block data that also
+    happened to have an FPI that the REDO routine isn't supposed to apply
+    (FPIs used for consistency checking purposes only).  The presence of
+    such an FPI was incorrectly taken to indicate the absence of block data.
+    
+    To fix, test DecodedBkpBlock.has_data, not !DecodedBkpBlock.has_image.
+    This is the exact condition that we care about, not an inexact proxy.
+    
+    Author: Peter Geoghegan <pg@bowt.ie>
+    Discussion: https://postgr.es/m/CAH2-Wzm5Sc9cBg1qWV_cEBfLNJCrW9FjS-SoHVt8FLA7Ldn8yg@mail.gmail.com
+
+diff --git a/src/backend/access/rmgrdesc/heapdesc.c b/src/backend/access/rmgrdesc/heapdesc.c
+index 1c0fbb3e8cc..d73248abddf 100644
+--- a/src/backend/access/rmgrdesc/heapdesc.c
++++ b/src/backend/access/rmgrdesc/heapdesc.c
+@@ -182,11 +182,11 @@ heap2_desc(StringInfo buf, XLogReaderState *record)
+ 		appendStringInfo(buf, "snapshotConflictHorizon: %u, nredirected: %u, ndead: %u",
+ 						 xlrec->snapshotConflictHorizon,
+ 						 xlrec->nredirected,
+ 						 xlrec->ndead);
+ 
+-		if (!XLogRecHasBlockImage(record, 0))
++		if (XLogRecHasBlockData(record, 0))
+ 		{
+ 			OffsetNumber *end;
+ 			OffsetNumber *redirected;
+ 			OffsetNumber *nowdead;
+ 			OffsetNumber *nowunused;
+@@ -221,11 +221,11 @@ heap2_desc(StringInfo buf, XLogReaderState *record)
+ 	{
+ 		xl_heap_vacuum *xlrec = (xl_heap_vacuum *) rec;
+ 
+ 		appendStringInfo(buf, "nunused: %u", xlrec->nunused);
+ 
+-		if (!XLogRecHasBlockImage(record, 0))
++		if (XLogRecHasBlockData(record, 0))
+ 		{
+ 			OffsetNumber *nowunused;
+ 
+ 			nowunused = (OffsetNumber *) XLogRecGetBlockData(record, 0, NULL);
+ 
+@@ -239,11 +239,11 @@ heap2_desc(StringInfo buf, XLogReaderState *record)
+ 		xl_heap_freeze_page *xlrec = (xl_heap_freeze_page *) rec;
+ 
+ 		appendStringInfo(buf, "snapshotConflictHorizon: %u, nplans: %u",
+ 						 xlrec->snapshotConflictHorizon, xlrec->nplans);
+ 
+-		if (!XLogRecHasBlockImage(record, 0))
++		if (XLogRecHasBlockData(record, 0))
+ 		{
+ 			xl_heap_freeze_plan *plans;
+ 			OffsetNumber *offsets;
+ 
+ 			plans = (xl_heap_freeze_plan *) XLogRecGetBlockData(record, 0, NULL);
+@@ -268,11 +268,11 @@ heap2_desc(StringInfo buf, XLogReaderState *record)
+ 		bool		isinit = (XLogRecGetInfo(record) & XLOG_HEAP_INIT_PAGE) != 0;
+ 
+ 		appendStringInfo(buf, "ntuples: %d, flags: 0x%02X", xlrec->ntuples,
+ 						 xlrec->flags);
+ 
+-		if (!XLogRecHasBlockImage(record, 0) && !isinit)
++		if (XLogRecHasBlockData(record, 0) && !isinit)
+ 		{
+ 			appendStringInfoString(buf, ", offsets:");
+ 			array_desc(buf, xlrec->offsets, sizeof(OffsetNumber),
+ 					   xlrec->ntuples, &offset_elem_desc, NULL);
+ 		}
+diff --git a/src/backend/access/rmgrdesc/nbtdesc.c b/src/backend/access/rmgrdesc/nbtdesc.c
+index c50d5547de8..281a015f563 100644
+--- a/src/backend/access/rmgrdesc/nbtdesc.c
++++ b/src/backend/access/rmgrdesc/nbtdesc.c
+@@ -60,11 +60,11 @@ btree_desc(StringInfo buf, XLogReaderState *record)
+ 				xl_btree_vacuum *xlrec = (xl_btree_vacuum *) rec;
+ 
+ 				appendStringInfo(buf, "ndeleted: %u, nupdated: %u",
+ 								 xlrec->ndeleted, xlrec->nupdated);
+ 
+-				if (!XLogRecHasBlockImage(record, 0))
++				if (XLogRecHasBlockData(record, 0))
+ 					delvacuum_desc(buf, XLogRecGetBlockData(record, 0, NULL),
+ 								   xlrec->ndeleted, xlrec->nupdated);
+ 				break;
+ 			}
+ 		case XLOG_BTREE_DELETE:
+@@ -73,11 +73,11 @@ btree_desc(StringInfo buf, XLogReaderState *record)
+ 
+ 				appendStringInfo(buf, "snapshotConflictHorizon: %u, ndeleted: %u, nupdated: %u",
+ 								 xlrec->snapshotConflictHorizon,
+ 								 xlrec->ndeleted, xlrec->nupdated);
+ 
+-				if (!XLogRecHasBlockImage(record, 0))
++				if (XLogRecHasBlockData(record, 0))
+ 					delvacuum_desc(buf, XLogRecGetBlockData(record, 0, NULL),
+ 								   xlrec->ndeleted, xlrec->nupdated);
+ 				break;
+ 			}
+ 		case XLOG_BTREE_MARK_PAGE_HALFDEAD:
+diff --git a/src/include/access/xlogreader.h b/src/include/access/xlogreader.h
+index d77bb2ab9bc..30d20c323e6 100644
+--- a/src/include/access/xlogreader.h
++++ b/src/include/access/xlogreader.h
+@@ -421,10 +421,12 @@ extern bool DecodeXLogRecord(XLogReaderState *state,
+ 	 ((decoder)->record->blocks[block_id].in_use))
+ #define XLogRecHasBlockImage(decoder, block_id)		\
+ 	((decoder)->record->blocks[block_id].has_image)
+ #define XLogRecBlockImageApply(decoder, block_id)		\
+ 	((decoder)->record->blocks[block_id].apply_image)
++#define XLogRecHasBlockData(decoder, block_id)		\
++	((decoder)->record->blocks[block_id].has_data)
+ 
+ #ifndef FRONTEND
+ extern FullTransactionId XLogRecGetFullXid(XLogReaderState *record);
+ #endif
+ 

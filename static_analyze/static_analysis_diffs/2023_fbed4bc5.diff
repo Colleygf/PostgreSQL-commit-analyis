@@ -1,0 +1,85 @@
+commit fbed4bc59e362e13fb0d0e0b08c995c18c7e4d5a
+Author: Andres Freund <andres@anarazel.de>
+Date:   Tue Jan 31 17:36:39 2023 -0800
+
+    dblink: Fix variable confusion introduced in e4602483e95
+    
+    Thanks to Robins to find the issue and Nathan for promptly writing a test case
+    to prevent future problems like this.
+    
+    Reported-by: Nathan Bossart <nathandbossart@gmail.com>
+    Reported-by: Robins Tharakan <tharakan@gmail.com>
+    Author: Nathan Bossart <nathandbossart@gmail.com>
+    Discussion: https://postgr.es/m/20230130193008.GA2740781@nathanxps13
+
+diff --git a/contrib/dblink/dblink.c b/contrib/dblink/dblink.c
+index 8982d623d3b..78a8bcee6e3 100644
+--- a/contrib/dblink/dblink.c
++++ b/contrib/dblink/dblink.c
+@@ -319,11 +319,11 @@ dblink_connect(PG_FUNCTION_ARGS)
+ 		createNewConnection(connname, rconn);
+ 	}
+ 	else
+ 	{
+ 		if (pconn->conn)
+-			libpqsrv_disconnect(conn);
++			libpqsrv_disconnect(pconn->conn);
+ 		pconn->conn = conn;
+ 	}
+ 
+ 	PG_RETURN_TEXT_P(cstring_to_text("OK"));
+ }
+diff --git a/contrib/dblink/expected/dblink.out b/contrib/dblink/expected/dblink.out
+index 14d015e4d5e..0f5050b4093 100644
+--- a/contrib/dblink/expected/dblink.out
++++ b/contrib/dblink/expected/dblink.out
+@@ -936,10 +936,29 @@ DROP USER MAPPING FOR public SERVER fdtest;
+ DROP SERVER fdtest;
+ -- should fail
+ ALTER FOREIGN DATA WRAPPER dblink_fdw OPTIONS (nonexistent 'fdw');
+ ERROR:  invalid option "nonexistent"
+ HINT:  There are no valid options in this context.
++-- test repeated calls to dblink_connect
++SELECT dblink_connect(connection_parameters());
++ dblink_connect 
++----------------
++ OK
++(1 row)
++
++SELECT dblink_connect(connection_parameters());
++ dblink_connect 
++----------------
++ OK
++(1 row)
++
++SELECT dblink_disconnect();
++ dblink_disconnect 
++-------------------
++ OK
++(1 row)
++
+ -- test asynchronous notifications
+ SELECT dblink_connect(connection_parameters());
+  dblink_connect 
+ ----------------
+  OK
+diff --git a/contrib/dblink/sql/dblink.sql b/contrib/dblink/sql/dblink.sql
+index e560260bfcf..7870ce5d5a4 100644
+--- a/contrib/dblink/sql/dblink.sql
++++ b/contrib/dblink/sql/dblink.sql
+@@ -487,10 +487,15 @@ DROP USER MAPPING FOR public SERVER fdtest;
+ DROP SERVER fdtest;
+ 
+ -- should fail
+ ALTER FOREIGN DATA WRAPPER dblink_fdw OPTIONS (nonexistent 'fdw');
+ 
++-- test repeated calls to dblink_connect
++SELECT dblink_connect(connection_parameters());
++SELECT dblink_connect(connection_parameters());
++SELECT dblink_disconnect();
++
+ -- test asynchronous notifications
+ SELECT dblink_connect(connection_parameters());
+ 
+ --should return listen
+ SELECT dblink_exec('LISTEN regression');

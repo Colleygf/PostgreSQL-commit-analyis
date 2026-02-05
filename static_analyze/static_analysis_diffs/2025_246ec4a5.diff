@@ -1,0 +1,94 @@
+commit 246ec4a51c16f27133a293f63aa8bc86ca4fe630
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Thu Nov 27 23:29:57 2025 +0900
+
+    doc: Fix misleading synopsis for CREATE/ALTER PUBLICATION.
+    
+    The documentation for CREATE/ALTER PUBLICATION previously showed:
+    
+            [ ONLY ] table_name [ * ] [ ( column_name [, ... ] ) ] [ WHERE ( expression ) ] [, ... ]
+    
+    to indicate that the table/column specification could be repeated.
+    However, placing [, ... ] directly after a multi-part construct was
+    misleading and made it unclear which portion was repeatable.
+    
+    This commit introduces a new term, table_and_columns, to represent:
+    
+            [ ONLY ] table_name [ * ] [ ( column_name [, ... ] ) ] [ WHERE ( expression ) ]
+    
+    and updates the synopsis to use:
+    
+            table_and_columns [, ... ]
+    
+    which clearly identifies the repeatable element.
+    
+    Backpatched to v15, where the misleading syntax was introduced.
+    
+    Author: Peter Smith <smithpb2250@gmail.com>
+    Reviewed-by: Chao Li <lic@highgo.com>
+    Reviewed-by: Fujii Masao <masao.fujii@gmail.com>
+    Discussion: https://postgr.es/m/CAHut+PtsyvYL3KmA6C8f0ZpXQ=7FEqQtETVy-BOF+cm9WPvfMQ@mail.gmail.com
+    Backpatch-through: 15
+
+diff --git a/doc/src/sgml/ref/alter_publication.sgml b/doc/src/sgml/ref/alter_publication.sgml
+index 8dd250d2f3b..028770f2149 100644
+--- a/doc/src/sgml/ref/alter_publication.sgml
++++ b/doc/src/sgml/ref/alter_publication.sgml
+@@ -28,17 +28,21 @@ ALTER PUBLICATION <replaceable class="parameter">name</replaceable> SET ( <repla
+ ALTER PUBLICATION <replaceable class="parameter">name</replaceable> OWNER TO { <replaceable>new_owner</replaceable> | CURRENT_ROLE | CURRENT_USER | SESSION_USER }
+ ALTER PUBLICATION <replaceable class="parameter">name</replaceable> RENAME TO <replaceable>new_name</replaceable>
+ 
+ <phrase>where <replaceable class="parameter">publication_object</replaceable> is one of:</phrase>
+ 
+-    TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ] [ ( <replaceable class="parameter">column_name</replaceable> [, ... ] ) ] [ WHERE ( <replaceable class="parameter">expression</replaceable> ) ] [, ... ]
++    TABLE <replaceable class="parameter">table_and_columns</replaceable> [, ... ]
+     TABLES IN SCHEMA { <replaceable class="parameter">schema_name</replaceable> | CURRENT_SCHEMA } [, ... ]
+ 
+-<phrase>where <replaceable class="parameter">publication_drop_object</replaceable> is one of:</phrase>
++<phrase>and <replaceable class="parameter">publication_drop_object</replaceable> is one of:</phrase>
+ 
+     TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ] [, ... ]
+     TABLES IN SCHEMA { <replaceable class="parameter">schema_name</replaceable> | CURRENT_SCHEMA } [, ... ]
++
++<phrase>and <replaceable class="parameter">table_and_columns</replaceable> is:</phrase>
++
++    [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ] [ ( <replaceable class="parameter">column_name</replaceable> [, ... ] ) ] [ WHERE ( <replaceable class="parameter">expression</replaceable> ) ]
+ </synopsis>
+  </refsynopsisdiv>
+ 
+  <refsect1>
+   <title>Description</title>
+diff --git a/doc/src/sgml/ref/create_publication.sgml b/doc/src/sgml/ref/create_publication.sgml
+index 66a70e5c5b5..75a508bebfa 100644
+--- a/doc/src/sgml/ref/create_publication.sgml
++++ b/doc/src/sgml/ref/create_publication.sgml
+@@ -20,22 +20,26 @@ PostgreSQL documentation
+  </refnamediv>
+ 
+  <refsynopsisdiv>
+ <synopsis>
+ CREATE PUBLICATION <replaceable class="parameter">name</replaceable>
+-    [ FOR { <replaceable class="parameter">publication_object</replaceable> [, ... ] | <replaceable class="parameter">all_publication_object</replaceable> [, ... ] } ]
++    [ FOR { <replaceable class="parameter">publication_object</replaceable> [, ... ] | <replaceable class="parameter">publication_all_object</replaceable> [, ... ] } ]
+     [ WITH ( <replaceable class="parameter">publication_parameter</replaceable> [= <replaceable class="parameter">value</replaceable>] [, ... ] ) ]
+ 
+ <phrase>where <replaceable class="parameter">publication_object</replaceable> is one of:</phrase>
+ 
+-    TABLE [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ] [ ( <replaceable class="parameter">column_name</replaceable> [, ... ] ) ] [ WHERE ( <replaceable class="parameter">expression</replaceable> ) ] [, ... ]
++    TABLE <replaceable class="parameter">table_and_columns</replaceable> [, ... ]
+     TABLES IN SCHEMA { <replaceable class="parameter">schema_name</replaceable> | CURRENT_SCHEMA } [, ... ]
+ 
+-<phrase>where <replaceable class="parameter">all_publication_object</replaceable> is one of:</phrase>
++<phrase>and <replaceable class="parameter">publication_all_object</replaceable> is one of:</phrase>
+ 
+     ALL TABLES
+     ALL SEQUENCES
++
++<phrase>and <replaceable class="parameter">table_and_columns</replaceable> is:</phrase>
++
++    [ ONLY ] <replaceable class="parameter">table_name</replaceable> [ * ] [ ( <replaceable class="parameter">column_name</replaceable> [, ... ] ) ] [ WHERE ( <replaceable class="parameter">expression</replaceable> ) ]
+ </synopsis>
+  </refsynopsisdiv>
+ 
+  <refsect1>
+   <title>Description</title>

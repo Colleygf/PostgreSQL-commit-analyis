@@ -1,0 +1,165 @@
+commit ed1e0a65127a61f7c9497aac6016324f250bc0e9
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Thu Jan 18 09:35:12 2024 +0100
+
+    Error message capitalisation
+    
+    per style guidelines
+    
+    Author: Peter Smith <peter.b.smith@fujitsu.com>
+    Discussion: https://www.postgresql.org/message-id/flat/CAHut%2BPtzstExQ4%3DvFH%2BWzZ4g4xEx2JA%3DqxussxOdxVEwJce6bw%40mail.gmail.com
+
+diff --git a/contrib/pg_surgery/heap_surgery.c b/contrib/pg_surgery/heap_surgery.c
+index 58641b8adfb..37dffe3f7d5 100644
+--- a/contrib/pg_surgery/heap_surgery.c
++++ b/contrib/pg_surgery/heap_surgery.c
+@@ -93,11 +93,11 @@ heap_force_common(FunctionCallInfo fcinfo, HeapTupleForceOption heap_force_opt)
+ 
+ 	if (RecoveryInProgress())
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+ 				 errmsg("recovery is in progress"),
+-				 errhint("heap surgery functions cannot be executed during recovery.")));
++				 errhint("Heap surgery functions cannot be executed during recovery.")));
+ 
+ 	/* Check inputs. */
+ 	sanity_check_tid_array(ta, &ntids);
+ 
+ 	rel = relation_open(relid, RowExclusiveLock);
+diff --git a/src/backend/commands/event_trigger.c b/src/backend/commands/event_trigger.c
+index b146d2aaf44..f193c7ddf60 100644
+--- a/src/backend/commands/event_trigger.c
++++ b/src/backend/commands/event_trigger.c
+@@ -172,11 +172,11 @@ CreateEventTrigger(CreateEventTrigStmt *stmt)
+ 			 && tags != NULL)
+ 		validate_table_rewrite_tags("tag", tags);
+ 	else if (strcmp(stmt->eventname, "login") == 0 && tags != NULL)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+-				 errmsg("Tag filtering is not supported for login event trigger")));
++				 errmsg("tag filtering is not supported for login event trigger")));
+ 
+ 	/*
+ 	 * Give user a nice error message if an event trigger of the same name
+ 	 * already exists.
+ 	 */
+diff --git a/src/backend/storage/file/fd.c b/src/backend/storage/file/fd.c
+index 43d2b2a156e..d298e4842ca 100644
+--- a/src/backend/storage/file/fd.c
++++ b/src/backend/storage/file/fd.c
+@@ -3959,11 +3959,11 @@ check_debug_io_direct(char **newval, void **extra, GucSource source)
+ 	/* Need a modifiable copy of string */
+ 	rawstring = pstrdup(*newval);
+ 
+ 	if (!SplitGUCList(rawstring, ',', &elemlist))
+ 	{
+-		GUC_check_errdetail("invalid list syntax in parameter %s",
++		GUC_check_errdetail("Invalid list syntax in parameter %s",
+ 							"debug_io_direct");
+ 		pfree(rawstring);
+ 		list_free(elemlist);
+ 		return false;
+ 	}
+@@ -3979,11 +3979,11 @@ check_debug_io_direct(char **newval, void **extra, GucSource source)
+ 			flags |= IO_DIRECT_WAL;
+ 		else if (pg_strcasecmp(item, "wal_init") == 0)
+ 			flags |= IO_DIRECT_WAL_INIT;
+ 		else
+ 		{
+-			GUC_check_errdetail("invalid option \"%s\"", item);
++			GUC_check_errdetail("Invalid option \"%s\"", item);
+ 			result = false;
+ 			break;
+ 		}
+ 	}
+ 
+diff --git a/src/backend/tcop/postgres.c b/src/backend/tcop/postgres.c
+index 1eaaf3c6c58..1a34bd3715f 100644
+--- a/src/backend/tcop/postgres.c
++++ b/src/backend/tcop/postgres.c
+@@ -2477,11 +2477,11 @@ errdetail_params(ParamListInfo params)
+ 	{
+ 		char	   *str;
+ 
+ 		str = BuildParamLogString(params, NULL, log_parameter_max_length);
+ 		if (str && str[0] != '\0')
+-			errdetail("parameters: %s", str);
++			errdetail("Parameters: %s", str);
+ 	}
+ 
+ 	return 0;
+ }
+ 
+@@ -2492,11 +2492,11 @@ errdetail_params(ParamListInfo params)
+  */
+ static int
+ errdetail_abort(void)
+ {
+ 	if (MyProc->recoveryConflictPending)
+-		errdetail("abort reason: recovery conflict");
++		errdetail("Abort reason: recovery conflict");
+ 
+ 	return 0;
+ }
+ 
+ /*
+diff --git a/src/backend/utils/error/elog.c b/src/backend/utils/error/elog.c
+index 9ef7cfc1939..2c7a20e3d31 100644
+--- a/src/backend/utils/error/elog.c
++++ b/src/backend/utils/error/elog.c
+@@ -2138,11 +2138,11 @@ check_backtrace_functions(char **newval, void **extra, GucSource source)
+ 					  "abcdefghijklmnopqrstuvwxyz"
+ 					  "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+ 					  ", \n\t");
+ 	if (validlen != newvallen)
+ 	{
+-		GUC_check_errdetail("invalid character");
++		GUC_check_errdetail("Invalid character");
+ 		return false;
+ 	}
+ 
+ 	if (*newval[0] == '\0')
+ 	{
+diff --git a/src/bin/pgbench/t/001_pgbench_with_server.pl b/src/bin/pgbench/t/001_pgbench_with_server.pl
+index 977bc7cdcc1..fc57facf9e2 100644
+--- a/src/bin/pgbench/t/001_pgbench_with_server.pl
++++ b/src/bin/pgbench/t/001_pgbench_with_server.pl
+@@ -288,11 +288,11 @@ select column1::jsonb from (values (:value), (:long)) as q;
+ ]
+ 	});
+ my $log = PostgreSQL::Test::Utils::slurp_file($node->logfile);
+ unlike(
+ 	$log,
+-	qr[DETAIL:  parameters: \$1 = '\{ invalid ',],
++	qr[DETAIL:  Parameters: \$1 = '\{ invalid ',],
+ 	"no parameters logged");
+ $log = undef;
+ 
+ # 2. Logging truncated parameters on error, full with statements
+ $node->append_conf('postgresql.conf',
+@@ -329,11 +329,11 @@ select column1::jsonb from (values (:value), (:long)) as q;
+ ]
+ 	});
+ $log = PostgreSQL::Test::Utils::slurp_file($node->logfile);
+ like(
+ 	$log,
+-	qr[DETAIL:  parameters: \$1 = '\{ invalid ', \$2 = '''Valame Dios!'' dijo Sancho; ''no le dije yo a vuestra merced que mirase bien lo que hacia\?'''],
++	qr[DETAIL:  Parameters: \$1 = '\{ invalid ', \$2 = '''Valame Dios!'' dijo Sancho; ''no le dije yo a vuestra merced que mirase bien lo que hacia\?'''],
+ 	"parameter report does not truncate");
+ $log = undef;
+ 
+ # 3. Logging full parameters on error, truncated with statements
+ $node->append_conf('postgresql.conf',
+@@ -374,11 +374,11 @@ select column1::jsonb from (values (:value), (:long)) as q;
+ ]
+ 	});
+ $log = PostgreSQL::Test::Utils::slurp_file($node->logfile);
+ like(
+ 	$log,
+-	qr[DETAIL:  parameters: \$1 = '\{ inval\.\.\.', \$2 = '''Valame\.\.\.'],
++	qr[DETAIL:  Parameters: \$1 = '\{ inval\.\.\.', \$2 = '''Valame\.\.\.'],
+ 	"parameter report truncates");
+ $log = undef;
+ 
+ # Check that bad parameters are reported during typinput phase of BIND
+ $node->pgbench(

@@ -1,0 +1,74 @@
+commit e596e077bbb3b512bbc80610d64dc007a5761ce6
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Feb 19 16:45:12 2025 -0500
+
+    Assert that ExecOpenIndices and ExecCloseIndices are not repeated.
+    
+    These functions should be called at most once per ResultRelInfo;
+    it's wasteful to do otherwise, and certainly the pattern of
+    opening twice and then closing twice is a bad idea.  Moreover,
+    aminsertcleanup functions might not be prepared to be called twice,
+    as the just-hardened code in BRIN demonstrates.
+    
+    This amounts to an API change, since such coding patterns were
+    safe even if wasteful before v17.  Hence, apply to HEAD only.
+    (Extension code violating this new rule faces some risk in v17,
+    but we just fixed brininsertcleanup and there are probably few
+    other aminsertcleanup functions as yet.  So the odds of breaking
+    usable code seem higher than the odds of doing something useful
+    with a back-patch.)
+    
+    Bug: #18815
+    Reported-by: Sergey Belyashov <sergey.belyashov@gmail.com>
+    Discussion: https://postgr.es/m/18815-2a0407cc7f40b327@postgresql.org
+
+diff --git a/src/backend/executor/execIndexing.c b/src/backend/executor/execIndexing.c
+index 7c87f012c30..742f3f8c08d 100644
+--- a/src/backend/executor/execIndexing.c
++++ b/src/backend/executor/execIndexing.c
+@@ -179,10 +179,13 @@ ExecOpenIndices(ResultRelInfo *resultRelInfo, bool speculative)
+ 	indexoidlist = RelationGetIndexList(resultRelation);
+ 	len = list_length(indexoidlist);
+ 	if (len == 0)
+ 		return;
+ 
++	/* This Assert will fail if ExecOpenIndices is called twice */
++	Assert(resultRelInfo->ri_IndexRelationDescs == NULL);
++
+ 	/*
+ 	 * allocate space for result arrays
+ 	 */
+ 	relationDescs = (RelationPtr) palloc(len * sizeof(Relation));
+ 	indexInfoArray = (IndexInfo **) palloc(len * sizeof(IndexInfo *));
+@@ -244,23 +247,27 @@ ExecCloseIndices(ResultRelInfo *resultRelInfo)
+ 	indexDescs = resultRelInfo->ri_IndexRelationDescs;
+ 	indexInfos = resultRelInfo->ri_IndexRelationInfo;
+ 
+ 	for (i = 0; i < numIndices; i++)
+ 	{
+-		if (indexDescs[i] == NULL)
+-			continue;			/* shouldn't happen? */
++		/* This Assert will fail if ExecCloseIndices is called twice */
++		Assert(indexDescs[i] != NULL);
+ 
+ 		/* Give the index a chance to do some post-insert cleanup */
+ 		index_insert_cleanup(indexDescs[i], indexInfos[i]);
+ 
+ 		/* Drop lock acquired by ExecOpenIndices */
+ 		index_close(indexDescs[i], RowExclusiveLock);
++
++		/* Mark the index as closed */
++		indexDescs[i] = NULL;
+ 	}
+ 
+ 	/*
+-	 * XXX should free indexInfo array here too?  Currently we assume that
+-	 * such stuff will be cleaned up automatically in FreeExecutorState.
++	 * We don't attempt to free the IndexInfo data structures or the arrays,
++	 * instead assuming that such stuff will be cleaned up automatically in
++	 * FreeExecutorState.
+ 	 */
+ }
+ 
+ /* ----------------------------------------------------------------
+  *		ExecInsertIndexTuples

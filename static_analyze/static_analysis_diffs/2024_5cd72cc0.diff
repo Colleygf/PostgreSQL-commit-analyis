@@ -1,0 +1,107 @@
+commit 5cd72cc0c5017a9d4de8b5d465a75946da5abd1d
+Author: Masahiko Sawada <msawada@postgresql.org>
+Date:   Wed May 1 12:34:06 2024 +0900
+
+    Fix parallel vacuum buffer usage reporting.
+    
+    A parallel worker's buffer usage is accumulated to its pgBufferUsage
+    and then is accumulated into the leader's one at the end of the
+    parallel vacuum. However, since the leader process used to use
+    dedicated VacuumPage{Hit, Miss, Dirty} globals for the buffer usage
+    reporting, the worker's buffer usage was not included, leading to an
+    incorrect buffer usage report.
+    
+    To fix the problem, this commit makes vacuum use pgBufferUsage
+    instruments for buffer usage reporting instead of VacuumPage{Hit,
+    Miss, Dirty} globals. These global variables are still used by ANALYZE
+    command and autoanalyze.
+    
+    This also fixes the buffer usage report of vacuuming on temporary
+    tables, since the buffers dirtied by MarkLocalBufferDirty() were not
+    tracked by the VacuumPageDirty variable.
+    
+    Parallel vacuum was introduced in 13, but the buffer usage reporting
+    for VACUUM command with the VERBOSE option was implemented in
+    15. So backpatch to 15.
+    
+    Reported-by: Anthonin Bonnefoy
+    Author: Anthonin Bonnefoy
+    Reviewed-by: Alena Rybakina, Masahiko Sawada
+    Discussion: https://postgr.es/m/CAO6_XqrQk+QZQcYs_C6nk0cMfHuUWk85vT9CrcA1NffFbAVE2A@mail.gmail.com
+    Backpatch-through: 15
+
+diff --git a/src/backend/access/heap/vacuumlazy.c b/src/backend/access/heap/vacuumlazy.c
+index 0c5379666b6..84cc983b6e6 100644
+--- a/src/backend/access/heap/vacuumlazy.c
++++ b/src/backend/access/heap/vacuumlazy.c
+@@ -307,13 +307,11 @@ heap_vacuum_rel(Relation rel, VacuumParams *params,
+ 	PGRUsage	ru0;
+ 	TimestampTz starttime = 0;
+ 	PgStat_Counter startreadtime = 0,
+ 				startwritetime = 0;
+ 	WalUsage	startwalusage = pgWalUsage;
+-	int64		StartPageHit = VacuumPageHit,
+-				StartPageMiss = VacuumPageMiss,
+-				StartPageDirty = VacuumPageDirty;
++	BufferUsage startbufferusage = pgBufferUsage;
+ 	ErrorContextCallback errcallback;
+ 	char	  **indnames = NULL;
+ 
+ 	verbose = (params->options & VACOPT_VERBOSE) != 0;
+ 	instrument = (verbose || (AmAutoVacuumWorkerProcess() &&
+@@ -602,22 +600,22 @@ heap_vacuum_rel(Relation rel, VacuumParams *params,
+ 									   params->log_min_duration))
+ 		{
+ 			long		secs_dur;
+ 			int			usecs_dur;
+ 			WalUsage	walusage;
++			BufferUsage bufferusage;
+ 			StringInfoData buf;
+ 			char	   *msgfmt;
+ 			int32		diff;
+-			int64		PageHitOp = VacuumPageHit - StartPageHit,
+-						PageMissOp = VacuumPageMiss - StartPageMiss,
+-						PageDirtyOp = VacuumPageDirty - StartPageDirty;
+ 			double		read_rate = 0,
+ 						write_rate = 0;
+ 
+ 			TimestampDifference(starttime, endtime, &secs_dur, &usecs_dur);
+ 			memset(&walusage, 0, sizeof(WalUsage));
+ 			WalUsageAccumDiff(&walusage, &pgWalUsage, &startwalusage);
++			memset(&bufferusage, 0, sizeof(BufferUsage));
++			BufferUsageAccumDiff(&bufferusage, &pgBufferUsage, &startbufferusage);
+ 
+ 			initStringInfo(&buf);
+ 			if (verbose)
+ 			{
+ 				/*
+@@ -740,22 +738,22 @@ heap_vacuum_rel(Relation rel, VacuumParams *params,
+ 				appendStringInfo(&buf, _("I/O timings: read: %.3f ms, write: %.3f ms\n"),
+ 								 read_ms, write_ms);
+ 			}
+ 			if (secs_dur > 0 || usecs_dur > 0)
+ 			{
+-				read_rate = (double) BLCKSZ * PageMissOp / (1024 * 1024) /
+-					(secs_dur + usecs_dur / 1000000.0);
+-				write_rate = (double) BLCKSZ * PageDirtyOp / (1024 * 1024) /
+-					(secs_dur + usecs_dur / 1000000.0);
++				read_rate = (double) BLCKSZ * (bufferusage.shared_blks_read + bufferusage.local_blks_read) /
++					(1024 * 1024) / (secs_dur + usecs_dur / 1000000.0);
++				write_rate = (double) BLCKSZ * (bufferusage.shared_blks_dirtied + bufferusage.local_blks_dirtied) /
++					(1024 * 1024) / (secs_dur + usecs_dur / 1000000.0);
+ 			}
+ 			appendStringInfo(&buf, _("avg read rate: %.3f MB/s, avg write rate: %.3f MB/s\n"),
+ 							 read_rate, write_rate);
+ 			appendStringInfo(&buf,
+ 							 _("buffer usage: %lld hits, %lld misses, %lld dirtied\n"),
+-							 (long long) PageHitOp,
+-							 (long long) PageMissOp,
+-							 (long long) PageDirtyOp);
++							 (long long) (bufferusage.shared_blks_hit + bufferusage.local_blks_hit),
++							 (long long) (bufferusage.shared_blks_read + bufferusage.local_blks_read),
++							 (long long) (bufferusage.shared_blks_dirtied + bufferusage.local_blks_dirtied));
+ 			appendStringInfo(&buf,
+ 							 _("WAL usage: %lld records, %lld full page images, %llu bytes\n"),
+ 							 (long long) walusage.wal_records,
+ 							 (long long) walusage.wal_fpi,
+ 							 (unsigned long long) walusage.wal_bytes);

@@ -1,0 +1,128 @@
+commit 50b797dc99ec3bf97ea5d0955a3b42d356c1522d
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Jan 29 08:05:59 2024 +0900
+
+    Fix DROP ROLE when specifying duplicated roles
+    
+    This commit fixes failures with "tuple already updated by self" when
+    listing twice the same role and in a DROP ROLE query.
+    
+    This is an oversight in 6566133c5f52, that has introduced a two-phase
+    logic in DropRole() where dependencies of all the roles to drop are
+    removed in a first phase, with the roles themselves removed from
+    pg_authid in a second phase.
+    
+    The code is simplified to not rely on a List of ObjectAddress built in
+    the first phase used to remove the pg_authid entries in the second
+    phase, switching to a list of OIDs.  Duplicated OIDs can be simply
+    avoided in the first phase thanks to that.  Using ObjectAddress was not
+    necessary for the roles as they are not used for anything specific to
+    dependency.c, building all the ObjectAddress in the List with
+    AuthIdRelationId as class ID.
+    
+    In 15 and older versions, where a single phase is used, DROP ROLE with
+    duplicated role names would fail on "role \"blah\" does not exist" for
+    the second entry after the CCI() done by the first deletion.  This is
+    not really incorrect, but it does not seem worth changing based on a
+    lack of complaints.
+    
+    Reported-by: Alexander Lakhin
+    Reviewed-by: Tender Wang
+    Discussion: https://postgr.es/m/18310-1eb233c5908189c8@postgresql.org
+    Backpatch-through: 16
+
+diff --git a/src/backend/commands/user.c b/src/backend/commands/user.c
+index 7a9c177b21c..6839d44a2f5 100644
+--- a/src/backend/commands/user.c
++++ b/src/backend/commands/user.c
+@@ -1091,11 +1091,11 @@ void
+ DropRole(DropRoleStmt *stmt)
+ {
+ 	Relation	pg_authid_rel,
+ 				pg_auth_members_rel;
+ 	ListCell   *item;
+-	List	   *role_addresses = NIL;
++	List	   *role_oids = NIL;
+ 
+ 	if (!have_createrole_privilege())
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+ 				 errmsg("permission denied to drop role"),
+@@ -1117,11 +1117,10 @@ DropRole(DropRoleStmt *stmt)
+ 					tmp_tuple;
+ 		Form_pg_authid roleform;
+ 		ScanKeyData scankey;
+ 		SysScanDesc sscan;
+ 		Oid			roleid;
+-		ObjectAddress *role_address;
+ 
+ 		if (rolspec->roletype != ROLESPEC_CSTRING)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+ 					 errmsg("cannot use special role specifier in DROP ROLE")));
+@@ -1258,25 +1257,20 @@ DropRole(DropRoleStmt *stmt)
+ 		 * above, because it's not allowed for a role to directly contain
+ 		 * itself.)
+ 		 */
+ 		CommandCounterIncrement();
+ 
+-		/* Looks tentatively OK, add it to the list. */
+-		role_address = palloc(sizeof(ObjectAddress));
+-		role_address->classId = AuthIdRelationId;
+-		role_address->objectId = roleid;
+-		role_address->objectSubId = 0;
+-		role_addresses = lappend(role_addresses, role_address);
++		/* Looks tentatively OK, add it to the list if not there yet. */
++		role_oids = list_append_unique_oid(role_oids, roleid);
+ 	}
+ 
+ 	/*
+ 	 * Second pass over the roles to be removed.
+ 	 */
+-	foreach(item, role_addresses)
++	foreach(item, role_oids)
+ 	{
+-		ObjectAddress *role_address = lfirst(item);
+-		Oid			roleid = role_address->objectId;
++		Oid			roleid = lfirst_oid(item);
+ 		HeapTuple	tuple;
+ 		Form_pg_authid roleform;
+ 		char	   *detail;
+ 		char	   *detail_log;
+ 
+diff --git a/src/test/regress/expected/create_role.out b/src/test/regress/expected/create_role.out
+index 7117e943c20..46d4f9efe99 100644
+--- a/src/test/regress/expected/create_role.out
++++ b/src/test/regress/expected/create_role.out
+@@ -249,11 +249,12 @@ RESET SESSION AUTHORIZATION;
+ REVOKE CREATE ON DATABASE regression FROM regress_role_admin CASCADE;
+ DROP INDEX tenant_idx;
+ DROP TABLE tenant_table;
+ DROP VIEW tenant_view;
+ DROP SCHEMA regress_tenant2_schema;
+-DROP ROLE regress_tenant;
++-- check for duplicated drop
++DROP ROLE regress_tenant, regress_tenant;
+ DROP ROLE regress_tenant2;
+ DROP ROLE regress_rolecreator;
+ DROP ROLE regress_role_admin;
+ DROP ROLE regress_role_limited_admin;
+ DROP ROLE regress_role_super;
+diff --git a/src/test/regress/sql/create_role.sql b/src/test/regress/sql/create_role.sql
+index 12582a3cc29..4491a28a8ae 100644
+--- a/src/test/regress/sql/create_role.sql
++++ b/src/test/regress/sql/create_role.sql
+@@ -204,11 +204,12 @@ RESET SESSION AUTHORIZATION;
+ REVOKE CREATE ON DATABASE regression FROM regress_role_admin CASCADE;
+ DROP INDEX tenant_idx;
+ DROP TABLE tenant_table;
+ DROP VIEW tenant_view;
+ DROP SCHEMA regress_tenant2_schema;
+-DROP ROLE regress_tenant;
++-- check for duplicated drop
++DROP ROLE regress_tenant, regress_tenant;
+ DROP ROLE regress_tenant2;
+ DROP ROLE regress_rolecreator;
+ DROP ROLE regress_role_admin;
+ DROP ROLE regress_role_limited_admin;
+ DROP ROLE regress_role_super;

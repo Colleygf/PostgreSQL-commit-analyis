@@ -1,0 +1,89 @@
+commit 0960ae1967d0569be4d118c20e51a2ed98d76f65
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Mon Mar 18 14:03:58 2024 +0200
+
+    Fix EXPLAIN Bitmap heap scan to count pages with no visible tuples
+    
+    Previously, bitmap heap scans only counted lossy and exact pages for
+    explain when there was at least one visible tuple on the page.
+    
+    heapam_scan_bitmap_next_block() returned true only if there was a
+    "valid" page with tuples to be processed. However, the lossy and exact
+    page counters in EXPLAIN should count the number of pages represented
+    in a lossy or non-lossy way in the constructed bitmap, regardless of
+    whether or not the pages ultimately contained visible tuples.
+    
+    Backpatch to all supported versions.
+    
+    Author: Melanie Plageman
+    Discussion: https://www.postgresql.org/message-id/CAAKRu_ZwCwWFeL_H3ia26bP2e7HiKLWt0ZmGXPVwPO6uXq0vaA@mail.gmail.com
+    Discussion: https://www.postgresql.org/message-id/CAAKRu_bxrXeZ2rCnY8LyeC2Ls88KpjWrQ%2BopUrXDRXdcfwFZGA@mail.gmail.com
+
+diff --git a/src/backend/executor/nodeBitmapHeapscan.c b/src/backend/executor/nodeBitmapHeapscan.c
+index ca548e44eb4..cee7f45aabe 100644
+--- a/src/backend/executor/nodeBitmapHeapscan.c
++++ b/src/backend/executor/nodeBitmapHeapscan.c
+@@ -202,10 +202,15 @@ BitmapHeapNext(BitmapHeapScanState *node)
+ 				break;
+ 			}
+ 
+ 			BitmapAdjustPrefetchIterator(node, tbmres);
+ 
++			if (tbmres->ntuples >= 0)
++				node->exact_pages++;
++			else
++				node->lossy_pages++;
++
+ 			/*
+ 			 * We can skip fetching the heap page if we don't need any fields
+ 			 * from the heap, and the bitmap entries don't need rechecking,
+ 			 * and all tuples on the page are visible to our transaction.
+ 			 *
+@@ -233,15 +238,10 @@ BitmapHeapNext(BitmapHeapScanState *node)
+ 			{
+ 				/* AM doesn't think this block is valid, skip */
+ 				continue;
+ 			}
+ 
+-			if (tbmres->ntuples >= 0)
+-				node->exact_pages++;
+-			else
+-				node->lossy_pages++;
+-
+ 			/* Adjust the prefetch target */
+ 			BitmapAdjustPrefetchTarget(node);
+ 		}
+ 		else
+ 		{
+diff --git a/src/test/regress/expected/partition_prune.out b/src/test/regress/expected/partition_prune.out
+index bf0657b9f2c..9c20a24982f 100644
+--- a/src/test/regress/expected/partition_prune.out
++++ b/src/test/regress/expected/partition_prune.out
+@@ -2846,10 +2846,11 @@ update ab_a1 set b = 3 from ab where ab.a = 1 and ab.a = ab_a1.a;
+                      Heap Blocks: exact=1
+                      ->  Bitmap Index Scan on ab_a1_b2_a_idx (actual rows=1 loops=1)
+                            Index Cond: (a = 1)
+                ->  Bitmap Heap Scan on ab_a1_b3 ab_a1_3 (actual rows=0 loops=1)
+                      Recheck Cond: (a = 1)
++                     Heap Blocks: exact=1
+                      ->  Bitmap Index Scan on ab_a1_b3_a_idx (actual rows=1 loops=1)
+                            Index Cond: (a = 1)
+          ->  Materialize (actual rows=1 loops=1)
+                ->  Append (actual rows=1 loops=1)
+                      ->  Bitmap Heap Scan on ab_a1_b1 ab_1 (actual rows=0 loops=1)
+@@ -2861,13 +2862,14 @@ update ab_a1 set b = 3 from ab where ab.a = 1 and ab.a = ab_a1.a;
+                            Heap Blocks: exact=1
+                            ->  Bitmap Index Scan on ab_a1_b2_a_idx (actual rows=1 loops=1)
+                                  Index Cond: (a = 1)
+                      ->  Bitmap Heap Scan on ab_a1_b3 ab_3 (actual rows=0 loops=1)
+                            Recheck Cond: (a = 1)
++                           Heap Blocks: exact=1
+                            ->  Bitmap Index Scan on ab_a1_b3_a_idx (actual rows=1 loops=1)
+                                  Index Cond: (a = 1)
+-(34 rows)
++(36 rows)
+ 
+ table ab;
+  a | b 
+ ---+---
+  1 | 3

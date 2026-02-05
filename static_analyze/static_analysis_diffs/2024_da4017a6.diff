@@ -1,0 +1,70 @@
+commit da4017a694de0610bd5b3a54adda311e46e26300
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sat Jul 27 15:38:54 2024 -0400
+
+    Doc: fix text's description of regexp_replace's arguments.
+    
+    Section 9.7.3 had a syntax synopsis for regexp_replace()
+    that was different from Table 9.10's, but still wrong.
+    Update that one too.  Oversight in 580f8727c.
+    
+    Jian He
+    
+    Discussion: https://postgr.es/m/CACJufxG3NFKKsh6x4fRLv8h3V-HvN4W5dA=zNKMxsNcDwOKang@mail.gmail.com
+
+diff --git a/doc/src/sgml/func.sgml b/doc/src/sgml/func.sgml
+index b669ab7f977..b39f97dc8de 100644
+--- a/doc/src/sgml/func.sgml
++++ b/doc/src/sgml/func.sgml
+@@ -3424,11 +3424,11 @@ SELECT NOT(ROW(table.*) IS NOT NULL) FROM TABLE; -- detect at least one null in
+        <entry role="func_table_entry"><para role="func_signature">
+         <indexterm>
+          <primary>regexp_replace</primary>
+         </indexterm>
+         <function>regexp_replace</function> ( <parameter>string</parameter> <type>text</type>, <parameter>pattern</parameter> <type>text</type>, <parameter>replacement</parameter> <type>text</type>
+-         [, <parameter>flags</parameter> <type>text</type> ] )
++         <optional>, <parameter>flags</parameter> <type>text</type> </optional> )
+         <returnvalue>text</returnvalue>
+        </para>
+        <para>
+         Replaces the substring that is the first match to the POSIX
+         regular expression <parameter>pattern</parameter>, or all such
+@@ -3443,12 +3443,12 @@ SELECT NOT(ROW(table.*) IS NOT NULL) FROM TABLE; -- detect at least one null in
+ 
+       <row>
+        <entry role="func_table_entry"><para role="func_signature">
+         <function>regexp_replace</function> ( <parameter>string</parameter> <type>text</type>, <parameter>pattern</parameter> <type>text</type>, <parameter>replacement</parameter> <type>text</type>,
+          <parameter>start</parameter> <type>integer</type>
+-         [, <parameter>N</parameter> <type>integer</type>
+-         [, <parameter>flags</parameter> <type>text</type> ] ] )
++         <optional>, <parameter>N</parameter> <type>integer</type>
++         <optional>, <parameter>flags</parameter> <type>text</type> </optional> </optional> )
+         <returnvalue>text</returnvalue>
+        </para>
+        <para>
+         Replaces the substring that is the <parameter>N</parameter>'th
+         match to the POSIX regular expression <parameter>pattern</parameter>,
+@@ -6115,17 +6115,17 @@ SELECT col1, (SELECT regexp_matches(col2, '(bar)(beque)')) FROM tab;
+      The <function>regexp_replace</function> function provides substitution of
+      new text for substrings that match POSIX regular expression patterns.
+      It has the syntax
+      <function>regexp_replace</function>(<replaceable>string</replaceable>,
+      <replaceable>pattern</replaceable>, <replaceable>replacement</replaceable>
+-     <optional>, <replaceable>start</replaceable>
++     <optional>, <replaceable>flags</replaceable> </optional>)
++     or
++     <function>regexp_replace</function>(<replaceable>string</replaceable>,
++     <replaceable>pattern</replaceable>, <replaceable>replacement</replaceable>,
++     <replaceable>start</replaceable>
+      <optional>, <replaceable>N</replaceable>
+-     </optional></optional>
+-     <optional>, <replaceable>flags</replaceable> </optional>).
+-     (Notice that <replaceable>N</replaceable> cannot be specified
+-     unless <replaceable>start</replaceable> is,
+-     but <replaceable>flags</replaceable> can be given in any case.)
++     <optional>, <replaceable>flags</replaceable> </optional></optional>).
+      The source <replaceable>string</replaceable> is returned unchanged if
+      there is no match to the <replaceable>pattern</replaceable>.  If there is a
+      match, the <replaceable>string</replaceable> is returned with the
+      <replaceable>replacement</replaceable> string substituted for the matching
+      substring.  The <replaceable>replacement</replaceable> string can contain

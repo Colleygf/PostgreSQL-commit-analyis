@@ -1,0 +1,125 @@
+commit 69298db8e1a5a7afcfeea32daf71e713a109ef93
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Fri Sep 30 12:53:31 2022 +0200
+
+    Fix tab-completion after commit 790bf615ddba
+    
+    I (Álvaro) broke tab-completion for GRANT .. ALL TABLES IN SCHEMA while
+    removing ALL from the publication syntax for schemas in the
+    aforementioned commit.  I also missed to update a bunch of
+    tab-completion rules for ALTER/CREATE PUBLICATION that match each
+    individual piece of ALL TABLES IN SCHEMA.  Repair those bugs.
+    
+    While fixing up that commit, update a couple of outdated comments
+    related to the same change.
+    
+    Backpatch to 15.
+    
+    Author: Shi yu <shiy.fnst@fujitsu.com>
+    Reviewed-by: Peter Smith <smithpb2250@gmail.com>
+    Discussion: https://postgr.es/m/OSZPR01MB6310FCE8609185A56344EED2FD559@OSZPR01MB6310.jpnprd01.prod.outlook.com
+
+diff --git a/src/backend/replication/logical/tablesync.c b/src/backend/replication/logical/tablesync.c
+index 9e52fc401cc..b4a7b4b7f6e 100644
+--- a/src/backend/replication/logical/tablesync.c
++++ b/src/backend/replication/logical/tablesync.c
+@@ -976,12 +976,12 @@ fetch_remote_table_info(char *nspname, char *relname,
+ 	 * 1) one of the subscribed publications for the table hasn't specified
+ 	 * any row filter
+ 	 *
+ 	 * 2) one of the subscribed publications has puballtables set to true
+ 	 *
+-	 * 3) one of the subscribed publications is declared as ALL TABLES IN
+-	 * SCHEMA that includes this relation
++	 * 3) one of the subscribed publications is declared as TABLES IN SCHEMA
++	 * that includes this relation
+ 	 */
+ 	if (walrcv_server_version(LogRepWorkerWalRcvConn) >= 150000)
+ 	{
+ 		StringInfoData pub_names;
+ 
+diff --git a/src/bin/psql/tab-complete.c b/src/bin/psql/tab-complete.c
+index dbe89d7eb2c..71cfe8aec15 100644
+--- a/src/bin/psql/tab-complete.c
++++ b/src/bin/psql/tab-complete.c
+@@ -1846,11 +1846,11 @@ psql_completion(const char *text, int start, int end)
+ 	else if (Matches("ALTER", "PUBLICATION", MatchAny, "DROP"))
+ 		COMPLETE_WITH("TABLES IN SCHEMA", "TABLE");
+ 	/* ALTER PUBLICATION <name> SET */
+ 	else if (Matches("ALTER", "PUBLICATION", MatchAny, "SET"))
+ 		COMPLETE_WITH("(", "TABLES IN SCHEMA", "TABLE");
+-	else if (Matches("ALTER", "PUBLICATION", MatchAny, "ADD|DROP|SET", "ALL", "TABLES", "IN", "SCHEMA"))
++	else if (Matches("ALTER", "PUBLICATION", MatchAny, "ADD|DROP|SET", "TABLES", "IN", "SCHEMA"))
+ 		COMPLETE_WITH_QUERY_PLUS(Query_for_list_of_schemas
+ 								 " AND nspname NOT LIKE E'pg\\\\_%%'",
+ 								 "CURRENT_SCHEMA");
+ 	/* ALTER PUBLICATION <name> SET ( */
+ 	else if (HeadMatches("ALTER", "PUBLICATION", MatchAny) && TailMatches("SET", "("))
+@@ -2992,13 +2992,15 @@ psql_completion(const char *text, int start, int end)
+ 	else if (Matches("CREATE", "PUBLICATION", MatchAny))
+ 		COMPLETE_WITH("FOR TABLE", "FOR ALL TABLES", "FOR TABLES IN SCHEMA", "WITH (");
+ 	else if (Matches("CREATE", "PUBLICATION", MatchAny, "FOR"))
+ 		COMPLETE_WITH("TABLE", "ALL TABLES", "TABLES IN SCHEMA");
+ 	else if (Matches("CREATE", "PUBLICATION", MatchAny, "FOR", "ALL"))
+-		COMPLETE_WITH("TABLES", "TABLES IN SCHEMA");
++		COMPLETE_WITH("TABLES");
+ 	else if (Matches("CREATE", "PUBLICATION", MatchAny, "FOR", "ALL", "TABLES"))
+-		COMPLETE_WITH("IN SCHEMA", "WITH (");
++		COMPLETE_WITH("WITH (");
++	else if (Matches("CREATE", "PUBLICATION", MatchAny, "FOR", "TABLES"))
++		COMPLETE_WITH("IN SCHEMA");
+ 	else if (Matches("CREATE", "PUBLICATION", MatchAny, "FOR", "TABLE", MatchAny) && !ends_with(prev_wd, ','))
+ 		COMPLETE_WITH("WHERE (", "WITH (");
+ 	/* Complete "CREATE PUBLICATION <name> FOR TABLE" with "<table>, ..." */
+ 	else if (Matches("CREATE", "PUBLICATION", MatchAny, "FOR", "TABLE"))
+ 		COMPLETE_WITH_SCHEMA_QUERY(Query_for_list_of_tables);
+@@ -3015,15 +3017,15 @@ psql_completion(const char *text, int start, int end)
+ 		COMPLETE_WITH(" WITH (");
+ 
+ 	/*
+ 	 * Complete "CREATE PUBLICATION <name> FOR TABLES IN SCHEMA <schema>, ..."
+ 	 */
+-	else if (Matches("CREATE", "PUBLICATION", MatchAny, "FOR", "ALL", "TABLES", "IN", "SCHEMA"))
++	else if (Matches("CREATE", "PUBLICATION", MatchAny, "FOR", "TABLES", "IN", "SCHEMA"))
+ 		COMPLETE_WITH_QUERY_PLUS(Query_for_list_of_schemas
+ 								 " AND nspname NOT LIKE E'pg\\\\_%%'",
+ 								 "CURRENT_SCHEMA");
+-	else if (Matches("CREATE", "PUBLICATION", MatchAny, "FOR", "ALL", "TABLES", "IN", "SCHEMA", MatchAny) && (!ends_with(prev_wd, ',')))
++	else if (Matches("CREATE", "PUBLICATION", MatchAny, "FOR", "TABLES", "IN", "SCHEMA", MatchAny) && (!ends_with(prev_wd, ',')))
+ 		COMPLETE_WITH("WITH (");
+ 	/* Complete "CREATE PUBLICATION <name> [...] WITH" */
+ 	else if (HeadMatches("CREATE", "PUBLICATION") && TailMatches("WITH", "("))
+ 		COMPLETE_WITH("publish", "publish_via_partition_root");
+ 
+@@ -3833,11 +3835,11 @@ psql_completion(const char *text, int start, int end)
+ 			COMPLETE_WITH_SCHEMA_QUERY_PLUS(Query_for_list_of_grantables,
+ 											"ALL FUNCTIONS IN SCHEMA",
+ 											"ALL PROCEDURES IN SCHEMA",
+ 											"ALL ROUTINES IN SCHEMA",
+ 											"ALL SEQUENCES IN SCHEMA",
+-											"TABLES IN SCHEMA",
++											"ALL TABLES IN SCHEMA",
+ 											"DATABASE",
+ 											"DOMAIN",
+ 											"FOREIGN DATA WRAPPER",
+ 											"FOREIGN SERVER",
+ 											"FUNCTION",
+diff --git a/src/test/subscription/t/031_column_list.pl b/src/test/subscription/t/031_column_list.pl
+index 3e4bfc2178c..ae022faa785 100644
+--- a/src/test/subscription/t/031_column_list.pl
++++ b/src/test/subscription/t/031_column_list.pl
+@@ -897,12 +897,12 @@ is( $node_subscriber->safe_psql('postgres', "SELECT * FROM test_mix_2"),
+ 	qq(1|2|3
+ 4|5|6),
+ 	'all columns should be replicated');
+ 
+ 
+-# TEST: With a table included in the publication which is FOR ALL TABLES
+-# IN SCHEMA, it means replicate all columns.
++# TEST: With a table included in the publication which is FOR TABLES IN
++# SCHEMA, it means replicate all columns.
+ 
+ $node_subscriber->safe_psql(
+ 	'postgres', qq(
+ 	DROP SUBSCRIPTION sub1;
+ 	CREATE TABLE test_mix_3 (a int PRIMARY KEY, b int, c int);

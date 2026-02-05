@@ -1,0 +1,76 @@
+commit 0222be137188ac3912d244d832a328be0944f3e9
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Wed Sep 28 07:51:48 2022 -0400
+
+    Fix alignment problems with SharedInvalSmgrMsg.
+    
+    SharedInvalSmgrMsg can't require 8-byte alignment, because then
+    SharedInvalidationMessage will require 8-byte alignment, which will
+    then cause ParseCommitRecord to fail on machines that are picky
+    about alignment, because it assumes that everything that gets
+    packed into a commit record requires only 4-byte alignment.
+    
+    Another problem with 05d4cbf9b6ba708858984b01ca0fc56d59d4ec7c.
+    
+    Discussion: http://postgr.es/m/3825454.1664310917@sss.pgh.pa.us
+
+diff --git a/src/backend/utils/cache/inval.c b/src/backend/utils/cache/inval.c
+index eb5782f82a4..fecbf06a04d 100644
+--- a/src/backend/utils/cache/inval.c
++++ b/src/backend/utils/cache/inval.c
+@@ -661,11 +661,13 @@ LocalExecuteInvalidationMessage(SharedInvalidationMessage *msg)
+ 		 * We could have smgr entries for relations of other databases, so no
+ 		 * short-circuit test is possible here.
+ 		 */
+ 		RelFileLocatorBackend rlocator;
+ 
+-		rlocator.locator = msg->sm.rlocator;
++		rlocator.locator.dbOid = msg->sm.dbOid;
++		rlocator.locator.spcOid = msg->sm.spcOid;
++		rlocator.locator.relNumber = (((uint64) msg->sm.relNumber_hi) << 32) | msg->sm.relNumber_lo;
+ 		rlocator.backend = (msg->sm.backend_hi << 16) | (int) msg->sm.backend_lo;
+ 		smgrcloserellocator(rlocator);
+ 	}
+ 	else if (msg->id == SHAREDINVALRELMAP_ID)
+ 	{
+@@ -1464,11 +1466,14 @@ CacheInvalidateSmgr(RelFileLocatorBackend rlocator)
+ 	SharedInvalidationMessage msg;
+ 
+ 	msg.sm.id = SHAREDINVALSMGR_ID;
+ 	msg.sm.backend_hi = rlocator.backend >> 16;
+ 	msg.sm.backend_lo = rlocator.backend & 0xffff;
+-	msg.sm.rlocator = rlocator.locator;
++	msg.sm.dbOid = rlocator.locator.dbOid;
++	msg.sm.spcOid = rlocator.locator.spcOid;
++	msg.sm.relNumber_hi = rlocator.locator.relNumber >> 32;
++	msg.sm.relNumber_lo = rlocator.locator.relNumber & 0xffffffff;
+ 	/* check AddCatcacheInvalidationMessage() for an explanation */
+ 	VALGRIND_MAKE_MEM_DEFINED(&msg, sizeof(msg));
+ 
+ 	SendSharedInvalidMessages(&msg, 1);
+ }
+diff --git a/src/include/storage/sinval.h b/src/include/storage/sinval.h
+index aca0347a3d3..4a267be935c 100644
+--- a/src/include/storage/sinval.h
++++ b/src/include/storage/sinval.h
+@@ -84,15 +84,18 @@ typedef struct
+ 
+ #define SHAREDINVALSMGR_ID		(-3)
+ 
+ typedef struct
+ {
+-	/* note: field layout chosen to pack into 16 bytes */
++	/* note: field layout chosen to pack into 20 bytes */
+ 	int8		id;				/* type field --- must be first */
+ 	int8		backend_hi;		/* high bits of backend ID, if temprel */
+ 	uint16		backend_lo;		/* low bits of backend ID, if temprel */
+-	RelFileLocator rlocator;	/* spcOid, dbOid, relNumber */
++	Oid			dbOid;
++	Oid			spcOid;
++	uint32		relNumber_hi;	/* avoid 8 byte alignment requirement */
++	uint32		relNumber_lo;
+ } SharedInvalSmgrMsg;
+ 
+ #define SHAREDINVALRELMAP_ID	(-4)
+ 
+ typedef struct

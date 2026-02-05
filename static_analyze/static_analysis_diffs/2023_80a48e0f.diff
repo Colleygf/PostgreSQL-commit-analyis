@@ -1,0 +1,103 @@
+commit 80a48e0f21c51ed65fe647b18019ab6f8eab15cd
+Author: Dean Rasheed <dean.a.rasheed@gmail.com>
+Date:   Wed Feb 22 09:39:09 2023 +0000
+
+    Fix MERGE command tag for cross-partition updates.
+    
+    This ensures that the row count in the command tag for a MERGE is
+    correctly computed. Previously, if MERGE updated a partitioned table,
+    the row count would be incorrect if any row was moved to a different
+    partition, since such updates were counted twice.
+    
+    Back-patch to v15, where MERGE was introduced.
+    
+    Discussion: https://postgr.es/m/CAEZATCWRMG7XX2QEsVL1LswmNo2d_YG8tKTLkpD3=Lp644S7rg@mail.gmail.com
+
+diff --git a/src/backend/executor/nodeModifyTable.c b/src/backend/executor/nodeModifyTable.c
+index a94d7f86e54..6f0543af832 100644
+--- a/src/backend/executor/nodeModifyTable.c
++++ b/src/backend/executor/nodeModifyTable.c
+@@ -2876,11 +2876,11 @@ lmerge_matched:
+ 					result = TM_Ok;
+ 					break;
+ 				}
+ 				ExecUpdatePrepareSlot(resultRelInfo, newslot, context->estate);
+ 				result = ExecUpdateAct(context, resultRelInfo, tupleid, NULL,
+-									   newslot, mtstate->canSetTag, &updateCxt);
++									   newslot, false, &updateCxt);
+ 				if (result == TM_Ok && updateCxt.updated)
+ 				{
+ 					ExecUpdateEpilogue(context, &updateCxt, resultRelInfo,
+ 									   tupleid, NULL, newslot, recheckIndexes);
+ 					mtstate->mt_merge_updated += 1;
+diff --git a/src/test/regress/expected/merge.out b/src/test/regress/expected/merge.out
+index 2cf1409470b..c298bfa314c 100644
+--- a/src/test/regress/expected/merge.out
++++ b/src/test/regress/expected/merge.out
+@@ -1580,17 +1580,33 @@ SELECT * FROM pa_target ORDER BY tid;
+ (20 rows)
+ 
+ ROLLBACK;
+ -- try updating the partition key column
+ BEGIN;
++CREATE FUNCTION merge_func() RETURNS integer LANGUAGE plpgsql AS $$
++DECLARE
++  result integer;
++BEGIN
+ MERGE INTO pa_target t
+   USING pa_source s
+   ON t.tid = s.sid
+   WHEN MATCHED THEN
+     UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge'
+   WHEN NOT MATCHED THEN
+     INSERT VALUES (sid, delta, 'inserted by merge');
++IF FOUND THEN
++  GET DIAGNOSTICS result := ROW_COUNT;
++END IF;
++RETURN result;
++END;
++$$;
++SELECT merge_func();
++ merge_func 
++------------
++         14
++(1 row)
++
+ SELECT * FROM pa_target ORDER BY tid;
+  tid | balance |           val            
+ -----+---------+--------------------------
+    2 |     110 | initial updated by merge
+    2 |      20 | inserted by merge
+diff --git a/src/test/regress/sql/merge.sql b/src/test/regress/sql/merge.sql
+index cef37e57d92..9ed648ad1f6 100644
+--- a/src/test/regress/sql/merge.sql
++++ b/src/test/regress/sql/merge.sql
+@@ -997,17 +997,28 @@ MERGE INTO pa_target t
+ SELECT * FROM pa_target ORDER BY tid;
+ ROLLBACK;
+ 
+ -- try updating the partition key column
+ BEGIN;
++CREATE FUNCTION merge_func() RETURNS integer LANGUAGE plpgsql AS $$
++DECLARE
++  result integer;
++BEGIN
+ MERGE INTO pa_target t
+   USING pa_source s
+   ON t.tid = s.sid
+   WHEN MATCHED THEN
+     UPDATE SET tid = tid + 1, balance = balance + delta, val = val || ' updated by merge'
+   WHEN NOT MATCHED THEN
+     INSERT VALUES (sid, delta, 'inserted by merge');
++IF FOUND THEN
++  GET DIAGNOSTICS result := ROW_COUNT;
++END IF;
++RETURN result;
++END;
++$$;
++SELECT merge_func();
+ SELECT * FROM pa_target ORDER BY tid;
+ ROLLBACK;
+ 
+ DROP TABLE pa_target CASCADE;
+ 

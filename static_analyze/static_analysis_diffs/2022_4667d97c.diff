@@ -1,0 +1,91 @@
+commit 4667d97ca624b257f690e8d369b242b380f53a09
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Tue Sep 27 15:13:34 2022 -0400
+
+    Fix typos in commit 05d4cbf9b6ba708858984b01ca0fc56d59d4ec7c.
+    
+    Reported by Justin Pryzby.
+    
+    Discussion: http://postgr.es/m/20220927185121.GE6256@telsasoft.com
+
+diff --git a/src/backend/access/rmgrdesc/xlogdesc.c b/src/backend/access/rmgrdesc/xlogdesc.c
+index 84a826bf49c..b1cede74cf4 100644
+--- a/src/backend/access/rmgrdesc/xlogdesc.c
++++ b/src/backend/access/rmgrdesc/xlogdesc.c
+@@ -43,11 +43,11 @@ xlog_desc(StringInfo buf, XLogReaderState *record)
+ 		info == XLOG_CHECKPOINT_ONLINE)
+ 	{
+ 		CheckPoint *checkpoint = (CheckPoint *) rec;
+ 
+ 		appendStringInfo(buf, "redo %X/%X; "
+-						 "tli %u; prev tli %u; fpw %s; xid %u:%u; relfilenumber " UINT64_FORMAT ";oid %u; "
++						 "tli %u; prev tli %u; fpw %s; xid %u:%u; relfilenumber " UINT64_FORMAT "; oid %u; "
+ 						 "multi %u; offset %u; oldest xid %u in DB %u; oldest multi %u in DB %u; "
+ 						 "oldest/newest commit timestamp xid: %u/%u; "
+ 						 "oldest running xid %u; %s",
+ 						 LSN_FORMAT_ARGS(checkpoint->redo),
+ 						 checkpoint->ThisTimeLineID,
+diff --git a/src/backend/access/transam/varsup.c b/src/backend/access/transam/varsup.c
+index f99c697c2f5..89da2f44590 100644
+--- a/src/backend/access/transam/varsup.c
++++ b/src/backend/access/transam/varsup.c
+@@ -794,11 +794,11 @@ SetNextRelFileNumber(RelFileNumber relnumber)
+ 	 * flushed relfilenumber then log more and flush immediately.
+ 	 *
+ 	 * (This is less efficient than GetNewRelFileNumber, which arranges to
+ 	 * log some new relfilenumbers before the old batch is exhausted in the
+ 	 * hope that a flush will happen in the background before any values are
+-	 * needed from the new batch. However, since thais is only used during
++	 * needed from the new batch. However, since this is only used during
+ 	 * binary upgrade, it shouldn't really matter.)
+ 	 */
+ 	if (relnumber >= ShmemVariableCache->flushedRelFileNumber)
+ 	{
+ 		RelFileNumber newlogrelnum;
+diff --git a/src/backend/catalog/storage.c b/src/backend/catalog/storage.c
+index 021e08580fb..38bbe325509 100644
+--- a/src/backend/catalog/storage.c
++++ b/src/backend/catalog/storage.c
+@@ -967,11 +967,11 @@ smgr_redo(XLogReaderState *record)
+ 	{
+ 		xl_smgr_create *xlrec = (xl_smgr_create *) XLogRecGetData(record);
+ 		SMgrRelation reln;
+ 
+ 		if (xlrec->rlocator.relNumber > ShmemVariableCache->nextRelFileNumber)
+-			elog(ERROR, "unexpected relnumber " UINT64_FORMAT " that is bigger than nextRelFileNumber " UINT64_FORMAT,
++			elog(ERROR, "unexpected relnumber " UINT64_FORMAT " is bigger than nextRelFileNumber " UINT64_FORMAT,
+ 				 xlrec->rlocator.relNumber, ShmemVariableCache->nextRelFileNumber);
+ 
+ 		reln = smgropen(xlrec->rlocator, InvalidBackendId);
+ 		smgrcreate(reln, xlrec->forkNum, true);
+ 	}
+@@ -984,11 +984,11 @@ smgr_redo(XLogReaderState *record)
+ 		BlockNumber blocks[MAX_FORKNUM];
+ 		int			nforks = 0;
+ 		bool		need_fsm_vacuum = false;
+ 
+ 		if (xlrec->rlocator.relNumber > ShmemVariableCache->nextRelFileNumber)
+-			elog(ERROR, "unexpected relnumber " UINT64_FORMAT "that is bigger than nextRelFileNumber " UINT64_FORMAT,
++			elog(ERROR, "unexpected relnumber " UINT64_FORMAT " is bigger than nextRelFileNumber " UINT64_FORMAT,
+ 				 xlrec->rlocator.relNumber, ShmemVariableCache->nextRelFileNumber);
+ 
+ 		reln = smgropen(xlrec->rlocator, InvalidBackendId);
+ 
+ 		/*
+diff --git a/src/fe_utils/option_utils.c b/src/fe_utils/option_utils.c
+index d4978527b41..32149d9be47 100644
+--- a/src/fe_utils/option_utils.c
++++ b/src/fe_utils/option_utils.c
+@@ -86,11 +86,11 @@ option_parse_int(const char *optarg, const char *optname,
+ 
+ /*
+  * option_parse_relfilenumber
+  *
+  * Parse relfilenumber value for an option.  If the parsing is successful,
+- * returns; if parsing fails, returns false.
++ * returns true; if parsing fails, returns false.
+  */
+ bool
+ option_parse_relfilenumber(const char *optarg, const char *optname)
+ {
+ 	char	   *endptr;

@@ -1,0 +1,84 @@
+commit 3eae0cbf7e70db885c4ec37e0863022d3ad589d4
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Tue Aug 16 10:53:29 2022 +1200
+
+    Fix headerscheck and cpluspluscheck's exit codes.
+    
+    For the benefit of CI, which started running these header check scripts
+    in its CompilerWarnings task in commit 81b9f23c9c8, they should report
+    failure if any individual header failed to compile.
+    
+    Reviewed-by: Andrew Dunstan <andrew@dunslane.net>
+    Reviewed-by: Andres Freund <andres@anarazel.de>
+    Discussion: https://postgr.es/m/CA%2BhUKGKtDwPo9wzKgbStDwfOhEpywMc6PQofio8fAHR7yUjgxw%40mail.gmail.com
+
+diff --git a/src/tools/pginclude/cpluspluscheck b/src/tools/pginclude/cpluspluscheck
+index eb06ee01111..2d3b785342f 100755
+--- a/src/tools/pginclude/cpluspluscheck
++++ b/src/tools/pginclude/cpluspluscheck
+@@ -50,10 +50,12 @@ done
+ # Create temp directory.
+ tmp=`mktemp -d /tmp/$me.XXXXXX`
+ 
+ trap 'rm -rf $tmp' 0 1 2 3 15
+ 
++exit_status=0
++
+ # Scan all of src/ and contrib/ for header files.
+ for f in `cd "$srcdir" && find src contrib -name '*.h' -print`
+ do
+ 	# Ignore files that are unportable or intentionally not standalone.
+ 
+@@ -165,11 +167,15 @@ do
+ 	    *)
+ 		EXTRAINCLUDES="" ;;
+ 	esac
+ 
+ 	# Run the test.
+-	${CXX:-g++} -I $builddir -I $srcdir \
++	if ! ${CXX:-g++} -I $builddir -I $srcdir \
+ 		-I $builddir/src/include -I $srcdir/src/include \
+ 		-I $builddir/src/interfaces/libpq -I $srcdir/src/interfaces/libpq \
+ 		$EXTRAINCLUDES $EXTRAFLAGS $CXXFLAGS -c $tmp/test.cpp
+-
++	then
++		exit_status=1
++	fi
+ done
++
++exit $exit_status
+diff --git a/src/tools/pginclude/headerscheck b/src/tools/pginclude/headerscheck
+index 3f8640a03dd..b8419e46a49 100755
+--- a/src/tools/pginclude/headerscheck
++++ b/src/tools/pginclude/headerscheck
+@@ -46,10 +46,12 @@ CPPFLAGS=`echo "$CPPFLAGS" | sed "s|\\\$(PG_SYSROOT)|$PG_SYSROOT|g"`
+ # Create temp directory.
+ tmp=`mktemp -d /tmp/$me.XXXXXX`
+ 
+ trap 'rm -rf $tmp' 0 1 2 3 15
+ 
++exit_status=0
++
+ # Scan all of src/ and contrib/ for header files.
+ for f in `cd "$srcdir" && find src contrib -name '*.h' -print`
+ do
+ 	# Ignore files that are unportable or intentionally not standalone.
+ 
+@@ -148,11 +150,15 @@ do
+ 	    *)
+ 		EXTRAINCLUDES="" ;;
+ 	esac
+ 
+ 	# Run the test.
+-	${CC:-gcc} $CPPFLAGS $CFLAGS -I $builddir -I $srcdir \
++	if ! ${CC:-gcc} $CPPFLAGS $CFLAGS -I $builddir -I $srcdir \
+ 		-I $builddir/src/include -I $srcdir/src/include \
+ 		-I $builddir/src/interfaces/libpq -I $srcdir/src/interfaces/libpq \
+ 		$EXTRAINCLUDES $EXTRAFLAGS -c $tmp/test.c -o $tmp/test.o
+-
++	then
++		exit_status=1
++	fi
+ done
++
++exit $exit_status

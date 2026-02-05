@@ -1,0 +1,63 @@
+commit 541e8f14a185495f814ae0a0876a0d0c4118833a
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Thu Dec 28 17:25:47 2023 +0100
+
+    Fix variable name and comment
+    
+    Should match the name of the related GUC variable.
+    
+    Discussion: https://www.postgresql.org/message-id/da4a680a-5d8a-4663-a5c8-a3ccbf23394a@eisentraut.org
+
+diff --git a/src/backend/utils/error/elog.c b/src/backend/utils/error/elog.c
+index 6ea575a53b1..07a45597c4b 100644
+--- a/src/backend/utils/error/elog.c
++++ b/src/backend/utils/error/elog.c
+@@ -113,12 +113,12 @@ char	   *Log_line_prefix = NULL; /* format for extra log line info */
+ int			Log_destination = LOG_DESTINATION_STDERR;
+ char	   *Log_destination_string = NULL;
+ bool		syslog_sequence_numbers = true;
+ bool		syslog_split_messages = true;
+ 
+-/* Processed form of backtrace_symbols GUC */
+-static char *backtrace_symbol_list;
++/* Processed form of backtrace_functions GUC */
++static char *backtrace_function_list;
+ 
+ #ifdef HAVE_SYSLOG
+ 
+ /*
+  * Max string length to send to syslog().  Note that this doesn't count the
+@@ -829,17 +829,17 @@ set_stack_entry_location(ErrorData *edata,
+ static bool
+ matches_backtrace_functions(const char *funcname)
+ {
+ 	const char *p;
+ 
+-	if (!backtrace_symbol_list || funcname == NULL || funcname[0] == '\0')
++	if (!backtrace_function_list || funcname == NULL || funcname[0] == '\0')
+ 		return false;
+ 
+-	p = backtrace_symbol_list;
++	p = backtrace_function_list;
+ 	for (;;)
+ 	{
+-		if (*p == '\0')			/* end of backtrace_symbol_list */
++		if (*p == '\0')			/* end of backtrace_function_list */
+ 			break;
+ 
+ 		if (strcmp(funcname, p) == 0)
+ 			return true;
+ 		p += strlen(p) + 1;
+@@ -2178,11 +2178,11 @@ check_backtrace_functions(char **newval, void **extra, GucSource source)
+  * GUC assign_hook for backtrace_functions
+  */
+ void
+ assign_backtrace_functions(const char *newval, void *extra)
+ {
+-	backtrace_symbol_list = (char *) extra;
++	backtrace_function_list = (char *) extra;
+ }
+ 
+ /*
+  * GUC check_hook for log_destination
+  */

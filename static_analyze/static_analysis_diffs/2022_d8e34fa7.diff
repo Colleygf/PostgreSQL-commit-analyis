@@ -1,0 +1,78 @@
+commit d8e34fa7a18fab4aa8eb010edac133d63ecc11c6
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sat Jul 30 13:05:15 2022 -0400
+
+    Fix incorrect is-this-the-topmost-join tests in parallel planning.
+    
+    Two callers of generate_useful_gather_paths were testing the wrong
+    thing when deciding whether to call that function: they checked for
+    being at the top of the current join subproblem, rather than being at
+    the actual top join.  This'd result in failing to construct parallel
+    paths for a sub-join for which they might be useful.
+    
+    While set_rel_pathlist() isn't actively broken, it seems best to
+    make its identical-in-intention test for this be like the other two.
+    
+    This has been wrong all along, but given the lack of field complaints
+    I'm hesitant to back-patch into stable branches; we usually prefer
+    to avoid non-bug-fix changes in plan choices in minor releases.
+    It seems not too late for v15 though.
+    
+    Richard Guo, reviewed by Antonin Houska and Tom Lane
+    
+    Discussion: https://postgr.es/m/CAMbWs4-mH8Zf87-w+3P2J=nJB+5OyicO28ia9q_9o=Lamf_VHg@mail.gmail.com
+
+diff --git a/src/backend/optimizer/geqo/geqo_eval.c b/src/backend/optimizer/geqo/geqo_eval.c
+index de695c0a789..004481d6082 100644
+--- a/src/backend/optimizer/geqo/geqo_eval.c
++++ b/src/backend/optimizer/geqo/geqo_eval.c
+@@ -271,11 +271,11 @@ merge_clump(PlannerInfo *root, List *clumps, Clump *new_clump, int num_gene,
+ 				 * Except for the topmost scan/join rel, consider gathering
+ 				 * partial paths.  We'll do the same for the topmost scan/join
+ 				 * rel once we know the final targetlist (see
+ 				 * grouping_planner).
+ 				 */
+-				if (old_clump->size + new_clump->size < num_gene)
++				if (!bms_equal(joinrel->relids, root->all_baserels))
+ 					generate_useful_gather_paths(root, joinrel, false);
+ 
+ 				/* Find and save the cheapest paths for this joinrel */
+ 				set_cheapest(joinrel);
+ 
+diff --git a/src/backend/optimizer/path/allpaths.c b/src/backend/optimizer/path/allpaths.c
+index 63f0f6b79c7..b23cc8ee82d 100644
+--- a/src/backend/optimizer/path/allpaths.c
++++ b/src/backend/optimizer/path/allpaths.c
+@@ -552,16 +552,15 @@ set_rel_pathlist(PlannerInfo *root, RelOptInfo *rel,
+ 	 * However, if this is an inheritance child, skip it.  Otherwise, we could
+ 	 * end up with a very large number of gather nodes, each trying to grab
+ 	 * its own pool of workers.  Instead, we'll consider gathering partial
+ 	 * paths for the parent appendrel.
+ 	 *
+-	 * Also, if this is the topmost scan/join rel (that is, the only baserel),
+-	 * we postpone gathering until the final scan/join targetlist is available
+-	 * (see grouping_planner).
++	 * Also, if this is the topmost scan/join rel, we postpone gathering until
++	 * the final scan/join targetlist is available (see grouping_planner).
+ 	 */
+ 	if (rel->reloptkind == RELOPT_BASEREL &&
+-		bms_membership(root->all_baserels) != BMS_SINGLETON)
++		!bms_equal(rel->relids, root->all_baserels))
+ 		generate_useful_gather_paths(root, rel, false);
+ 
+ 	/* Now find the cheapest of the paths for this rel */
+ 	set_cheapest(rel);
+ 
+@@ -3433,11 +3432,11 @@ standard_join_search(PlannerInfo *root, int levels_needed, List *initial_rels)
+ 			/*
+ 			 * Except for the topmost scan/join rel, consider gathering
+ 			 * partial paths.  We'll do the same for the topmost scan/join rel
+ 			 * once we know the final targetlist (see grouping_planner).
+ 			 */
+-			if (lev < levels_needed)
++			if (!bms_equal(rel->relids, root->all_baserels))
+ 				generate_useful_gather_paths(root, rel, false);
+ 
+ 			/* Find and save the cheapest paths for this rel */
+ 			set_cheapest(rel);
+ 

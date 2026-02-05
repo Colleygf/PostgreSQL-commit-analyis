@@ -1,0 +1,79 @@
+commit 5f3aa309a880bb429c6a648d64e20fbd353fee8a
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Fri Sep 22 11:18:25 2023 +0200
+
+    Avoid potential pfree on NULL on OpenSSL errors
+    
+    Guard against the pointer being NULL before pfreeing upon an error
+    returned from OpenSSL.  Also handle errors from X509_NAME_print_ex
+    which can return -1 on memory allocation errors.
+    
+    Backpatch down to v15 where the code was added.
+    
+    Author: Sergey Shinderuk <s.shinderuk@postgrespro.ru>
+    Discussion: https://postgr.es/m/8db5374d-32e0-6abb-d402-40762511eff2@postgrespro.ru
+    Backpatch-through: v15
+
+diff --git a/src/backend/libpq/be-secure-openssl.c b/src/backend/libpq/be-secure-openssl.c
+index 658b09988d6..31b6a6eacdf 100644
+--- a/src/backend/libpq/be-secure-openssl.c
++++ b/src/backend/libpq/be-secure-openssl.c
+@@ -618,28 +618,34 @@ aloop:
+ 		}
+ 
+ 		bio = BIO_new(BIO_s_mem());
+ 		if (!bio)
+ 		{
+-			pfree(port->peer_cn);
+-			port->peer_cn = NULL;
++			if (port->peer_cn != NULL)
++			{
++				pfree(port->peer_cn);
++				port->peer_cn = NULL;
++			}
+ 			return -1;
+ 		}
+ 
+ 		/*
+ 		 * RFC2253 is the closest thing to an accepted standard format for
+ 		 * DNs. We have documented how to produce this format from a
+ 		 * certificate. It uses commas instead of slashes for delimiters,
+ 		 * which make regular expression matching a bit easier. Also note that
+ 		 * it prints the Subject fields in reverse order.
+ 		 */
+-		X509_NAME_print_ex(bio, x509name, 0, XN_FLAG_RFC2253);
+-		if (BIO_get_mem_ptr(bio, &bio_buf) <= 0)
++		if (X509_NAME_print_ex(bio, x509name, 0, XN_FLAG_RFC2253) == -1 ||
++			BIO_get_mem_ptr(bio, &bio_buf) <= 0)
+ 		{
+ 			BIO_free(bio);
+-			pfree(port->peer_cn);
+-			port->peer_cn = NULL;
++			if (port->peer_cn != NULL)
++			{
++				pfree(port->peer_cn);
++				port->peer_cn = NULL;
++			}
+ 			return -1;
+ 		}
+ 		peer_dn = MemoryContextAlloc(TopMemoryContext, bio_buf->length + 1);
+ 		memcpy(peer_dn, bio_buf->data, bio_buf->length);
+ 		len = bio_buf->length;
+@@ -649,12 +655,15 @@ aloop:
+ 		{
+ 			ereport(COMMERROR,
+ 					(errcode(ERRCODE_PROTOCOL_VIOLATION),
+ 					 errmsg("SSL certificate's distinguished name contains embedded null")));
+ 			pfree(peer_dn);
+-			pfree(port->peer_cn);
+-			port->peer_cn = NULL;
++			if (port->peer_cn != NULL)
++			{
++				pfree(port->peer_cn);
++				port->peer_cn = NULL;
++			}
+ 			return -1;
+ 		}
+ 
+ 		port->peer_dn = peer_dn;
+ 

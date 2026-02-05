@@ -1,0 +1,145 @@
+commit 1d7b00dc14b8efd22f6e971756c2d9c052863234
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Dec 10 12:46:45 2025 +0900
+
+    Fix failures with cross-version pg_upgrade tests
+    
+    Buildfarm members skimmer and crake have reported that pg_upgrade
+    running from v18 fails due to the changes of d52c24b0f808, with the
+    expectations that the objects removed in the test module
+    injection_points should still be present post upgrades, but the test
+    module does not have them anymore.
+    
+    The origin of the issue is that the following test modules depend on
+    injection_points, but they do not drop the extension once the tests
+    finish, leaving its traces in the dumps used for the upgrades:
+    - gin, down to v17
+    - typcache, down to v18
+    - nbtree, HEAD-only
+    Test modules have no upgrade requirements, as they are used only for..
+    Tests, so there is no point in keeping them around.
+    
+    An alternative solution would be to drop the databases created by these
+    modules in AdjustUpgrade.pm, but the solution of this commit to drop the
+    extension is simpler.  Note that there would be a catch if using a
+    solution based on AdjustUpgrade.pm as the database name used for the
+    test runs differs between configure and meson:
+    - configure relies on USE_MODULE_DB for the database name unicity, that
+    would build a database name based on the *first* entry of REGRESS, that
+    lists all the SQL tests.
+    - meson relies on a "name" field.
+    
+    For example, for the test module "gin", the regression database is named
+    "regression_gin" under meson, while it is more complex for configure, as
+    of "contrib_regression_gin_incomplete_splits".  So a AdjustUpgrade.pm
+    would need a set of DROP DATABASE IF EXISTS to solve this issue, to cope
+    with each build system.
+    
+    The failure has been caused by d52c24b0f808, and the problem can happen
+    with upgrade dumps from v17 and v18 to HEAD.  This problem is not
+    currently reachable in the back-branches, but it could be possible that
+    a future change in injection_points in stable branches invalidates this
+    theory, so this commit is applied down to v17 in the test modules that
+    matter.
+    
+    Per discussion with Tom Lane and Heikki Linnakangas.
+    
+    Discussion: https://postgr.es/m/2899652.1765167313@sss.pgh.pa.us
+    Backpatch-through: 17
+
+diff --git a/src/test/modules/gin/expected/gin_incomplete_splits.out b/src/test/modules/gin/expected/gin_incomplete_splits.out
+index 15574e547ac..0f3ac9a0466 100644
+--- a/src/test/modules/gin/expected/gin_incomplete_splits.out
++++ b/src/test/modules/gin/expected/gin_incomplete_splits.out
+@@ -190,5 +190,6 @@ SELECT injection_points_detach('gin-finish-incomplete-split');
+  injection_points_detach 
+ -------------------------
+  
+ (1 row)
+ 
++drop extension injection_points;
+diff --git a/src/test/modules/gin/sql/gin_incomplete_splits.sql b/src/test/modules/gin/sql/gin_incomplete_splits.sql
+index ebf0f620f0c..d451257c275 100644
+--- a/src/test/modules/gin/sql/gin_incomplete_splits.sql
++++ b/src/test/modules/gin/sql/gin_incomplete_splits.sql
+@@ -146,5 +146,7 @@ select insert_n(:next_i, 10) as next_i
+ \gset
+ -- Verify that a scan still works
+ select verify(:next_i);
+ 
+ SELECT injection_points_detach('gin-finish-incomplete-split');
++
++drop extension injection_points;
+diff --git a/src/test/modules/nbtree/expected/nbtree_half_dead_pages.out b/src/test/modules/nbtree/expected/nbtree_half_dead_pages.out
+index e94f016696d..c435af7a4a5 100644
+--- a/src/test/modules/nbtree/expected/nbtree_half_dead_pages.out
++++ b/src/test/modules/nbtree/expected/nbtree_half_dead_pages.out
+@@ -81,5 +81,7 @@ select bt_index_parent_check('nbtree_half_dead_pages_id_idx'::regclass, true, tr
+  bt_index_parent_check 
+ -----------------------
+  
+ (1 row)
+ 
++drop extension amcheck;
++drop extension injection_points;
+diff --git a/src/test/modules/nbtree/expected/nbtree_incomplete_splits.out b/src/test/modules/nbtree/expected/nbtree_incomplete_splits.out
+index 161eb3cbfa8..00168c6ebb8 100644
+--- a/src/test/modules/nbtree/expected/nbtree_incomplete_splits.out
++++ b/src/test/modules/nbtree/expected/nbtree_incomplete_splits.out
+@@ -182,5 +182,7 @@ SELECT injection_points_detach('nbtree-finish-incomplete-split');
+  injection_points_detach 
+ -------------------------
+  
+ (1 row)
+ 
++drop extension amcheck;
++drop extension injection_points;
+diff --git a/src/test/modules/nbtree/sql/nbtree_half_dead_pages.sql b/src/test/modules/nbtree/sql/nbtree_half_dead_pages.sql
+index fd279b87e0e..b39cf275557 100644
+--- a/src/test/modules/nbtree/sql/nbtree_half_dead_pages.sql
++++ b/src/test/modules/nbtree/sql/nbtree_half_dead_pages.sql
+@@ -44,5 +44,8 @@ select bt_index_parent_check('nbtree_half_dead_pages_id_idx'::regclass, true, tr
+ 
+ -- Finish the deletion and re-check
+ vacuum nbtree_half_dead_pages;
+ select * from nbtree_half_dead_pages where id > 99998 and id < 120002;
+ select bt_index_parent_check('nbtree_half_dead_pages_id_idx'::regclass, true, true);
++
++drop extension amcheck;
++drop extension injection_points;
+diff --git a/src/test/modules/nbtree/sql/nbtree_incomplete_splits.sql b/src/test/modules/nbtree/sql/nbtree_incomplete_splits.sql
+index f6b22786d37..23a112a074b 100644
+--- a/src/test/modules/nbtree/sql/nbtree_incomplete_splits.sql
++++ b/src/test/modules/nbtree/sql/nbtree_incomplete_splits.sql
+@@ -137,5 +137,8 @@ select insert_n(:next_i, 10) as next_i
+ \gset
+ -- Verify that a scan still works
+ select verify(:next_i);
+ 
+ SELECT injection_points_detach('nbtree-finish-incomplete-split');
++
++drop extension amcheck;
++drop extension injection_points;
+diff --git a/src/test/modules/typcache/expected/typcache_rel_type_cache.out b/src/test/modules/typcache/expected/typcache_rel_type_cache.out
+index a91bd72b9bd..54c61602d08 100644
+--- a/src/test/modules/typcache/expected/typcache_rel_type_cache.out
++++ b/src/test/modules/typcache/expected/typcache_rel_type_cache.out
+@@ -37,5 +37,6 @@ SELECT '(1,2)'::t;
+    t   
+ -------
+  (1,2)
+ (1 row)
+ 
++DROP EXTENSION injection_points;
+diff --git a/src/test/modules/typcache/sql/typcache_rel_type_cache.sql b/src/test/modules/typcache/sql/typcache_rel_type_cache.sql
+index c1a3af509c0..f004a31c32a 100644
+--- a/src/test/modules/typcache/sql/typcache_rel_type_cache.sql
++++ b/src/test/modules/typcache/sql/typcache_rel_type_cache.sql
+@@ -17,5 +17,7 @@ CREATE TABLE t (i int);
+ SELECT injection_points_attach('typecache-before-rel-type-cache-insert', 'error');
+ SELECT '(1)'::t;
+ SELECT injection_points_detach('typecache-before-rel-type-cache-insert');
+ ALTER TABLE t ADD COLUMN j int;
+ SELECT '(1,2)'::t;
++
++DROP EXTENSION injection_points;

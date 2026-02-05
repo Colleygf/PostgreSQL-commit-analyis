@@ -1,0 +1,49 @@
+commit 4637a6ac0b40fef701ab850de1be547b927c3013
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Mon Jul 3 10:53:44 2023 +1200
+
+    Silence "missing contrecord" error.
+    
+    Commit dd38ff28ad added a new error message "missing contrecord" when
+    we fail to reassemble a record.  Unfortunately that caused noisy
+    messages to be logged by pg_waldump at end of segment, and by walsender
+    when asked to shut down on a segment boundary.
+    
+    Remove the new error message, so that this condition signals end-of-
+    WAL without a message.  It's arguably a reportable condition that should
+    not be silenced while performing crash recovery, but fixing that without
+    introducing noise in the other cases will require more research.
+    
+    Back-patch to 15.
+    
+    Reported-by: Tomas Vondra <tomas.vondra@enterprisedb.com>
+    Discussion: https://postgr.es/m/6a1df56e-4656-b3ce-4b7a-a9cb41df8189%40enterprisedb.com
+
+diff --git a/src/backend/access/transam/xlogreader.c b/src/backend/access/transam/xlogreader.c
+index 2e7b1ba8e18..c9f9f6e98f0 100644
+--- a/src/backend/access/transam/xlogreader.c
++++ b/src/backend/access/transam/xlogreader.c
+@@ -912,19 +912,15 @@ err:
+ 		 */
+ 		state->abortedRecPtr = RecPtr;
+ 		state->missingContrecPtr = targetPagePtr;
+ 
+ 		/*
+-		 * If we got here without reporting an error, report one now so that
+-		 * XLogPrefetcherReadRecord() doesn't bring us back a second time and
+-		 * clobber the above state.  Otherwise, the existing error takes
+-		 * precedence.
++		 * If we got here without reporting an error, make sure an error is
++		 * queued so that XLogPrefetcherReadRecord() doesn't bring us back a
++		 * second time and clobber the above state.
+ 		 */
+-		if (!state->errormsg_buf[0])
+-			report_invalid_record(state,
+-								  "missing contrecord at %X/%X",
+-								  LSN_FORMAT_ARGS(RecPtr));
++		state->errormsg_deferred = true;
+ 	}
+ 
+ 	if (decoded && decoded->oversized)
+ 		pfree(decoded);
+ 

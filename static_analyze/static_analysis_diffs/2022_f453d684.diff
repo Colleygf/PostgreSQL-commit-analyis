@@ -1,0 +1,61 @@
+commit f453d684ecf9f6cd872d4bb43fe385c2c56126bd
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Wed Mar 30 17:48:56 2022 +0200
+
+    Change some internal error messages to elogs
+    
+    Author: Paul Jungwirth <pj@illuminatedcomputing.com>
+    Reviewed-by: Chapman Flack <chap@anastigmatix.net>
+    Discussion: https://www.postgresql.org/message-id/flat/007ef255-35ef-fd26-679c-f97e7a7f30c2@illuminatedcomputing.com
+
+diff --git a/src/backend/utils/adt/multirangetypes.c b/src/backend/utils/adt/multirangetypes.c
+index c474b244316..2fa779998ec 100644
+--- a/src/backend/utils/adt/multirangetypes.c
++++ b/src/backend/utils/adt/multirangetypes.c
+@@ -1343,13 +1343,11 @@ range_agg_transfn(PG_FUNCTION_ARGS)
+ 	if (!AggCheckCallContext(fcinfo, &aggContext))
+ 		elog(ERROR, "range_agg_transfn called in non-aggregate context");
+ 
+ 	rngtypoid = get_fn_expr_argtype(fcinfo->flinfo, 1);
+ 	if (!type_is_range(rngtypoid))
+-		ereport(ERROR,
+-				(errcode(ERRCODE_DATATYPE_MISMATCH),
+-				 errmsg("range_agg must be called with a range")));
++		elog(ERROR, "range_agg must be called with a range");
+ 
+ 	if (PG_ARGISNULL(0))
+ 		state = initArrayResult(rngtypoid, aggContext, false);
+ 	else
+ 		state = (ArrayBuildState *) PG_GETARG_POINTER(0);
+@@ -1414,13 +1412,11 @@ multirange_intersect_agg_transfn(PG_FUNCTION_ARGS)
+ 	if (!AggCheckCallContext(fcinfo, &aggContext))
+ 		elog(ERROR, "multirange_intersect_agg_transfn called in non-aggregate context");
+ 
+ 	mltrngtypoid = get_fn_expr_argtype(fcinfo->flinfo, 1);
+ 	if (!type_is_multirange(mltrngtypoid))
+-		ereport(ERROR,
+-				(errcode(ERRCODE_DATATYPE_MISMATCH),
+-				 errmsg("range_intersect_agg must be called with a multirange")));
++		elog(ERROR, "range_intersect_agg must be called with a multirange");
+ 
+ 	typcache = multirange_get_typcache(fcinfo, mltrngtypoid);
+ 
+ 	/* strictness ensures these are non-null */
+ 	result = PG_GETARG_MULTIRANGE_P(0);
+diff --git a/src/backend/utils/adt/rangetypes.c b/src/backend/utils/adt/rangetypes.c
+index cbff4e93d5c..aa4c53e0ae1 100644
+--- a/src/backend/utils/adt/rangetypes.c
++++ b/src/backend/utils/adt/rangetypes.c
+@@ -1209,11 +1209,11 @@ range_intersect_agg_transfn(PG_FUNCTION_ARGS)
+ 	if (!AggCheckCallContext(fcinfo, &aggContext))
+ 		elog(ERROR, "range_intersect_agg_transfn called in non-aggregate context");
+ 
+ 	rngtypoid = get_fn_expr_argtype(fcinfo->flinfo, 1);
+ 	if (!type_is_range(rngtypoid))
+-		ereport(ERROR, (errmsg("range_intersect_agg must be called with a range")));
++		elog(ERROR, "range_intersect_agg must be called with a range");
+ 
+ 	typcache = range_get_typcache(fcinfo, rngtypoid);
+ 
+ 	/* strictness ensures these are non-null */
+ 	result = PG_GETARG_RANGE_P(0);

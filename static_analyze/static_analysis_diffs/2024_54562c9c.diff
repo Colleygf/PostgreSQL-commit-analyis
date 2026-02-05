@@ -1,0 +1,128 @@
+commit 54562c9cfa2281b6303cdea1aff9596c4a5de4b2
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Fri Sep 20 16:37:55 2024 -0400
+
+    Improve Asserts checking relation matching in parallel scans.
+    
+    table_beginscan_parallel and index_beginscan_parallel contain
+    Asserts checking that the relation a worker will use in
+    a parallel scan is the same one the leader intended.  However,
+    they were checking for relation OID match, which was not strong
+    enough to detect the mismatch problem fixed in 126ec0bc7.
+    What would be strong enough is to compare relfilenodes instead.
+    Arguably, that's a saner definition anyway, since a scan surely
+    operates on a physical relation not a logical one.  Hence,
+    store and compare RelFileLocators not relation OIDs.  Also
+    ensure that index_beginscan_parallel checks the index identity
+    not just the table identity.
+    
+    Discussion: https://postgr.es/m/2127254.1726789524@sss.pgh.pa.us
+
+diff --git a/src/backend/access/index/indexam.c b/src/backend/access/index/indexam.c
+index dcd04b813d8..1859be614c0 100644
+--- a/src/backend/access/index/indexam.c
++++ b/src/backend/access/index/indexam.c
+@@ -498,12 +498,12 @@ index_parallelscan_initialize(Relation heapRelation, Relation indexRelation,
+ 
+ 	offset = add_size(offsetof(ParallelIndexScanDescData, ps_snapshot_data),
+ 					  EstimateSnapshotSpace(snapshot));
+ 	offset = MAXALIGN(offset);
+ 
+-	target->ps_relid = RelationGetRelid(heapRelation);
+-	target->ps_indexid = RelationGetRelid(indexRelation);
++	target->ps_locator = heapRelation->rd_locator;
++	target->ps_indexlocator = indexRelation->rd_locator;
+ 	target->ps_offset = offset;
+ 	SerializeSnapshot(snapshot, target->ps_snapshot_data);
+ 
+ 	/* aminitparallelscan is optional; assume no-op if not provided by AM */
+ 	if (indexRelation->rd_indam->aminitparallelscan != NULL)
+@@ -542,11 +542,13 @@ index_beginscan_parallel(Relation heaprel, Relation indexrel, int nkeys,
+ 						 int norderbys, ParallelIndexScanDesc pscan)
+ {
+ 	Snapshot	snapshot;
+ 	IndexScanDesc scan;
+ 
+-	Assert(RelationGetRelid(heaprel) == pscan->ps_relid);
++	Assert(RelFileLocatorEquals(heaprel->rd_locator, pscan->ps_locator));
++	Assert(RelFileLocatorEquals(indexrel->rd_locator, pscan->ps_indexlocator));
++
+ 	snapshot = RestoreSnapshot(pscan->ps_snapshot_data);
+ 	RegisterSnapshot(snapshot);
+ 	scan = index_beginscan_internal(indexrel, nkeys, norderbys, snapshot,
+ 									pscan, true);
+ 
+diff --git a/src/backend/access/table/tableam.c b/src/backend/access/table/tableam.c
+index e57a0b7ea31..bd8715b6797 100644
+--- a/src/backend/access/table/tableam.c
++++ b/src/backend/access/table/tableam.c
+@@ -166,11 +166,11 @@ table_beginscan_parallel(Relation relation, ParallelTableScanDesc pscan)
+ {
+ 	Snapshot	snapshot;
+ 	uint32		flags = SO_TYPE_SEQSCAN |
+ 		SO_ALLOW_STRAT | SO_ALLOW_SYNC | SO_ALLOW_PAGEMODE;
+ 
+-	Assert(RelationGetRelid(relation) == pscan->phs_relid);
++	Assert(RelFileLocatorEquals(relation->rd_locator, pscan->phs_locator));
+ 
+ 	if (!pscan->phs_snapshot_any)
+ 	{
+ 		/* Snapshot was serialized -- restore it */
+ 		snapshot = RestoreSnapshot((char *) pscan + pscan->phs_snapshot_off);
+@@ -387,11 +387,11 @@ table_block_parallelscan_estimate(Relation rel)
+ Size
+ table_block_parallelscan_initialize(Relation rel, ParallelTableScanDesc pscan)
+ {
+ 	ParallelBlockTableScanDesc bpscan = (ParallelBlockTableScanDesc) pscan;
+ 
+-	bpscan->base.phs_relid = RelationGetRelid(rel);
++	bpscan->base.phs_locator = rel->rd_locator;
+ 	bpscan->phs_nblocks = RelationGetNumberOfBlocks(rel);
+ 	/* compare phs_syncscan initialization to similar logic in initscan */
+ 	bpscan->base.phs_syncscan = synchronize_seqscans &&
+ 		!RelationUsesLocalBuffers(rel) &&
+ 		bpscan->phs_nblocks > NBuffers / 4;
+diff --git a/src/include/access/relscan.h b/src/include/access/relscan.h
+index 521043304ab..114a85dc47c 100644
+--- a/src/include/access/relscan.h
++++ b/src/include/access/relscan.h
+@@ -16,10 +16,11 @@
+ 
+ #include "access/htup_details.h"
+ #include "access/itup.h"
+ #include "port/atomics.h"
+ #include "storage/buf.h"
++#include "storage/relfilelocator.h"
+ #include "storage/spin.h"
+ #include "utils/relcache.h"
+ 
+ 
+ struct ParallelTableScanDescData;
+@@ -60,11 +61,11 @@ typedef struct TableScanDescData *TableScanDesc;
+  * properly initialize each new TableScanDesc as workers join the scan, and it
+  * must act as a information what to scan for those workers.
+  */
+ typedef struct ParallelTableScanDescData
+ {
+-	Oid			phs_relid;		/* OID of relation to scan */
++	RelFileLocator phs_locator; /* physical relation to scan */
+ 	bool		phs_syncscan;	/* report location to syncscan logic? */
+ 	bool		phs_snapshot_any;	/* SnapshotAny, not phs_snapshot_data? */
+ 	Size		phs_snapshot_off;	/* data for snapshot */
+ } ParallelTableScanDescData;
+ typedef struct ParallelTableScanDescData *ParallelTableScanDesc;
+@@ -167,12 +168,12 @@ typedef struct IndexScanDescData
+ }			IndexScanDescData;
+ 
+ /* Generic structure for parallel scans */
+ typedef struct ParallelIndexScanDescData
+ {
+-	Oid			ps_relid;
+-	Oid			ps_indexid;
++	RelFileLocator ps_locator;	/* physical table relation to scan */
++	RelFileLocator ps_indexlocator; /* physical index relation to scan */
+ 	Size		ps_offset;		/* Offset in bytes of am specific structure */
+ 	char		ps_snapshot_data[FLEXIBLE_ARRAY_MEMBER];
+ }			ParallelIndexScanDescData;
+ 
+ struct TupleTableSlot;

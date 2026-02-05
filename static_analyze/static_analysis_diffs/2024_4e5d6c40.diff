@@ -1,0 +1,128 @@
+commit 4e5d6c40914e2b890c4780d33de8ad07b1d79689
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Mon Jul 15 14:09:30 2024 +0900
+
+    Fix unstable tests in partition_merge.sql and partition_split.sql.
+    
+    The tests added by commit c086896625 were unstable due to
+    missing schema names when checking pg_tables and pg_indexes.
+    
+    Backpatch to v17.
+    
+    Reported by buildfarm.
+
+diff --git a/src/test/regress/expected/partition_merge.out b/src/test/regress/expected/partition_merge.out
+index 26bf58b23db..59836e2d35e 100644
+--- a/src/test/regress/expected/partition_merge.out
++++ b/src/test/regress/expected/partition_merge.out
+@@ -860,25 +860,28 @@ SELECT c.oid::pg_catalog.regclass, pg_catalog.pg_get_expr(c.relpartbound, c.oid)
+ SET search_path = partitions_merge_schema, pg_temp, public;
+ -- Can't merge temporary partitions into a persistent partition
+ ALTER TABLE t MERGE PARTITIONS (tp_0_1, tp_1_2) INTO tp_0_2;
+ ROLLBACK;
+ -- Check the new partition inherits parent's tablespace
++SET search_path = partitions_merge_schema, public;
+ CREATE TABLE t (i int PRIMARY KEY USING INDEX TABLESPACE regress_tblspace)
+   PARTITION BY RANGE (i) TABLESPACE regress_tblspace;
+ CREATE TABLE tp_0_1 PARTITION OF t FOR VALUES FROM (0) TO (1);
+ CREATE TABLE tp_1_2 PARTITION OF t FOR VALUES FROM (1) TO (2);
+ ALTER TABLE t MERGE PARTITIONS (tp_0_1, tp_1_2) INTO tp_0_2;
+ SELECT tablename, tablespace FROM pg_tables
+-  WHERE tablename IN ('t', 'tp_0_2') ORDER BY tablename, tablespace;
++  WHERE tablename IN ('t', 'tp_0_2') AND schemaname = 'partitions_merge_schema'
++  ORDER BY tablename, tablespace;
+  tablename |    tablespace    
+ -----------+------------------
+  t         | regress_tblspace
+  tp_0_2    | regress_tblspace
+ (2 rows)
+ 
+ SELECT tablename, indexname, tablespace FROM pg_indexes
+-  WHERE tablename IN ('t', 'tp_0_2') ORDER BY tablename, indexname, tablespace;
++  WHERE tablename IN ('t', 'tp_0_2') AND schemaname = 'partitions_merge_schema'
++  ORDER BY tablename, indexname, tablespace;
+  tablename |  indexname  |    tablespace    
+ -----------+-------------+------------------
+  t         | t_pkey      | regress_tblspace
+  tp_0_2    | tp_0_2_pkey | regress_tblspace
+ (2 rows)
+diff --git a/src/test/regress/expected/partition_split.out b/src/test/regress/expected/partition_split.out
+index 1a8c95ad819..dc9a5130ccc 100644
+--- a/src/test/regress/expected/partition_split.out
++++ b/src/test/regress/expected/partition_split.out
+@@ -1500,20 +1500,22 @@ CREATE TABLE t (i int PRIMARY KEY USING INDEX TABLESPACE regress_tblspace)
+ CREATE TABLE tp_0_2 PARTITION OF t FOR VALUES FROM (0) TO (2);
+ ALTER TABLE t SPLIT PARTITION tp_0_2 INTO
+   (PARTITION tp_0_1 FOR VALUES FROM (0) TO (1),
+    PARTITION tp_1_2 FOR VALUES FROM (1) TO (2));
+ SELECT tablename, tablespace FROM pg_tables
+-  WHERE tablename IN ('t', 'tp_0_1', 'tp_1_2') ORDER BY tablename, tablespace;
++  WHERE tablename IN ('t', 'tp_0_1', 'tp_1_2') AND schemaname = 'partition_split_schema'
++  ORDER BY tablename, tablespace;
+  tablename |    tablespace    
+ -----------+------------------
+  t         | regress_tblspace
+  tp_0_1    | regress_tblspace
+  tp_1_2    | regress_tblspace
+ (3 rows)
+ 
+ SELECT tablename, indexname, tablespace FROM pg_indexes
+-  WHERE tablename IN ('t', 'tp_0_1', 'tp_1_2') ORDER BY tablename, indexname, tablespace;
++  WHERE tablename IN ('t', 'tp_0_1', 'tp_1_2') AND schemaname = 'partition_split_schema'
++  ORDER BY tablename, indexname, tablespace;
+  tablename |  indexname  |    tablespace    
+ -----------+-------------+------------------
+  t         | t_pkey      | regress_tblspace
+  tp_0_1    | tp_0_1_pkey | regress_tblspace
+  tp_1_2    | tp_1_2_pkey | regress_tblspace
+diff --git a/src/test/regress/sql/partition_merge.sql b/src/test/regress/sql/partition_merge.sql
+index 200bd3e7620..bede819af94 100644
+--- a/src/test/regress/sql/partition_merge.sql
++++ b/src/test/regress/sql/partition_merge.sql
+@@ -535,19 +535,22 @@ SET search_path = partitions_merge_schema, pg_temp, public;
+ -- Can't merge temporary partitions into a persistent partition
+ ALTER TABLE t MERGE PARTITIONS (tp_0_1, tp_1_2) INTO tp_0_2;
+ ROLLBACK;
+ 
+ -- Check the new partition inherits parent's tablespace
++SET search_path = partitions_merge_schema, public;
+ CREATE TABLE t (i int PRIMARY KEY USING INDEX TABLESPACE regress_tblspace)
+   PARTITION BY RANGE (i) TABLESPACE regress_tblspace;
+ CREATE TABLE tp_0_1 PARTITION OF t FOR VALUES FROM (0) TO (1);
+ CREATE TABLE tp_1_2 PARTITION OF t FOR VALUES FROM (1) TO (2);
+ ALTER TABLE t MERGE PARTITIONS (tp_0_1, tp_1_2) INTO tp_0_2;
+ SELECT tablename, tablespace FROM pg_tables
+-  WHERE tablename IN ('t', 'tp_0_2') ORDER BY tablename, tablespace;
++  WHERE tablename IN ('t', 'tp_0_2') AND schemaname = 'partitions_merge_schema'
++  ORDER BY tablename, tablespace;
+ SELECT tablename, indexname, tablespace FROM pg_indexes
+-  WHERE tablename IN ('t', 'tp_0_2') ORDER BY tablename, indexname, tablespace;
++  WHERE tablename IN ('t', 'tp_0_2') AND schemaname = 'partitions_merge_schema'
++  ORDER BY tablename, indexname, tablespace;
+ DROP TABLE t;
+ 
+ -- Check the new partition inherits parent's table access method
+ SET search_path = partitions_merge_schema, public;
+ CREATE ACCESS METHOD partitions_merge_heap TYPE TABLE HANDLER heap_tableam_handler;
+diff --git a/src/test/regress/sql/partition_split.sql b/src/test/regress/sql/partition_split.sql
+index 5143d85ec01..ef5ea07f740 100644
+--- a/src/test/regress/sql/partition_split.sql
++++ b/src/test/regress/sql/partition_split.sql
+@@ -886,13 +886,15 @@ CREATE TABLE t (i int PRIMARY KEY USING INDEX TABLESPACE regress_tblspace)
+ CREATE TABLE tp_0_2 PARTITION OF t FOR VALUES FROM (0) TO (2);
+ ALTER TABLE t SPLIT PARTITION tp_0_2 INTO
+   (PARTITION tp_0_1 FOR VALUES FROM (0) TO (1),
+    PARTITION tp_1_2 FOR VALUES FROM (1) TO (2));
+ SELECT tablename, tablespace FROM pg_tables
+-  WHERE tablename IN ('t', 'tp_0_1', 'tp_1_2') ORDER BY tablename, tablespace;
++  WHERE tablename IN ('t', 'tp_0_1', 'tp_1_2') AND schemaname = 'partition_split_schema'
++  ORDER BY tablename, tablespace;
+ SELECT tablename, indexname, tablespace FROM pg_indexes
+-  WHERE tablename IN ('t', 'tp_0_1', 'tp_1_2') ORDER BY tablename, indexname, tablespace;
++  WHERE tablename IN ('t', 'tp_0_1', 'tp_1_2') AND schemaname = 'partition_split_schema'
++  ORDER BY tablename, indexname, tablespace;
+ DROP TABLE t;
+ 
+ -- Check new partitions inherits parent's table access method
+ CREATE ACCESS METHOD partition_split_heap TYPE TABLE HANDLER heap_tableam_handler;
+ CREATE TABLE t (i int) PARTITION BY RANGE (i) USING partition_split_heap;

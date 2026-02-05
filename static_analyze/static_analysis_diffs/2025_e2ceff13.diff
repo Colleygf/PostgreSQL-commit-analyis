@@ -1,0 +1,61 @@
+commit e2ceff13d83a85c634dc358b8291c7ae301e95e1
+Author: Jacob Champion <jchampion@postgresql.org>
+Date:   Mon Nov 24 09:59:54 2025 -0800
+
+    postgres: Use pg_{add,mul}_size_overflow()
+    
+    The backend implementations of add_size() and mul_size() can now make
+    use of the APIs provided in common/int.h.
+    
+    Reviewed-by: Chao Li <li.evan.chao@gmail.com>
+    Reviewed-by: Michael Paquier <michael@paquier.xyz>
+    Discussion: https://postgr.es/m/CAOYmi%2B%3D%2BpqUd2MUitvgW1pAJuXgG_TKCVc3_Ek7pe8z9nkf%2BAg%40mail.gmail.com
+
+diff --git a/src/backend/storage/ipc/shmem.c b/src/backend/storage/ipc/shmem.c
+index 0f18beb6ad4..ee3408df301 100644
+--- a/src/backend/storage/ipc/shmem.c
++++ b/src/backend/storage/ipc/shmem.c
+@@ -63,10 +63,11 @@
+  *	unnecessary.
+  */
+ 
+ #include "postgres.h"
+ 
++#include "common/int.h"
+ #include "fmgr.h"
+ #include "funcapi.h"
+ #include "miscadmin.h"
+ #include "port/pg_numa.h"
+ #include "storage/lwlock.h"
+@@ -493,13 +494,11 @@ ShmemInitStruct(const char *name, Size size, bool *foundPtr)
+ Size
+ add_size(Size s1, Size s2)
+ {
+ 	Size		result;
+ 
+-	result = s1 + s2;
+-	/* We are assuming Size is an unsigned type here... */
+-	if (result < s1 || result < s2)
++	if (pg_add_size_overflow(s1, s2, &result))
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+ 				 errmsg("requested shared memory size overflows size_t")));
+ 	return result;
+ }
+@@ -510,15 +509,11 @@ add_size(Size s1, Size s2)
+ Size
+ mul_size(Size s1, Size s2)
+ {
+ 	Size		result;
+ 
+-	if (s1 == 0 || s2 == 0)
+-		return 0;
+-	result = s1 * s2;
+-	/* We are assuming Size is an unsigned type here... */
+-	if (result / s2 != s1)
++	if (pg_mul_size_overflow(s1, s2, &result))
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+ 				 errmsg("requested shared memory size overflows size_t")));
+ 	return result;
+ }

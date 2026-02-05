@@ -1,0 +1,85 @@
+commit b237f5422bc0667754f986f9d5bfc34a13401bc1
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Tue Dec 9 11:01:38 2025 -0600
+
+    doc: Fix titles of some pg_buffercache functions.
+    
+    As in commit 59d6c03956, use <function> rather than <structname> in
+    the <title> to be consistent with how other functions in this
+    module are documented.
+    
+    Oversights in commits dcf7e1697b and 9ccc049dfe.
+    
+    Author: Noboru Saito <noborusai@gmail.com>
+    Discussion: https://postgr.es/m/CAAM3qn%2B7KraFkCyoJCHq6m%3DurxcoHPEPryuyYeg%3DQ0EjJxjdTA%40mail.gmail.com
+    Backpatch-through: 18
+
+diff --git a/doc/src/sgml/pgbuffercache.sgml b/doc/src/sgml/pgbuffercache.sgml
+index 2e1b9bbecf4..1e9aee10275 100644
+--- a/doc/src/sgml/pgbuffercache.sgml
++++ b/doc/src/sgml/pgbuffercache.sgml
+@@ -583,11 +583,11 @@
+    only.
+   </para>
+  </sect2>
+ 
+  <sect2 id="pgbuffercache-pg-buffercache-evict-relation">
+-  <title>The <structname>pg_buffercache_evict_relation()</structname> Function</title>
++  <title>The <function>pg_buffercache_evict_relation()</function> Function</title>
+   <para>
+    The <function>pg_buffercache_evict_relation()</function> function is very
+    similar to the <function>pg_buffercache_evict()</function> function.  The
+    difference is that the <function>pg_buffercache_evict_relation()</function>
+    takes a relation identifier instead of buffer identifier.  It tries to
+@@ -601,11 +601,11 @@
+    developer testing only.
+   </para>
+  </sect2>
+ 
+  <sect2 id="pgbuffercache-pg-buffercache-evict-all">
+-  <title>The <structname>pg_buffercache_evict_all()</structname> Function</title>
++  <title>The <function>pg_buffercache_evict_all()</function> Function</title>
+   <para>
+    The <function>pg_buffercache_evict_all()</function> function is very
+    similar to the <function>pg_buffercache_evict()</function> function.  The
+    difference is, the <function>pg_buffercache_evict_all()</function> function
+    does not take an argument; instead it tries to evict all buffers in the
+@@ -617,11 +617,11 @@
+    intended for developer testing only.
+   </para>
+  </sect2>
+ 
+  <sect2 id="pgbuffercache-pg-buffercache-mark-dirty">
+-  <title>The <structname>pg_buffercache_mark_dirty</structname> Function</title>
++  <title>The <function>pg_buffercache_mark_dirty()</function> Function</title>
+   <para>
+    The <function>pg_buffercache_mark_dirty()</function> function takes a
+    buffer identifier, as shown in the <structfield>bufferid</structfield>
+    column of the <structname>pg_buffercache</structname> view.  It returns
+    information about whether the buffer was marked as dirty.
+@@ -635,11 +635,11 @@
+    intended for developer testing only.
+   </para>
+  </sect2>
+ 
+  <sect2 id="pgbuffercache-pg-buffercache-mark-dirty-relation">
+-  <title>The <structname>pg_buffercache_mark_dirty_relation</structname> Function</title>
++  <title>The <function>pg_buffercache_mark_dirty_relation()</function> Function</title>
+   <para>
+    The <function>pg_buffercache_mark_dirty_relation()</function> function is
+    very similar to the
+    <function>pg_buffercache_mark_dirty()</function> function.
+    The difference is that the
+@@ -654,11 +654,11 @@
+    intended for developer testing only.
+   </para>
+  </sect2>
+ 
+  <sect2 id="pgbuffercache-pg-buffercache-mark-dirty-all">
+-  <title>The <structname>pg_buffercache_mark_dirty_all</structname> Function</title>
++  <title>The <function>pg_buffercache_mark_dirty_all()</function> Function</title>
+   <para>
+    The <function>pg_buffercache_mark_dirty_all()</function> function is
+    very similar to the <function>pg_buffercache_mark_dirty()</function>
+    function.
+    The difference is that the

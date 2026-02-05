@@ -1,0 +1,75 @@
+commit b1307b8b60111be8ddd8d6127701883c047bed15
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri Mar 3 07:01:18 2023 +0100
+
+    Fix incorrect format placeholders
+
+diff --git a/src/backend/utils/adt/jsonb_util.c b/src/backend/utils/adt/jsonb_util.c
+index 6951426f765..e5b1ebf0c36 100644
+--- a/src/backend/utils/adt/jsonb_util.c
++++ b/src/backend/utils/adt/jsonb_util.c
+@@ -1662,11 +1662,11 @@ convertJsonbArray(StringInfo buffer, JEntry *header, JsonbValue *val, int level)
+ 		 * once at the end, to forestall possible integer overflow.
+ 		 */
+ 		if (totallen > JENTRY_OFFLENMASK)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+-					 errmsg("total size of jsonb array elements exceeds the maximum of %u bytes",
++					 errmsg("total size of jsonb array elements exceeds the maximum of %d bytes",
+ 							JENTRY_OFFLENMASK)));
+ 
+ 		/*
+ 		 * Convert each JB_OFFSET_STRIDE'th length to an offset.
+ 		 */
+@@ -1682,11 +1682,11 @@ convertJsonbArray(StringInfo buffer, JEntry *header, JsonbValue *val, int level)
+ 
+ 	/* Check length again, since we didn't include the metadata above */
+ 	if (totallen > JENTRY_OFFLENMASK)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+-				 errmsg("total size of jsonb array elements exceeds the maximum of %u bytes",
++				 errmsg("total size of jsonb array elements exceeds the maximum of %d bytes",
+ 						JENTRY_OFFLENMASK)));
+ 
+ 	/* Initialize the header of this node in the container's JEntry array */
+ 	*header = JENTRY_ISCONTAINER | totallen;
+ }
+@@ -1743,11 +1743,11 @@ convertJsonbObject(StringInfo buffer, JEntry *header, JsonbValue *val, int level
+ 		 * once at the end, to forestall possible integer overflow.
+ 		 */
+ 		if (totallen > JENTRY_OFFLENMASK)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+-					 errmsg("total size of jsonb object elements exceeds the maximum of %u bytes",
++					 errmsg("total size of jsonb object elements exceeds the maximum of %d bytes",
+ 							JENTRY_OFFLENMASK)));
+ 
+ 		/*
+ 		 * Convert each JB_OFFSET_STRIDE'th length to an offset.
+ 		 */
+@@ -1778,11 +1778,11 @@ convertJsonbObject(StringInfo buffer, JEntry *header, JsonbValue *val, int level
+ 		 * once at the end, to forestall possible integer overflow.
+ 		 */
+ 		if (totallen > JENTRY_OFFLENMASK)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+-					 errmsg("total size of jsonb object elements exceeds the maximum of %u bytes",
++					 errmsg("total size of jsonb object elements exceeds the maximum of %d bytes",
+ 							JENTRY_OFFLENMASK)));
+ 
+ 		/*
+ 		 * Convert each JB_OFFSET_STRIDE'th length to an offset.
+ 		 */
+@@ -1798,11 +1798,11 @@ convertJsonbObject(StringInfo buffer, JEntry *header, JsonbValue *val, int level
+ 
+ 	/* Check length again, since we didn't include the metadata above */
+ 	if (totallen > JENTRY_OFFLENMASK)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+-				 errmsg("total size of jsonb object elements exceeds the maximum of %u bytes",
++				 errmsg("total size of jsonb object elements exceeds the maximum of %d bytes",
+ 						JENTRY_OFFLENMASK)));
+ 
+ 	/* Initialize the header of this node in the container's JEntry array */
+ 	*header = JENTRY_ISCONTAINER | totallen;
+ }

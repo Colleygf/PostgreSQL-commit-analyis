@@ -1,0 +1,107 @@
+commit 7fcb32ad023a434e07b7214c1c762ecd410b6969
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Thu Sep 25 00:51:59 2025 +0900
+
+    Fix incorrect and inconsistent comments in tableam.h and heapam.c.
+    
+    This commit corrects several issues in function comments:
+    
+    * The parameter "rel" was incorrectly referred to as "relation" in the comments
+       for table_tuple_delete(), table_tuple_update(), and table_tuple_lock().
+    * In table_tuple_delete(), "changingPart" was listed as an output parameter
+       in the comments but is actually input.
+    * In table_tuple_update(), "slot" was listed as an input parameter
+       in the comments but is actually output.
+    * The comment for "update_indexes" in table_tuple_update() was mis-indented.
+    * The comments for heap_lock_tuple() incorrectly referenced a non-existent
+       "tid" parameter.
+    
+    Author: Chao Li <lic@highgo.com>
+    Reviewed-by: Fujii Masao <masao.fujii@gmail.com>
+    Discussion: https://postgr.es/m/CAEoWx2nB6Ay8g=KEn7L3qbYX_4+sLk9XOMkV0XZqHR4cTY8ZvQ@mail.gmail.com
+
+diff --git a/src/backend/access/heap/heapam.c b/src/backend/access/heap/heapam.c
+index 4c5ae205a7a..ed0c0c2dc9f 100644
+--- a/src/backend/access/heap/heapam.c
++++ b/src/backend/access/heap/heapam.c
+@@ -4550,11 +4550,10 @@ get_mxact_status_for_lock(LockTupleMode mode, bool is_update)
+  *
+  * Note that this acquires a buffer pin, which the caller must release.
+  *
+  * Input parameters:
+  *	relation: relation containing tuple (caller must hold suitable lock)
+- *	tid: TID of tuple to lock
+  *	cid: current command ID (used for visibility test, and stored into
+  *		tuple's cmax if lock is successful)
+  *	mode: indicates if shared or exclusive tuple lock is desired
+  *	wait_policy: what to do if tuple lock is not available
+  *	follow_updates: if true, follow the update chain to also lock descendant
+diff --git a/src/include/access/tableam.h b/src/include/access/tableam.h
+index b2ce35e2a34..77eb41eb6dc 100644
+--- a/src/include/access/tableam.h
++++ b/src/include/access/tableam.h
+@@ -1431,21 +1431,22 @@ table_multi_insert(Relation rel, TupleTableSlot **slots, int nslots,
+  *
+  * NB: do not call this directly unless prepared to deal with
+  * concurrent-update conditions.  Use simple_table_tuple_delete instead.
+  *
+  * Input parameters:
+- *	relation - table to be modified (caller must hold suitable lock)
++ *	rel - table to be modified (caller must hold suitable lock)
+  *	tid - TID of tuple to be deleted
+  *	cid - delete command ID (used for visibility test, and stored into
+  *		cmax if successful)
+  *	crosscheck - if not InvalidSnapshot, also check tuple against this
+  *	wait - true if should wait for any conflicting update to commit/abort
+- * Output parameters:
+- *	tmfd - filled in failure cases (see below)
+  *	changingPart - true iff the tuple is being moved to another partition
+  *		table due to an update of the partition key. Otherwise, false.
+  *
++ * Output parameters:
++ *	tmfd - filled in failure cases (see below)
++ *
+  * Normal, successful return value is TM_Ok, which means we did actually
+  * delete it.  Failure return codes are TM_SelfModified, TM_Updated, and
+  * TM_BeingModified (the last only possible if wait == false).
+  *
+  * In the failure cases, the routine fills *tmfd with the tuple's t_ctid,
+@@ -1467,21 +1468,22 @@ table_tuple_delete(Relation rel, ItemPointer tid, CommandId cid,
+  *
+  * NB: do not call this directly unless you are prepared to deal with
+  * concurrent-update conditions.  Use simple_table_tuple_update instead.
+  *
+  * Input parameters:
+- *	relation - table to be modified (caller must hold suitable lock)
++ *	rel - table to be modified (caller must hold suitable lock)
+  *	otid - TID of old tuple to be replaced
+- *	slot - newly constructed tuple data to store
+  *	cid - update command ID (used for visibility test, and stored into
+  *		cmax/cmin if successful)
+  *	crosscheck - if not InvalidSnapshot, also check old tuple against this
+  *	wait - true if should wait for any conflicting update to commit/abort
++ *
+  * Output parameters:
++ *	slot - newly constructed tuple data to store
+  *	tmfd - filled in failure cases (see below)
+  *	lockmode - filled with lock mode acquired on tuple
+- *  update_indexes - in success cases this is set to true if new index entries
++ *	update_indexes - in success cases this is set to true if new index entries
+  *		are required for this tuple
+  *
+  * Normal, successful return value is TM_Ok, which means we did actually
+  * update it.  Failure return codes are TM_SelfModified, TM_Updated, and
+  * TM_BeingModified (the last only possible if wait == false).
+@@ -1510,11 +1512,11 @@ table_tuple_update(Relation rel, ItemPointer otid, TupleTableSlot *slot,
+ 
+ /*
+  * Lock a tuple in the specified mode.
+  *
+  * Input parameters:
+- *	relation: relation containing tuple (caller must hold suitable lock)
++ *	rel: relation containing tuple (caller must hold suitable lock)
+  *	tid: TID of tuple to lock (updated if an update chain was followed)
+  *	snapshot: snapshot to use for visibility determinations
+  *	cid: current command ID (used for visibility test, and stored into
+  *		tuple's cmax if lock is successful)
+  *	mode: lock mode desired

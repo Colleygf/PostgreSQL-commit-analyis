@@ -1,0 +1,70 @@
+commit 385da7306c7fce210bd059ad97ebb3e19699e161
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Thu Nov 24 09:04:50 2022 +0100
+
+    doc: Fix description of how the default user name is chosen
+    
+    This makes the distinction between operating-system user name and
+    database user name a bit clearer.  It also clarifies that the user
+    name is determined first, and then the default database name.
+    
+    Author: David G. Johnston <david.g.johnston@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/CAKFQuwZUhgz=sUi+wGQV-PBTNjMovuA-BOV88RV-Vw0m0drCAg@mail.gmail.com
+
+diff --git a/doc/src/sgml/client-auth.sgml b/doc/src/sgml/client-auth.sgml
+index 3b2a0f8fb05..cc8c59206c9 100644
+--- a/doc/src/sgml/client-auth.sgml
++++ b/doc/src/sgml/client-auth.sgml
+@@ -2311,11 +2311,11 @@ FATAL:  user "andym" does not exist
+ <programlisting>
+ FATAL:  database "testdb" does not exist
+ </programlisting>
+     The database you are trying to connect to does not exist. Note that
+     if you do not specify a database name, it defaults to the database
+-    user name, which might or might not be the right thing.
++    user name.
+    </para>
+ 
+    <tip>
+    <para>
+     The server log might contain more information about an
+diff --git a/doc/src/sgml/ref/psql-ref.sgml b/doc/src/sgml/ref/psql-ref.sgml
+index d31cf17f5de..d3dd638b148 100644
+--- a/doc/src/sgml/ref/psql-ref.sgml
++++ b/doc/src/sgml/ref/psql-ref.sgml
+@@ -644,27 +644,28 @@ EOF
+ 
+     <para>
+     <application>psql</application> is a regular
+     <productname>PostgreSQL</productname> client application. In order
+     to connect to a database you need to know the name of your target
+-    database, the host name and port number of the server, and what user
+-    name you want to connect as. <application>psql</application> can be
+-    told about those parameters via command line options, namely
++    database, the host name and port number of the server, and what
++    database user name you want to connect as. <application>psql</application>
++    can be told about those parameters via command line options, namely
+     <option>-d</option>, <option>-h</option>, <option>-p</option>, and
+     <option>-U</option> respectively. If an argument is found that does
+     not belong to any option it will be interpreted as the database name
+-    (or the user name, if the database name is already given). Not all
++    (or the database user name, if the database name is already given). Not all
+     of these options are required; there are useful defaults. If you omit the host
+     name, <application>psql</application> will connect via a Unix-domain socket
+     to a server on the local host, or via TCP/IP to <literal>localhost</literal> on
+     Windows. The default port number is
+     determined at compile time.
+     Since the database server uses the same default, you will not have
+-    to specify the port in most cases. The default user name is your
+-    operating-system user name, as is the default database name.
++    to specify the port in most cases. The default database user name is your
++    operating-system user name. Once the database user name is determined, it
++    is used as the default database name.
+     Note that you cannot
+-    just connect to any database under any user name. Your database
++    just connect to any database under any database user name. Your database
+     administrator should have informed you about your access rights.
+     </para>
+ 
+     <para>
+     When the defaults aren't quite right, you can save yourself

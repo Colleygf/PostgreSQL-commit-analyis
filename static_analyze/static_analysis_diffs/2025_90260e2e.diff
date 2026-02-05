@@ -1,0 +1,222 @@
+commit 90260e2ec6bbfc3dfa9d9501ab75c535de52f677
+Author: Jeff Davis <jdavis@postgresql.org>
+Date:   Mon Apr 21 12:34:58 2025 -0700
+
+    Fix INITCAP() word boundaries for PG_UNICODE_FAST.
+    
+    Word boundaries are based on whether a character is alphanumeric or
+    not. For the PG_UNICODE_FAST collation, alphanumeric includes
+    non-ASCII digits; whereas for the PG_C_UTF8 collation, it only
+    includes digits 0-9. Pass down the right information from the
+    pg_locale_t into initcap_wbnext to differentiate the behavior.
+    
+    Reported-by: Noah Misch <noah@leadboat.com>
+    Reviewed-by: Noah Misch <noah@leadboat.com>
+    Discussion: https://postgr.es/m/20250417135841.33.nmisch@google.com
+
+diff --git a/src/backend/utils/adt/pg_locale_builtin.c b/src/backend/utils/adt/pg_locale_builtin.c
+index 125b10ff7ab..f51768830cd 100644
+--- a/src/backend/utils/adt/pg_locale_builtin.c
++++ b/src/backend/utils/adt/pg_locale_builtin.c
+@@ -38,10 +38,11 @@ extern size_t strfold_builtin(char *dest, size_t destsize, const char *src,
+ struct WordBoundaryState
+ {
+ 	const char *str;
+ 	size_t		len;
+ 	size_t		offset;
++	bool		posix;
+ 	bool		init;
+ 	bool		prev_alnum;
+ };
+ 
+ /*
+@@ -56,11 +57,11 @@ initcap_wbnext(void *state)
+ 	while (wbstate->offset < wbstate->len &&
+ 		   wbstate->str[wbstate->offset] != '\0')
+ 	{
+ 		pg_wchar	u = utf8_to_unicode((unsigned char *) wbstate->str +
+ 										wbstate->offset);
+-		bool		curr_alnum = pg_u_isalnum(u, true);
++		bool		curr_alnum = pg_u_isalnum(u, wbstate->posix);
+ 
+ 		if (!wbstate->init || curr_alnum != wbstate->prev_alnum)
+ 		{
+ 			size_t		prev_offset = wbstate->offset;
+ 
+@@ -90,10 +91,11 @@ strtitle_builtin(char *dest, size_t destsize, const char *src, ssize_t srclen,
+ {
+ 	struct WordBoundaryState wbstate = {
+ 		.str = src,
+ 		.len = srclen,
+ 		.offset = 0,
++		.posix = !locale->info.builtin.casemap_full,
+ 		.init = false,
+ 		.prev_alnum = false,
+ 	};
+ 
+ 	return unicode_strtitle(dest, destsize, src, srclen,
+diff --git a/src/common/unicode/case_test.c b/src/common/unicode/case_test.c
+index f0b38b3bdd7..fdfb62e8552 100644
+--- a/src/common/unicode/case_test.c
++++ b/src/common/unicode/case_test.c
+@@ -39,10 +39,11 @@ typedef size_t (*TestFunc) (char *dst, size_t dstsize, const char *src,
+ struct WordBoundaryState
+ {
+ 	const char *str;
+ 	size_t		len;
+ 	size_t		offset;
++	bool		posix;
+ 	bool		init;
+ 	bool		prev_alnum;
+ };
+ 
+ static size_t
+@@ -53,11 +54,11 @@ initcap_wbnext(void *state)
+ 	while (wbstate->offset < wbstate->len &&
+ 		   wbstate->str[wbstate->offset] != '\0')
+ 	{
+ 		pg_wchar	u = utf8_to_unicode((unsigned char *) wbstate->str +
+ 										wbstate->offset);
+-		bool		curr_alnum = pg_u_isalnum(u, true);
++		bool		curr_alnum = pg_u_isalnum(u, wbstate->posix);
+ 
+ 		if (!wbstate->init || curr_alnum != wbstate->prev_alnum)
+ 		{
+ 			size_t		prev_offset = wbstate->offset;
+ 
+@@ -110,14 +111,17 @@ icu_test_full(char *str)
+ 	char		icu_lower[BUFSZ];
+ 	char		icu_title[BUFSZ];
+ 	char		icu_upper[BUFSZ];
+ 	char		icu_fold[BUFSZ];
+ 	UErrorCode	status;
++
++	/* full case mapping doesn't use posix semantics */
+ 	struct WordBoundaryState wbstate = {
+ 		.str = str,
+ 		.len = strlen(str),
+ 		.offset = 0,
++		.posix = false,
+ 		.init = false,
+ 		.prev_alnum = false,
+ 	};
+ 
+ 	unicode_strlower(lower, BUFSZ, str, -1, true);
+@@ -342,20 +346,27 @@ test_convert_case()
+ 	/* test final sigma */
+ 	test_convert(tfunc_lower, "σςΣ ΣΣΣ", "σςς σσς");
+ 	test_convert(tfunc_lower, "σς'Σ' ΣΣ'Σ'", "σς'ς' σσ'ς'");
+ 	test_convert(tfunc_title, "σςΣ ΣΣΣ", "Σςς Σσς");
+ 	test_convert(tfunc_fold, "σςΣ ΣΣΣ", "σσσ σσσ");
++	/* test that alphanumerics are word characters */
++	test_convert(tfunc_title, "λλ", "Λλ");
++	test_convert(tfunc_title, "1a", "1a");
++	/* U+FF11 FULLWIDTH ONE is alphanumeric for full case mapping */
++	test_convert(tfunc_title, "\uFF11a", "\uFF11a");
++
+ 
+ #ifdef USE_ICU
+ 	icu_test_full("");
+ 	icu_test_full("ȺȺȺ");
+ 	icu_test_full("ßßß");
+ 	icu_test_full("√∞");
+ 	icu_test_full("a b");
+ 	icu_test_full("abc 123xyz");
+ 	icu_test_full("σςΣ ΣΣΣ");
+ 	icu_test_full("ıiIİ");
++	icu_test_full("\uFF11a");
+ 	/* test <alpha><iota_subscript><acute> */
+ 	icu_test_full("\u0391\u0345\u0301");
+ #endif
+ 
+ 	printf("case_test: convert_case: success\n");
+diff --git a/src/test/regress/expected/collate.utf8.out b/src/test/regress/expected/collate.utf8.out
+index 5508622b16d..0c3ab5c89b2 100644
+--- a/src/test/regress/expected/collate.utf8.out
++++ b/src/test/regress/expected/collate.utf8.out
+@@ -50,10 +50,11 @@ CREATE TABLE test_pg_c_utf8 (
+ );
+ INSERT INTO test_pg_c_utf8 VALUES
+   ('abc DEF 123abc'),
+   ('ábc sßs ßss DÉF'),
+   ('ǄxxǄ ǆxxǅ ǅxxǆ'),
++  (U&'Λλ 1a \FF11a'),
+   ('ȺȺȺ'),
+   ('ⱥⱥⱥ'),
+   ('ⱥȺ');
+ SELECT
+     t, lower(t), initcap(t), upper(t),
+@@ -65,14 +66,15 @@ SELECT
+         t        |      lower      |     initcap     |      upper      | t_bytes | lower_t_bytes | initcap_t_bytes | upper_t_bytes 
+ -----------------+-----------------+-----------------+-----------------+---------+---------------+-----------------+---------------
+  abc DEF 123abc  | abc def 123abc  | Abc Def 123abc  | ABC DEF 123ABC  |      14 |            14 |              14 |            14
+  ábc sßs ßss DÉF | ábc sßs ßss déf | Ábc Sßs ßss Déf | ÁBC SßS ßSS DÉF |      19 |            19 |              19 |            19
+  ǄxxǄ ǆxxǅ ǅxxǆ  | ǆxxǆ ǆxxǆ ǆxxǆ  | Ǆxxǆ Ǆxxǆ Ǆxxǆ  | ǄXXǄ ǄXXǄ ǄXXǄ  |      20 |            20 |              20 |            20
++ Λλ 1a １a       | λλ 1a １a       | Λλ 1a １A       | ΛΛ 1A １A       |      12 |            12 |              12 |            12
+  ȺȺȺ             | ⱥⱥⱥ             | Ⱥⱥⱥ             | ȺȺȺ             |       6 |             9 |               8 |             6
+  ⱥⱥⱥ             | ⱥⱥⱥ             | Ⱥⱥⱥ             | ȺȺȺ             |       9 |             9 |               8 |             6
+  ⱥȺ              | ⱥⱥ              | Ⱥⱥ              | ȺȺ              |       5 |             6 |               5 |             4
+-(6 rows)
++(7 rows)
+ 
+ DROP TABLE test_pg_c_utf8;
+ -- negative test: Final_Sigma not used for builtin locale C.UTF-8
+ SELECT lower('ΑΣ' COLLATE PG_C_UTF8);
+  lower 
+@@ -180,10 +182,11 @@ CREATE TABLE test_pg_unicode_fast (
+ );
+ INSERT INTO test_pg_unicode_fast VALUES
+   ('abc DEF 123abc'),
+   ('ábc sßs ßss DÉF'),
+   ('ǄxxǄ ǆxxǅ ǅxxǆ'),
++  (U&'Λλ 1a \FF11a'),
+   ('ȺȺȺ'),
+   ('ⱥⱥⱥ'),
+   ('ⱥȺ');
+ SELECT
+     t, lower(t), initcap(t), upper(t),
+@@ -195,14 +198,15 @@ SELECT
+         t        |      lower      |     initcap      |       upper       | t_bytes | lower_t_bytes | initcap_t_bytes | upper_t_bytes 
+ -----------------+-----------------+------------------+-------------------+---------+---------------+-----------------+---------------
+  abc DEF 123abc  | abc def 123abc  | Abc Def 123abc   | ABC DEF 123ABC    |      14 |            14 |              14 |            14
+  ábc sßs ßss DÉF | ábc sßs ßss déf | Ábc Sßs Ssss Déf | ÁBC SSSS SSSS DÉF |      19 |            19 |              19 |            19
+  ǄxxǄ ǆxxǅ ǅxxǆ  | ǆxxǆ ǆxxǆ ǆxxǆ  | ǅxxǆ ǅxxǆ ǅxxǆ   | ǄXXǄ ǄXXǄ ǄXXǄ    |      20 |            20 |              20 |            20
++ Λλ 1a １a       | λλ 1a １a       | Λλ 1a １a        | ΛΛ 1A １A         |      12 |            12 |              12 |            12
+  ȺȺȺ             | ⱥⱥⱥ             | Ⱥⱥⱥ              | ȺȺȺ               |       6 |             9 |               8 |             6
+  ⱥⱥⱥ             | ⱥⱥⱥ             | Ⱥⱥⱥ              | ȺȺȺ               |       9 |             9 |               8 |             6
+  ⱥȺ              | ⱥⱥ              | Ⱥⱥ               | ȺȺ                |       5 |             6 |               5 |             4
+-(6 rows)
++(7 rows)
+ 
+ DROP TABLE test_pg_unicode_fast;
+ -- test Final_Sigma
+ SELECT lower('ΑΣ' COLLATE PG_UNICODE_FAST); -- 0391 03A3
+  lower 
+diff --git a/src/test/regress/sql/collate.utf8.sql b/src/test/regress/sql/collate.utf8.sql
+index 6c7c7aec9ec..d6d14220ab3 100644
+--- a/src/test/regress/sql/collate.utf8.sql
++++ b/src/test/regress/sql/collate.utf8.sql
+@@ -43,10 +43,11 @@ CREATE TABLE test_pg_c_utf8 (
+ );
+ INSERT INTO test_pg_c_utf8 VALUES
+   ('abc DEF 123abc'),
+   ('ábc sßs ßss DÉF'),
+   ('ǄxxǄ ǆxxǅ ǅxxǆ'),
++  (U&'Λλ 1a \FF11a'),
+   ('ȺȺȺ'),
+   ('ⱥⱥⱥ'),
+   ('ⱥȺ');
+ 
+ SELECT
+@@ -98,10 +99,11 @@ CREATE TABLE test_pg_unicode_fast (
+ );
+ INSERT INTO test_pg_unicode_fast VALUES
+   ('abc DEF 123abc'),
+   ('ábc sßs ßss DÉF'),
+   ('ǄxxǄ ǆxxǅ ǅxxǆ'),
++  (U&'Λλ 1a \FF11a'),
+   ('ȺȺȺ'),
+   ('ⱥⱥⱥ'),
+   ('ⱥȺ');
+ 
+ SELECT

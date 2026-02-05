@@ -1,0 +1,54 @@
+commit 236f1ea84c4ca6a29d790fac4b48eba12a74443c
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Mon Jan 23 11:56:43 2023 +0200
+
+    Fix and clarify function comment on LogicalTapeSetCreate.
+    
+    Commit c4649cce39 removed the "shared" and "ntapes" arguments, but the
+    comment still talked about "shared". It also talked about "a shared
+    file handle", which was technically correct because even before commit
+    c4649cce39, the "shared file handle" referred to the "fileset"
+    argument, not "shared". But it was very confusing. Improve the
+    comment.
+    
+    Also add a comment on what the "preallocate" argument does.
+    
+    Backpatch to v15, just to make backpatching other patches easier in
+    the future.
+    
+    Discussion: https://www.postgresql.org/message-id/af989685-91d5-aad4-8f60-1d066b5ec309@enterprisedb.com
+    Reviewed-by: Peter Eisentraut
+
+diff --git a/src/backend/utils/sort/logtape.c b/src/backend/utils/sort/logtape.c
+index 56ac0298c55..64ea237438b 100644
+--- a/src/backend/utils/sort/logtape.c
++++ b/src/backend/utils/sort/logtape.c
+@@ -535,18 +535,24 @@ ltsInitReadBuffer(LogicalTape *lt)
+  * Create a tape set, backed by a temporary underlying file.
+  *
+  * The tape set is initially empty. Use LogicalTapeCreate() to create
+  * tapes in it.
+  *
+- * Serial callers pass NULL argument for shared, and -1 for worker.  Parallel
+- * worker callers pass a shared file handle and their own worker number.
++ * In a single-process sort, pass NULL argument for fileset, and -1 for
++ * worker.
+  *
+- * Leader callers pass a shared file handle and -1 for worker. After creating
+- * the tape set, use LogicalTapeImport() to import the worker tapes into it.
++ * In a parallel sort, parallel workers pass the shared fileset handle and
++ * their own worker number.  After the workers have finished, create the
++ * tape set in the leader, passing the shared fileset handle and -1 for
++ * worker, and use LogicalTapeImport() to import the worker tapes into it.
+  *
+  * Currently, the leader will only import worker tapes into the set, it does
+  * not create tapes of its own, although in principle that should work.
++ *
++ * If preallocate is true, blocks for each individual tape are allocated in
++ * batches.  This avoids fragmentation when writing multiple tapes at the
++ * same time.
+  */
+ LogicalTapeSet *
+ LogicalTapeSetCreate(bool preallocate, SharedFileSet *fileset, int worker)
+ {
+ 	LogicalTapeSet *lts;

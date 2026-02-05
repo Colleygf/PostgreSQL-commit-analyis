@@ -1,0 +1,58 @@
+commit 03b08c8f5f3e30c97e5908f3d3d76872dab8a9dc
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Tue Jul 30 14:01:01 2024 +0530
+
+    pg_createsubscriber: Fix an unpredictable recovery wait time.
+    
+    The problem is that the tool is using the LSN returned by
+    pg_create_logical_replication_slot() as recovery_target_lsn. This LSN is
+    ahead of the current WAL position and the recovery waits until the
+    publisher writes a WAL record to reach the target and ends the recovery.
+    On idle systems, this wait time is unpredictable and could lead to failure
+    in promoting the subscriber. To avoid that, insert a harmless WAL record.
+    
+    Reported-by: Alexander Lakhin and Tom Lane
+    Diagnosed-by: Hayato Kuroda
+    Author: Euler Taveira
+    Reviewed-by: Hayato Kuroda, Amit Kapila
+    Backpatch-through: 17
+    Discussion: https://postgr.es/m/2377319.1719766794%40sss.pgh.pa.us
+    Discussion: https://postgr.es/m/CA+TgmoYcY+Wb67NAwaHT7MvxCSeV86oSc+va9hHKaasE42ukyw@mail.gmail.com
+
+diff --git a/src/bin/pg_basebackup/pg_createsubscriber.c b/src/bin/pg_basebackup/pg_createsubscriber.c
+index b02318782a6..b15fb98994a 100644
+--- a/src/bin/pg_basebackup/pg_createsubscriber.c
++++ b/src/bin/pg_basebackup/pg_createsubscriber.c
+@@ -776,10 +776,32 @@ setup_publisher(struct LogicalRepInfo *dbinfo)
+ 			pg_log_info("create replication slot \"%s\" on publisher",
+ 						dbinfo[i].replslotname);
+ 		else
+ 			exit(1);
+ 
++		/*
++		 * Since we are using the LSN returned by the last replication slot as
++		 * recovery_target_lsn, this LSN is ahead of the current WAL position
++		 * and the recovery waits until the publisher writes a WAL record to
++		 * reach the target and ends the recovery. On idle systems, this wait
++		 * time is unpredictable and could lead to failure in promoting the
++		 * subscriber. To avoid that, insert a harmless WAL record.
++		 */
++		if (i == num_dbs - 1 && !dry_run)
++		{
++			PGresult   *res;
++
++			res = PQexec(conn, "SELECT pg_log_standby_snapshot()");
++			if (PQresultStatus(res) != PGRES_TUPLES_OK)
++			{
++				pg_log_error("could not write an additional WAL record: %s",
++							 PQresultErrorMessage(res));
++				disconnect_database(conn, true);
++			}
++			PQclear(res);
++		}
++
+ 		disconnect_database(conn, false);
+ 	}
+ 
+ 	return lsn;
+ }

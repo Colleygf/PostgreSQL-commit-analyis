@@ -1,0 +1,68 @@
+commit ea792bfd93ab8ad4ef4e3d1a741b8595db143677
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu Nov 21 15:14:02 2024 +0900
+
+    Fix memory leak in pgoutput for the WAL sender
+    
+    RelationSyncCache, the hash table in charge of tracking the relation
+    schemas sent through pgoutput, was forgetting to free the TupleDesc
+    associated to the two slots used to store the new and old tuples,
+    causing some memory to be leaked each time a relation is invalidated
+    when the slots of an existing relation entry are cleaned up.
+    
+    This is rather hard to notice as the bloat is pretty minimal, but a
+    long-running WAL sender would be in trouble over time depending on the
+    workload.  sysbench has proved to be pretty good at showing the problem,
+    coupled with some memory monitoring of the WAL sender.
+    
+    Issue introduced in 52e4f0cd472d, that has added row filters for tables
+    logically replicated.
+    
+    Author: Boyu Yang
+    Reviewed-by: Michael Paquier, Hou Zhijie
+    Discussion: https://postgr.es/m/DM3PR84MB3442E14B340E553313B5C816E3252@DM3PR84MB3442.NAMPRD84.PROD.OUTLOOK.COM
+    Backpatch-through: 15
+
+diff --git a/src/backend/replication/pgoutput/pgoutput.c b/src/backend/replication/pgoutput/pgoutput.c
+index a6002b223df..5e23453f071 100644
+--- a/src/backend/replication/pgoutput/pgoutput.c
++++ b/src/backend/replication/pgoutput/pgoutput.c
+@@ -2093,14 +2093,38 @@ get_rel_sync_entry(PGOutputData *data, Relation relation)
+ 
+ 		/*
+ 		 * Tuple slots cleanups. (Will be rebuilt later if needed).
+ 		 */
+ 		if (entry->old_slot)
++		{
++			TupleDesc	desc = entry->old_slot->tts_tupleDescriptor;
++
++			Assert(desc->tdrefcount == -1);
++
+ 			ExecDropSingleTupleTableSlot(entry->old_slot);
++
++			/*
++			 * ExecDropSingleTupleTableSlot() would not free the TupleDesc, so
++			 * do it now to avoid any leaks.
++			 */
++			FreeTupleDesc(desc);
++		}
+ 		if (entry->new_slot)
++		{
++			TupleDesc	desc = entry->new_slot->tts_tupleDescriptor;
++
++			Assert(desc->tdrefcount == -1);
++
+ 			ExecDropSingleTupleTableSlot(entry->new_slot);
+ 
++			/*
++			 * ExecDropSingleTupleTableSlot() would not free the TupleDesc, so
++			 * do it now to avoid any leaks.
++			 */
++			FreeTupleDesc(desc);
++		}
++
+ 		entry->old_slot = NULL;
+ 		entry->new_slot = NULL;
+ 
+ 		if (entry->attrmap)
+ 			free_attrmap(entry->attrmap);

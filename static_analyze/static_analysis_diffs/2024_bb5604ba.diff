@@ -1,0 +1,49 @@
+commit bb5604ba9e53e3a0fb9967f960e36cff4d36b0ab
+Author: Jeff Davis <jdavis@postgresql.org>
+Date:   Mon Mar 18 17:13:18 2024 -0700
+
+    Fix documentation oversights from 2d819a08a1.
+
+diff --git a/doc/src/sgml/ref/create_database.sgml b/doc/src/sgml/ref/create_database.sgml
+index a839a8568cb..233ff1755dd 100644
+--- a/doc/src/sgml/ref/create_database.sgml
++++ b/doc/src/sgml/ref/create_database.sgml
+@@ -158,11 +158,12 @@ CREATE DATABASE <replaceable class="parameter">name</replaceable>
+         linkend="collation-managing-create-icu"/> for details.
+        </para>
+        <para>
+         Can be overridden by setting <xref
+         linkend="create-database-lc-collate"/>, <xref
+-        linkend="create-database-lc-ctype"/>, or <xref
++        linkend="create-database-lc-ctype"/>, <xref
++        linkend="create-database-builtin-locale"/>, or <xref
+         linkend="create-database-icu-locale"/> individually.
+        </para>
+        <para>
+         If <xref linkend="create-database-locale-provider"/> is
+         <literal>builtin</literal>, then <replaceable>locale</replaceable>
+diff --git a/doc/src/sgml/ref/createdb.sgml b/doc/src/sgml/ref/createdb.sgml
+index d3e815f659c..b6d24261f9d 100644
+--- a/doc/src/sgml/ref/createdb.sgml
++++ b/doc/src/sgml/ref/createdb.sgml
+@@ -148,10 +148,20 @@ PostgreSQL documentation
+         Specifies the LC_CTYPE setting to be used in this database.
+        </para>
+       </listitem>
+      </varlistentry>
+ 
++     <varlistentry>
++      <term><option>--builtin-locale=<replaceable class="parameter">locale</replaceable></option></term>
++      <listitem>
++       <para>
++        Specifies the locale name when the builtin provider is used. Locale support
++        is described in <xref linkend="locale"/>.
++       </para>
++      </listitem>
++     </varlistentry>
++
+      <varlistentry>
+       <term><option>--icu-locale=<replaceable class="parameter">locale</replaceable></option></term>
+       <listitem>
+        <para>
+         Specifies the ICU locale ID to be used in this database, if the

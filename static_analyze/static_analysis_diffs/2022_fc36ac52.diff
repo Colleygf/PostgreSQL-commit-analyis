@@ -1,0 +1,76 @@
+commit fc36ac52ebd3b0c879877c424f94318728b25935
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Sun May 29 23:53:45 2022 +0300
+
+    Fix COPY FROM when database encoding is SQL_ASCII.
+    
+    In the codepath when no encoding conversion is required, the check for
+    incomplete character at the end of input incorrectly used server
+    encoding's max character length, instead of the client's. Usually the
+    server and client encodings are the same when we're not performing
+    encoding conversion, but SQL_ASCII is an exception.
+    
+    In the passing, also fix some outdated comments that still talked about
+    the old COPY protocol. It was removed in v14.
+    
+    Per bug #17501 from Vitaly Voronov. Backpatch to v14 where this was
+    introduced.
+    
+    Discussion: https://www.postgresql.org/message-id/17501-128b1dd039362ae6@postgresql.org
+
+diff --git a/src/backend/commands/copyfromparse.c b/src/backend/commands/copyfromparse.c
+index edb80e2cd52..e06534943f7 100644
+--- a/src/backend/commands/copyfromparse.c
++++ b/src/backend/commands/copyfromparse.c
+@@ -442,11 +442,11 @@ CopyConvertBuf(CopyFromState cstate)
+ 			 * was an incomplete multi-byte sequence at the end.  Also, if
+ 			 * there's "enough" input left, we should be able to verify at
+ 			 * least one character, and a failure to do so means that we've
+ 			 * hit an invalid byte sequence.
+ 			 */
+-			if (cstate->raw_reached_eof || unverifiedlen >= pg_database_encoding_max_length())
++			if (cstate->raw_reached_eof || unverifiedlen >= pg_encoding_max_length(cstate->file_encoding))
+ 				cstate->input_reached_error = true;
+ 			return;
+ 		}
+ 		cstate->input_buf_len += nverified;
+ 	}
+@@ -1170,18 +1170,16 @@ CopyReadLineText(CopyFromState cstate)
+ 	{
+ 		int			prev_raw_ptr;
+ 		char		c;
+ 
+ 		/*
+-		 * Load more data if needed.  Ideally we would just force four bytes
+-		 * of read-ahead and avoid the many calls to
+-		 * IF_NEED_REFILL_AND_NOT_EOF_CONTINUE(), but the COPY_OLD_FE protocol
+-		 * does not allow us to read too far ahead or we might read into the
+-		 * next data, so we read-ahead only as far we know we can.  One
+-		 * optimization would be to read-ahead four byte here if
+-		 * cstate->copy_src != COPY_OLD_FE, but it hardly seems worth it,
+-		 * considering the size of the buffer.
++		 * Load more data if needed.
++		 *
++		 * TODO: We could just force four bytes of read-ahead and avoid the
++		 * many calls to IF_NEED_REFILL_AND_NOT_EOF_CONTINUE().  That was
++		 * unsafe with the old v2 COPY protocol, but we don't support that
++		 * anymore.
+ 		 */
+ 		if (input_buf_ptr >= copy_buf_len || need_data)
+ 		{
+ 			REFILL_LINEBUF;
+ 
+@@ -1212,13 +1210,10 @@ CopyReadLineText(CopyFromState cstate)
+ 			/*
+ 			 * If character is '\\' or '\r', we may need to look ahead below.
+ 			 * Force fetch of the next character if we don't already have it.
+ 			 * We need to do this before changing CSV state, in case one of
+ 			 * these characters is also the quote or escape character.
+-			 *
+-			 * Note: old-protocol does not like forced prefetch, but it's OK
+-			 * here since we cannot validly be at EOF.
+ 			 */
+ 			if (c == '\\' || c == '\r')
+ 			{
+ 				IF_NEED_REFILL_AND_NOT_EOF_CONTINUE(0);
+ 			}

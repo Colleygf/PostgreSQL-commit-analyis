@@ -1,0 +1,74 @@
+commit d3917d8f13e725a3ae3be8a1c051e677ac6e3334
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Sat Jul 19 13:44:01 2025 +0300
+
+    Fix infinite wait when reading a partially written WAL record
+    
+    If a crash occurs while writing a WAL record that spans multiple pages, the
+    recovery process marks the page with the XLP_FIRST_IS_OVERWRITE_CONTRECORD
+    flag.  However, logical decoding currently attempts to read the full WAL
+    record based on its expected size before checking this flag, which can lead
+    to an infinite wait if the remaining data is never written (e.g., no activity
+    after crash).
+    
+    This patch updates the logic first to read the page header and check for
+    the XLP_FIRST_IS_OVERWRITE_CONTRECORD flag before attempting to reconstruct
+    the full WAL record.  If the flag is set, decoding correctly identifies
+    the record as incomplete and avoids waiting for WAL data that will never
+    arrive.
+    
+    Discussion: https://postgr.es/m/CAAKRu_ZCOzQpEumLFgG_%2Biw3FTa%2BhJ4SRpxzaQBYxxM_ZAzWcA%40mail.gmail.com
+    Discussion: https://postgr.es/m/CALDaNm34m36PDHzsU_GdcNXU0gLTfFY5rzh9GSQv%3Dw6B%2BQVNRQ%40mail.gmail.com
+    Author: Vignesh C <vignesh21@gmail.com>
+    Reviewed-by: Hayato Kuroda <kuroda.hayato@fujitsu.com>
+    Reviewed-by: Dilip Kumar <dilipbalaut@gmail.com>
+    Reviewed-by: Michael Paquier <michael@paquier.xyz>
+    Reviewed-by: Alexander Korotkov <aekorotkov@gmail.com>
+    Backpatch-through: 13
+
+diff --git a/src/backend/access/transam/xlogreader.c b/src/backend/access/transam/xlogreader.c
+index ac1f801b1eb..dcc8d4f9c1b 100644
+--- a/src/backend/access/transam/xlogreader.c
++++ b/src/backend/access/transam/xlogreader.c
+@@ -721,15 +721,16 @@ restart:
+ 		do
+ 		{
+ 			/* Calculate pointer to beginning of next page */
+ 			targetPagePtr += XLOG_BLCKSZ;
+ 
+-			/* Wait for the next page to become available */
+-			readOff = ReadPageInternal(state, targetPagePtr,
+-									   Min(total_len - gotlen + SizeOfXLogShortPHD,
+-										   XLOG_BLCKSZ));
+-
++			/*
++			 * Read the page header before processing the record data, so we
++			 * can handle the case where the previous record ended as being a
++			 * partial one.
++			 */
++			readOff = ReadPageInternal(state, targetPagePtr, SizeOfXLogShortPHD);
+ 			if (readOff == XLREAD_WOULDBLOCK)
+ 				return XLREAD_WOULDBLOCK;
+ 			else if (readOff < 0)
+ 				goto err;
+ 
+@@ -774,10 +775,19 @@ restart:
+ 									  ((long long) total_len) - gotlen,
+ 									  LSN_FORMAT_ARGS(RecPtr));
+ 				goto err;
+ 			}
+ 
++			/* Wait for the next page to become available */
++			readOff = ReadPageInternal(state, targetPagePtr,
++									   Min(total_len - gotlen + SizeOfXLogShortPHD,
++										   XLOG_BLCKSZ));
++			if (readOff == XLREAD_WOULDBLOCK)
++				return XLREAD_WOULDBLOCK;
++			else if (readOff < 0)
++				goto err;
++
+ 			/* Append the continuation from this page to the buffer */
+ 			pageHeaderSize = XLogPageHeaderSize(pageHeader);
+ 
+ 			if (readOff < pageHeaderSize)
+ 				readOff = ReadPageInternal(state, targetPagePtr,

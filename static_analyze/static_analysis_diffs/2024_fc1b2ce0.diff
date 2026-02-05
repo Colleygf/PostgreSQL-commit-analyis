@@ -1,0 +1,78 @@
+commit fc1b2ce0ee9c9745c5c562b692e021344a3f719a
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Tue Oct 1 08:31:33 2024 -0400
+
+    Fix some pg_verifybackup issues reported by Coverity.
+    
+    Commit 8dfd3129027969fdd2d9d294220c867d2efd84aa introduced a few
+    problems. verify_tar_file() forgot to free a buffer; the leak can't
+    add up to anything material, but might as well fix it.
+    precheck_tar_backup_file() intended to return after reporting an
+    error but didn't actually do so. member_copy_control_data() could
+    try to copy zero bytes (and maybe Coverity thinks it can even be
+    trying to copy a negative number of bytes).
+    
+    Per discussion with Tom Lane.
+    
+    Discussion: http://postgr.es/m/1240823.1727629418@sss.pgh.pa.us
+
+diff --git a/src/bin/pg_verifybackup/astreamer_verify.c b/src/bin/pg_verifybackup/astreamer_verify.c
+index 57072fdfe04..f7ecdc1f655 100644
+--- a/src/bin/pg_verifybackup/astreamer_verify.c
++++ b/src/bin/pg_verifybackup/astreamer_verify.c
+@@ -339,18 +339,18 @@ member_copy_control_data(astreamer *streamer, astreamer_member *member,
+ 	 * Copy the new data into the control file buffer, but do not overrun the
+ 	 * buffer. Note that the on-disk length of the control file is expected to
+ 	 * be PG_CONTROL_FILE_SIZE, but the part that fits in our buffer is
+ 	 * shorter, just sizeof(ControlFileData).
+ 	 */
+-	if (mystreamer->control_file_bytes <= sizeof(ControlFileData))
++	if (mystreamer->control_file_bytes < sizeof(ControlFileData))
+ 	{
+-		int			remaining;
++		size_t		remaining;
+ 
+ 		remaining = sizeof(ControlFileData) - mystreamer->control_file_bytes;
+ 		memcpy(((char *) &mystreamer->control_file)
+ 			   + mystreamer->control_file_bytes,
+-			   data, Min(len, remaining));
++			   data, Min((size_t) len, remaining));
+ 	}
+ 
+ 	/* Remember how many bytes we saw, even if we didn't buffer them. */
+ 	mystreamer->control_file_bytes += len;
+ }
+diff --git a/src/bin/pg_verifybackup/pg_verifybackup.c b/src/bin/pg_verifybackup/pg_verifybackup.c
+index a9d41a6b838..32467a1ba09 100644
+--- a/src/bin/pg_verifybackup/pg_verifybackup.c
++++ b/src/bin/pg_verifybackup/pg_verifybackup.c
+@@ -927,13 +927,16 @@ precheck_tar_backup_file(verifier_context *context, char *relpath,
+ 		/*
+ 		 * Report an error if we didn't consume at least one character, if the
+ 		 * result is 0, or if the value is too large to be a valid OID.
+ 		 */
+ 		if (suffix == NULL || num <= 0 || num > OID_MAX)
++		{
+ 			report_backup_error(context,
+ 								"file \"%s\" is not expected in a tar format backup",
+ 								relpath);
++			return;
++		}
+ 		tblspc_oid = (Oid) num;
+ 	}
+ 
+ 	/* Now, check the compression type of the tar */
+ 	if (strcmp(suffix, ".tar") == 0)
+@@ -1012,10 +1015,12 @@ verify_tar_file(verifier_context *context, char *relpath, char *fullpath,
+ 		/* Report progress */
+ 		done_size += rc;
+ 		progress_report(false);
+ 	}
+ 
++	pg_free(buffer);
++
+ 	if (rc < 0)
+ 		report_backup_error(context, "could not read file \"%s\": %m",
+ 							relpath);
+ 
+ 	/* Close the file. */

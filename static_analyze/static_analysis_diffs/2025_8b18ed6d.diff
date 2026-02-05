@@ -1,0 +1,55 @@
+commit 8b18ed6dfbb8b3e4483801b513fea6b429140569
+Author: Noah Misch <noah@leadboat.com>
+Date:   Mon Nov 3 12:57:09 2025 -0800
+
+    Doc: cover index CONCURRENTLY causing errors in INSERT ... ON CONFLICT.
+    
+    Author: Mikhail Nikalayeu <mihailnikalayeu@gmail.com>
+    Reviewed-by: Noah Misch <noah@leadboat.com>
+    Discussion: https://postgr.es/m/CANtu0ojXmqjmEzp-=aJSxjsdE76iAsRgHBoK0QtYHimb_mEfsg@mail.gmail.com
+    Backpatch-through: 13
+
+diff --git a/doc/src/sgml/ref/insert.sgml b/doc/src/sgml/ref/insert.sgml
+index 3f139917790..b337f2ee555 100644
+--- a/doc/src/sgml/ref/insert.sgml
++++ b/doc/src/sgml/ref/insert.sgml
+@@ -592,10 +592,19 @@ INSERT INTO <replaceable class="parameter">table_name</replaceable> [ AS <replac
+      using <literal>CREATE UNIQUE INDEX ...  CONCURRENTLY</literal>
+      before dropping the index being replaced.
+     </para>
+    </tip>
+ 
++   <warning>
++    <para>
++      While <command>CREATE INDEX CONCURRENTLY</command> or <command>REINDEX
++      CONCURRENTLY</command> is running on a unique index, <command>INSERT
++      ... ON CONFLICT</command> statements on the same table may unexpectedly
++      fail with a unique violation.
++    </para>
++   </warning>
++
+   </refsect2>
+  </refsect1>
+ 
+  <refsect1>
+   <title>Outputs</title>
+diff --git a/src/backend/optimizer/util/plancat.c b/src/backend/optimizer/util/plancat.c
+index f4b7343dace..d950bd93002 100644
+--- a/src/backend/optimizer/util/plancat.c
++++ b/src/backend/optimizer/util/plancat.c
+@@ -787,10 +787,15 @@ find_relation_notnullatts(PlannerInfo *root, Oid relid)
+  * in the inference specification. The same is true of collations.  In
+  * particular, there is no system dependency on the default operator class for
+  * the purposes of inference.  If no opclass (or collation) is specified, then
+  * all matching indexes (that may or may not match the default in terms of
+  * each attribute opclass/collation) are used for inference.
++ *
++ * Note: during index CONCURRENTLY operations, different transactions may
++ * reference different sets of arbiter indexes. This can lead to false unique
++ * constraint violations that wouldn't occur during normal operations.  For
++ * more information, see insert.sgml.
+  */
+ List *
+ infer_arbiter_indexes(PlannerInfo *root)
+ {
+ 	OnConflictExpr *onconflict = root->parse->onConflict;

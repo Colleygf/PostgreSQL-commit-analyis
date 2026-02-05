@@ -1,0 +1,161 @@
+commit 853c6400bf5defda139dc36387ce761398011799
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Wed Feb 16 01:37:48 2022 +0200
+
+    Fix race condition in 028_pitr_timelines.pl test, add note to docs.
+    
+    The 028_pitr_timelines.pl test would sometimes hang, waiting for a WAL
+    segment that was just filled up to be archived. It was because the
+    test used 'pg_stat_archiver.last_archived_wal' to check if a file was
+    archived, but the order that WAL files are archived when a standby is
+    promoted is not fully deterministic, and 'last_archived_wal' tracks
+    the last segment that was archived, not the highest-numbered WAL
+    segment. Because of that, if the archiver archived segment 3, and then
+    2, 'last_archived_wal' say 2, and the test query would think that 3
+    has not been archived yet.
+    
+    Normally, WAL files are marked ready for archival in order, and the
+    archiver process will process them in order, so that issue doesn't
+    arise.  We have used the same query on 'last_archived_wal' in a few
+    other tests with no problem. But when a standby is promoted, things
+    are a bit chaotic. After promotion, the server will try to archive all
+    the WAL segments from the old timeline that are in pg_wal, as well as
+    the history file and any new WAL segments on the new timeline. The
+    end-of-recovery checkpoint will create the .ready files for all the
+    WAL files on the old timeline, but at the same time, the new timeline
+    is opened up for business. A file from the new timeline can therefore
+    be archived before the files from the old timeline have been marked as
+    ready for archival.
+    
+    It turns out that we don't really need to wait for the archival in
+    this particular test, because the standby server is about to be
+    stopped, and stopping a server will wait for the end-of-recovery
+    checkpoint and all WAL archivals to finish, anyway. So we can just
+    remove it from the test.
+    
+    Add a note to the docs on 'pg_stat_archiver' view that files can be
+    archived out of order.
+    
+    Reviewed-by: Tom Lane
+    Discussion: https://www.postgresql.org/message-id/3186114.1644960507@sss.pgh.pa.us
+
+diff --git a/doc/src/sgml/monitoring.sgml b/doc/src/sgml/monitoring.sgml
+index 62f2a3332bd..bf7625d9889 100644
+--- a/doc/src/sgml/monitoring.sgml
++++ b/doc/src/sgml/monitoring.sgml
+@@ -3420,20 +3420,20 @@ SELECT pid, wait_event_type, wait_event FROM pg_stat_activity WHERE wait_event i
+      <row>
+       <entry role="catalog_table_entry"><para role="column_definition">
+        <structfield>last_archived_wal</structfield> <type>text</type>
+       </para>
+       <para>
+-       Name of the last WAL file successfully archived
++       Name of the WAL file most recently successfully archived
+       </para></entry>
+      </row>
+ 
+      <row>
+       <entry role="catalog_table_entry"><para role="column_definition">
+        <structfield>last_archived_time</structfield> <type>timestamp with time zone</type>
+       </para>
+       <para>
+-       Time of the last successful archive operation
++       Time of the most recent successful archive operation
+       </para></entry>
+      </row>
+ 
+      <row>
+       <entry role="catalog_table_entry"><para role="column_definition">
+@@ -3447,20 +3447,20 @@ SELECT pid, wait_event_type, wait_event FROM pg_stat_activity WHERE wait_event i
+      <row>
+       <entry role="catalog_table_entry"><para role="column_definition">
+        <structfield>last_failed_wal</structfield> <type>text</type>
+       </para>
+       <para>
+-       Name of the WAL file of the last failed archival operation
++       Name of the WAL file of the most recent failed archival operation
+       </para></entry>
+      </row>
+ 
+      <row>
+       <entry role="catalog_table_entry"><para role="column_definition">
+        <structfield>last_failed_time</structfield> <type>timestamp with time zone</type>
+       </para>
+       <para>
+-       Time of the last failed archival operation
++       Time of the most recent failed archival operation
+       </para></entry>
+      </row>
+ 
+      <row>
+       <entry role="catalog_table_entry"><para role="column_definition">
+@@ -3472,10 +3472,19 @@ SELECT pid, wait_event_type, wait_event FROM pg_stat_activity WHERE wait_event i
+      </row>
+     </tbody>
+    </tgroup>
+   </table>
+ 
++  <para>
++    Normally, WAL files are archived in order, oldest to newest, but that is
++    not guaranteed, and does not hold under special circumstances like when
++    promoting a standby or after crash recovery. Therefore it is not safe to
++    assume that all files older than
++    <structfield>last_archived_wal</structfield> have also been successfully
++    archived.
++  </para>
++
+  </sect2>
+ 
+  <sect2 id="monitoring-pg-stat-bgwriter-view">
+   <title><structname>pg_stat_bgwriter</structname></title>
+ 
+diff --git a/src/test/recovery/t/028_pitr_timelines.pl b/src/test/recovery/t/028_pitr_timelines.pl
+index c0b76fe37b2..a8b12d9af6e 100644
+--- a/src/test/recovery/t/028_pitr_timelines.pl
++++ b/src/test/recovery/t/028_pitr_timelines.pl
+@@ -34,11 +34,10 @@ use Test::More;
+ use File::Compare;
+ 
+ # Initialize and start primary node with WAL archiving
+ my $node_primary = PostgreSQL::Test::Cluster->new('primary');
+ $node_primary->init(has_archiving => 1, allows_streaming => 1);
+-$node_primary->append_conf('postgresql.conf', 'log_min_messages=debug1');
+ $node_primary->start;
+ 
+ # Take a backup.
+ my $backup_name = 'my_backup';
+ $node_primary->backup($backup_name);
+@@ -68,11 +67,10 @@ $node_standby->init_from_backup(
+ 	standby       => 1,
+ 	has_streaming => 1,
+ 	has_archiving => 1,
+ 	has_restoring => 0);
+ $node_standby->append_conf('postgresql.conf', 'archive_mode = always');
+-$node_standby->append_conf('postgresql.conf', 'log_min_messages=debug1');
+ $node_standby->start;
+ $node_primary->wait_for_catchup($node_standby);
+ 
+ # Check that it's really caught up.
+ my $result = $node_standby->safe_psql('postgres', "SELECT max(i) FROM foo;");
+@@ -91,19 +89,12 @@ my $walfile_to_be_archived = $node_standby->safe_psql('postgres',
+ 	"SELECT pg_walfile_name(pg_current_wal_lsn());");
+ 
+ # Make WAL segment eligible for archival
+ $node_standby->safe_psql('postgres', 'SELECT pg_switch_wal()');
+ 
+-# Wait until the WAL segment has been archived.
+-my $archive_wait_query =
+-  "SELECT '$walfile_to_be_archived' <= last_archived_wal FROM pg_stat_archiver;";
+-$node_standby->poll_query_until('postgres', $archive_wait_query)
+-  or die "Timed out while waiting for WAL segment to be archived";
+-my $last_archived_wal_file = $walfile_to_be_archived;
+-
+-# Ok, the standby has now archived the WAL on timeline 2.  We don't
+-# need the standby anymore.
++# We don't need the standby anymore, request shutdown. The server will
++# finish archiving all the WAL on timeline 2 before it exits.
+ $node_standby->stop;
+ 
+ # Contents of the WAL archive at this point:
+ #
+ # 000000010000000000000001

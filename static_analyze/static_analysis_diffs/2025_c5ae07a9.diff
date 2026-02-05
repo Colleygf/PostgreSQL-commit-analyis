@@ -1,0 +1,117 @@
+commit c5ae07a90a0f3594e5053a26f3c99b041df427d3
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Sun Dec 14 16:10:25 2025 +0200
+
+    Fix usage of palloc() in MERGE/SPLIT PARTITION(s) code
+    
+    f2e4cc427951 and 4b3d173629f4 implement ALTER TABLE ... MERGE/SPLIT
+    PARTITION(s) commands.  In several places, these commits use palloc(),
+    where we should use palloc_object() and palloc_array().  This commit
+    provides appropriate usage of palloc_object() and palloc_array().
+    
+    Reported-by: Man Zeng <zengman@halodbtech.com>
+    Discussion: https://postgr.es/m/tencent_3661BB522D5466B33EA33666%40qq.com
+
+diff --git a/src/backend/commands/tablecmds.c b/src/backend/commands/tablecmds.c
+index 953fadb9c6b..7550ee7c164 100644
+--- a/src/backend/commands/tablecmds.c
++++ b/src/backend/commands/tablecmds.c
+@@ -22315,11 +22315,11 @@ createTableConstraints(List **wqueue, AlteredTableInfo *tab,
+ 			 * not the same. If so, these stored generated columns require
+ 			 * recomputation for newRel within MergePartitionsMoveRows.
+ 			 */
+ 			if (attribute->attgenerated == ATTRIBUTE_GENERATED_STORED)
+ 			{
+-				newval = (NewColumnValue *) palloc0(sizeof(NewColumnValue));
++				newval = palloc0_object(NewColumnValue);
+ 				newval->attnum = num;
+ 				newval->expr = expression_planner((Expr *) def);
+ 				newval->is_generated = (attribute->attgenerated != '\0');
+ 				tab->newvals = lappend(tab->newvals, newval);
+ 			}
+@@ -22404,11 +22404,11 @@ createTableConstraints(List **wqueue, AlteredTableInfo *tab,
+ 			if (bms_is_member(TableOidAttributeNumber - FirstLowInvalidHeapAttributeNumber,
+ 							  attnums))
+ 			{
+ 				NewConstraint *newcon;
+ 
+-				newcon = (NewConstraint *) palloc0(sizeof(NewConstraint));
++				newcon = palloc0_object(NewConstraint);
+ 				newcon->name = ccon->name;
+ 				newcon->contype = CONSTR_CHECK;
+ 				newcon->qual = qual;
+ 
+ 				tab->constraints = lappend(tab->constraints, newcon);
+@@ -22942,11 +22942,11 @@ typedef struct SplitPartitionContext
+ static SplitPartitionContext *
+ createSplitPartitionContext(Relation partRel)
+ {
+ 	SplitPartitionContext *pc;
+ 
+-	pc = (SplitPartitionContext *) palloc0(sizeof(SplitPartitionContext));
++	pc = palloc0_object(SplitPartitionContext);
+ 	pc->partRel = partRel;
+ 
+ 	/*
+ 	 * Prepare a BulkInsertState for table_tuple_insert. The FSM is empty, so
+ 	 * don't bother using it.
+diff --git a/src/backend/partitioning/partbounds.c b/src/backend/partitioning/partbounds.c
+index b7f90ae109d..16b0adc172c 100644
+--- a/src/backend/partitioning/partbounds.c
++++ b/src/backend/partitioning/partbounds.c
+@@ -5113,12 +5113,11 @@ calculate_partition_bound_for_merge(Relation parent,
+ 				int			i;
+ 				PartitionRangeBound **lower_bounds;
+ 				int			nparts = list_length(partOids);
+ 				List	   *bounds = NIL;
+ 
+-				lower_bounds = (PartitionRangeBound **)
+-					palloc0(nparts * sizeof(PartitionRangeBound *));
++				lower_bounds = palloc0_array(PartitionRangeBound *, nparts);
+ 
+ 				/*
+ 				 * Create an array of lower bounds and a list of
+ 				 * PartitionBoundSpec.
+ 				 */
+@@ -5753,12 +5752,11 @@ check_partitions_for_split(Relation parent,
+ 
+ 	/*
+ 	 * Make an array new_parts with new partitions except the DEFAULT
+ 	 * partition.
+ 	 */
+-	new_parts = (SinglePartitionSpec **)
+-		palloc0(list_length(partlist) * sizeof(SinglePartitionSpec *));
++	new_parts = palloc0_array(SinglePartitionSpec *, list_length(partlist));
+ 
+ 	/* isSplitPartDefault flag: is split partition a DEFAULT partition? */
+ 	isSplitPartDefault = (defaultPartOid == splitPartOid);
+ 
+ 	foreach_node(SinglePartitionSpec, sps, partlist)
+@@ -5784,12 +5782,11 @@ check_partitions_for_split(Relation parent,
+ 		/*
+ 		 * To simplify the check for ranges of new partitions, we need to sort
+ 		 * all partitions in ascending order of their bounds (we compare the
+ 		 * lower bound only).
+ 		 */
+-		lower_bounds = (PartitionRangeBound **)
+-			palloc0(nparts * sizeof(PartitionRangeBound *));
++		lower_bounds = palloc0_array(PartitionRangeBound *, nparts);
+ 
+ 		/* Create an array of lower bounds. */
+ 		for (i = 0; i < nparts; i++)
+ 		{
+ 			lower_bounds[i] = make_one_partition_rbound(key, i,
+@@ -5800,12 +5797,11 @@ check_partitions_for_split(Relation parent,
+ 		qsort_arg(lower_bounds, nparts, sizeof(PartitionRangeBound *),
+ 				  qsort_partition_rbound_cmp, (void *) key);
+ 
+ 		/* Reorder the array of partitions. */
+ 		tmp_new_parts = new_parts;
+-		new_parts = (SinglePartitionSpec **)
+-			palloc0(nparts * sizeof(SinglePartitionSpec *));
++		new_parts = palloc0_array(SinglePartitionSpec *, nparts);
+ 		for (i = 0; i < nparts; i++)
+ 			new_parts[i] = tmp_new_parts[lower_bounds[i]->index];
+ 
+ 		pfree(tmp_new_parts);
+ 		pfree(lower_bounds);

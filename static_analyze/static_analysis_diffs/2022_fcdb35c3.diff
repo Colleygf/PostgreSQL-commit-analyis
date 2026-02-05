@@ -1,0 +1,41 @@
+commit fcdb35c32ac70a113c134a66daf9ba28523ff32b
+Author: Andrew Dunstan <andrew@dunslane.net>
+Date:   Thu Apr 14 08:57:09 2022 -0400
+
+    Fix transformJsonBehavior
+    
+    Commit 1a36bc9dba8 conained some logic that was a little opaque and
+    could have involved a NULL dereference, as complained about by Coverity.
+    Make the logic more transparent and in doing so avoid the NULL
+    dereference.
+
+diff --git a/src/backend/parser/parse_expr.c b/src/backend/parser/parse_expr.c
+index 3cbd5161528..2f8c5e63fe8 100644
+--- a/src/backend/parser/parse_expr.c
++++ b/src/backend/parser/parse_expr.c
+@@ -4070,17 +4070,19 @@ transformJsonPassingArgs(ParseState *pstate, JsonFormatType format, List *args,
+  */
+ static JsonBehavior *
+ transformJsonBehavior(ParseState *pstate, JsonBehavior *behavior,
+ 					  JsonBehaviorType default_behavior)
+ {
+-	JsonBehaviorType behavior_type;
+-	Node	   *default_expr;
+-
+-	behavior_type = behavior ? behavior->btype : default_behavior;
+-	default_expr = behavior_type != JSON_BEHAVIOR_DEFAULT ? NULL :
+-		transformExprRecurse(pstate, behavior->default_expr);
++	JsonBehaviorType behavior_type = default_behavior;
++	Node	   *default_expr = NULL;
+ 
++	if (behavior)
++	{
++		behavior_type = behavior->btype;
++		if (behavior_type == JSON_BEHAVIOR_DEFAULT)
++			default_expr = transformExprRecurse(pstate, behavior->default_expr);
++	}
+ 	return makeJsonBehavior(behavior_type, default_expr);
+ }
+ 
+ /*
+  * Common code for JSON_VALUE, JSON_QUERY, JSON_EXISTS transformation

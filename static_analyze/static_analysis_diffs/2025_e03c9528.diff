@@ -1,0 +1,91 @@
+commit e03c95287764158941d317972a332565729b6af2
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Tue Jul 8 12:50:19 2025 -0400
+
+    Fix low-probability memory leak in XMLSERIALIZE(... INDENT).
+    
+    xmltotext_with_options() did not consider the possibility that
+    pg_xml_init() could fail --- most likely due to OOM.  If that
+    happened, the already-parsed xmlDoc structure would be leaked.
+    Oversight in commit 483bdb2af.
+    
+    Bug: #18981
+    Author: Dmitry Kovalenko <d.kovalenko@postgrespro.ru>
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/18981-9bc3c80f107ae925@postgresql.org
+    Backpatch-through: 16
+
+diff --git a/src/backend/utils/adt/xml.c b/src/backend/utils/adt/xml.c
+index 2bd39b6ac4b..f7b731825fc 100644
+--- a/src/backend/utils/adt/xml.c
++++ b/src/backend/utils/adt/xml.c
+@@ -530,11 +530,11 @@ xmltext(PG_FUNCTION_ARGS)
+ 	text	   *arg = PG_GETARG_TEXT_PP(0);
+ 	text	   *result;
+ 	volatile xmlChar *xmlbuf = NULL;
+ 	PgXmlErrorContext *xmlerrcxt;
+ 
+-	/* Otherwise, we gotta spin up some error handling. */
++	/* First we gotta spin up some error handling. */
+ 	xmlerrcxt = pg_xml_init(PG_XML_STRICTNESS_ALL);
+ 
+ 	PG_TRY();
+ 	{
+ 		xmlbuf = xmlEncodeSpecialChars(NULL, xml_text2xmlChar(arg));
+@@ -683,11 +683,11 @@ xmltotext_with_options(xmltype *data, XmlOptionType xmloption_arg, bool indent)
+ 	XmlOptionType parsed_xmloptiontype;
+ 	xmlNodePtr	content_nodes;
+ 	volatile xmlBufferPtr buf = NULL;
+ 	volatile xmlSaveCtxtPtr ctxt = NULL;
+ 	ErrorSaveContext escontext = {T_ErrorSaveContext};
+-	PgXmlErrorContext *xmlerrcxt;
++	PgXmlErrorContext *volatile xmlerrcxt = NULL;
+ #endif
+ 
+ 	if (xmloption_arg != XMLOPTION_DOCUMENT && !indent)
+ 	{
+ 		/*
+@@ -724,17 +724,22 @@ xmltotext_with_options(xmltype *data, XmlOptionType xmloption_arg, bool indent)
+ 	{
+ 		xmlFreeDoc(doc);
+ 		return (text *) data;
+ 	}
+ 
+-	/* Otherwise, we gotta spin up some error handling. */
+-	xmlerrcxt = pg_xml_init(PG_XML_STRICTNESS_ALL);
+-
++	/*
++	 * Otherwise, we gotta spin up some error handling.  Unlike most other
++	 * routines in this module, we already have a libxml "doc" structure to
++	 * free, so we need to call pg_xml_init() inside the PG_TRY and be
++	 * prepared for it to fail (typically due to palloc OOM).
++	 */
+ 	PG_TRY();
+ 	{
+ 		size_t		decl_len = 0;
+ 
++		xmlerrcxt = pg_xml_init(PG_XML_STRICTNESS_ALL);
++
+ 		/* The serialized data will go into this buffer. */
+ 		buf = xmlBufferCreate();
+ 
+ 		if (buf == NULL || xmlerrcxt->err_occurred)
+ 			xml_ereport(xmlerrcxt, ERROR, ERRCODE_OUT_OF_MEMORY,
+@@ -861,14 +866,14 @@ xmltotext_with_options(xmltype *data, XmlOptionType xmloption_arg, bool indent)
+ 	{
+ 		if (ctxt)
+ 			xmlSaveClose(ctxt);
+ 		if (buf)
+ 			xmlBufferFree(buf);
+-		if (doc)
+-			xmlFreeDoc(doc);
++		xmlFreeDoc(doc);
+ 
+-		pg_xml_done(xmlerrcxt, true);
++		if (xmlerrcxt)
++			pg_xml_done(xmlerrcxt, true);
+ 
+ 		PG_RE_THROW();
+ 	}
+ 	PG_END_TRY();
+ 

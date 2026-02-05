@@ -1,0 +1,118 @@
+commit aa79bde725650b4cfdce05bcc119008709590af6
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Thu Apr 25 10:40:52 2024 +0530
+
+    Fix the missing table sync due to improper invalidation handling.
+    
+    We missed performing table sync if the invalidation happened while the
+    non-ready tables list was being prepared. This occurs because the sync
+    state was set to valid at the end of non-ready table list preparation
+    irrespective of the invalidations processed while the list is being
+    prepared.
+    
+    Fix it by changing the boolean variable to a tri-state enum and by setting
+    table state to valid only if no invalidations have occurred while the list
+    is being prepared.
+    
+    Reprted-by: Alexander Lakhin
+    Diagnosed-by: Alexander Lakhin
+    Author: Vignesh C
+    Reviewed-by: Hou Zhijie, Alexander Lakhin, Ajin Cherian, Amit Kapila
+    Backpatch-through: 15
+    Discussion: https://postgr.es/m/711a6afe-edb7-1211-cc27-1bef8239eec7@gmail.com
+
+diff --git a/src/backend/replication/logical/tablesync.c b/src/backend/replication/logical/tablesync.c
+index f1a3ad54595..b00267f0427 100644
+--- a/src/backend/replication/logical/tablesync.c
++++ b/src/backend/replication/logical/tablesync.c
+@@ -121,11 +121,18 @@
+ #include "utils/rls.h"
+ #include "utils/snapmgr.h"
+ #include "utils/syscache.h"
+ #include "utils/usercontext.h"
+ 
+-static bool table_states_valid = false;
++typedef enum
++{
++	SYNC_TABLE_STATE_NEEDS_REBUILD,
++	SYNC_TABLE_STATE_REBUILD_STARTED,
++	SYNC_TABLE_STATE_VALID,
++} SyncingTablesState;
++
++static SyncingTablesState table_states_validity = SYNC_TABLE_STATE_NEEDS_REBUILD;
+ static List *table_states_not_ready = NIL;
+ static bool FetchTableStates(bool *started_tx);
+ 
+ static StringInfo copybuf = NULL;
+ 
+@@ -271,11 +278,11 @@ wait_for_worker_state_change(char expected_state)
+  * Callback from syscache invalidation.
+  */
+ void
+ invalidate_syncing_table_states(Datum arg, int cacheid, uint32 hashvalue)
+ {
+-	table_states_valid = false;
++	table_states_validity = SYNC_TABLE_STATE_NEEDS_REBUILD;
+ }
+ 
+ /*
+  * Handle table synchronization cooperation from the synchronization
+  * worker.
+@@ -1566,17 +1573,19 @@ FetchTableStates(bool *started_tx)
+ {
+ 	static bool has_subrels = false;
+ 
+ 	*started_tx = false;
+ 
+-	if (!table_states_valid)
++	if (table_states_validity != SYNC_TABLE_STATE_VALID)
+ 	{
+ 		MemoryContext oldctx;
+ 		List	   *rstates;
+ 		ListCell   *lc;
+ 		SubscriptionRelState *rstate;
+ 
++		table_states_validity = SYNC_TABLE_STATE_REBUILD_STARTED;
++
+ 		/* Clean the old lists. */
+ 		list_free_deep(table_states_not_ready);
+ 		table_states_not_ready = NIL;
+ 
+ 		if (!IsTransactionState())
+@@ -1606,11 +1615,19 @@ FetchTableStates(bool *started_tx)
+ 		 * see if there are 0 tables.
+ 		 */
+ 		has_subrels = (table_states_not_ready != NIL) ||
+ 			HasSubscriptionRelations(MySubscription->oid);
+ 
+-		table_states_valid = true;
++		/*
++		 * If the subscription relation cache has been invalidated since we
++		 * entered this routine, we still use and return the relations we just
++		 * finished constructing, to avoid infinite loops, but we leave the
++		 * table states marked as stale so that we'll rebuild it again on next
++		 * access. Otherwise, we mark the table states as valid.
++		 */
++		if (table_states_validity == SYNC_TABLE_STATE_REBUILD_STARTED)
++			table_states_validity = SYNC_TABLE_STATE_VALID;
+ 	}
+ 
+ 	return has_subrels;
+ }
+ 
+diff --git a/src/tools/pgindent/typedefs.list b/src/tools/pgindent/typedefs.list
+index d551ada3255..90a7c389b21 100644
+--- a/src/tools/pgindent/typedefs.list
++++ b/src/tools/pgindent/typedefs.list
+@@ -2762,10 +2762,11 @@ SupportRequestOptimizeWindowClause
+ SupportRequestRows
+ SupportRequestSelectivity
+ SupportRequestSimplify
+ SupportRequestWFuncMonotonic
+ Syn
++SyncingTablesState
+ SyncOps
+ SyncRepConfigData
+ SyncRepStandbyData
+ SyncRequestHandler
+ SyncRequestType

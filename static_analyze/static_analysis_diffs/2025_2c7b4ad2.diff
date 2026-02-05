@@ -1,0 +1,53 @@
+commit 2c7b4ad24dda86a73d80df063e9a56c3ecb1e4bb
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sat Aug 2 19:43:04 2025 -0400
+
+    Suppress complaints about leaks in function cache loading.
+    
+    PL/pgSQL and SQL-function parsing leak some stuff into the long-lived
+    function cache context.  This isn't really a huge practical problem,
+    since it's not a large amount of data and the cruft will be recovered
+    if we have to re-parse the function.  It's not clear that it's worth
+    working any harder than the previous patch did to eliminate these
+    leak complaints, so instead silence them with a suppression rule.
+    
+    This suppression rule also hides the fact that CachedFunction structs
+    are intentionally leaked in some cases because we're unsure if any
+    fn_extra pointers remain.  That might be nice to do something about
+    eventually, but it's not clear how.
+    
+    Author: Tom Lane <tgl@sss.pgh.pa.us>
+    Reviewed-by: Andres Freund <andres@anarazel.de>
+    Discussion: https://postgr.es/m/285483.1746756246@sss.pgh.pa.us
+
+diff --git a/src/tools/valgrind.supp b/src/tools/valgrind.supp
+index 2ad5b81526d..fad20c8f708 100644
+--- a/src/tools/valgrind.supp
++++ b/src/tools/valgrind.supp
+@@ -192,5 +192,26 @@
+ {
+    pg_numa_touch_mem_if_required
+    Memcheck:Addr8
+    fun:pg_numa_touch_mem_if_required
+ }
++
++
++# Memory-leak suppressions
++# Note that a suppression rule will silence complaints about memory blocks
++# allocated in matching places, but it won't prevent "indirectly lost"
++# complaints about blocks that are only reachable via the suppressed blocks.
++
++# Suppress complaints about stuff leaked during function cache loading.
++# Both the PL/pgSQL and SQL-function parsing processes generate some cruft
++# within the function's cache context, which doesn't seem worth the trouble
++# to get rid of.  Moreover, there are cases where CachedFunction structs
++# are intentionally leaked because we're unsure if any fn_extra pointers
++# remain.
++{
++   hide_function_cache_leaks
++   Memcheck:Leak
++   match-leak-kinds: definite,possible,indirect
++
++   ...
++   fun:cached_function_compile
++}

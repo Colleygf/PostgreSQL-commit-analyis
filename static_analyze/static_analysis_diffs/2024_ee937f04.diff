@@ -1,0 +1,106 @@
+commit ee937f0409d5c75855861bf31f88eeb77623b411
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Fri Nov 22 16:28:24 2024 +0200
+
+    Fix data loss when restarting the bulk_write facility
+    
+    If a user started a bulk write operation on a fork with existing data
+    to append data in bulk, the bulk_write machinery would zero out all
+    previously written pages up to the last page written by the new
+    bulk_write operation.
+    
+    This is not an issue for PostgreSQL itself, because we never use the
+    bulk_write facility on a non-empty fork. But there are use cases where
+    it makes sense. TimescaleDB extension is known to do that to merge
+    partitions, for example.
+    
+    Backpatch to v17, where the bulk_write machinery was introduced.
+    
+    Author: Matthias van de Meent <boekewurm+postgres@gmail.com>
+    Reported-By: Erik Nordström <erik@timescale.com>
+    Reviewed-by: Erik Nordström <erik@timescale.com>
+    Discussion: https://www.postgresql.org/message-id/CACAa4VJ%2BQY4pY7M0ECq29uGkrOygikYtao1UG9yCDFosxaps9g@mail.gmail.com
+
+diff --git a/src/backend/storage/smgr/bulk_write.c b/src/backend/storage/smgr/bulk_write.c
+index f0a65bfe242..274051c40dd 100644
+--- a/src/backend/storage/smgr/bulk_write.c
++++ b/src/backend/storage/smgr/bulk_write.c
+@@ -2,12 +2,14 @@
+  *
+  * bulk_write.c
+  *	  Efficiently and reliably populate a new relation
+  *
+  * The assumption is that no other backends access the relation while we are
+- * loading it, so we can take some shortcuts.  Do not mix operations through
+- * the regular buffer manager and the bulk loading interface!
++ * loading it, so we can take some shortcuts.  Pages already present in the
++ * indicated fork when the bulk write operation is started are not modified
++ * unless explicitly written to.  Do not mix operations through the regular
++ * buffer manager and the bulk loading interface!
+  *
+  * We bypass the buffer manager to avoid the locking overhead, and call
+  * smgrextend() directly.  A downside is that the pages will need to be
+  * re-read into shared buffers on first use after the build finishes.  That's
+  * usually a good tradeoff for large relations, and for small relations, the
+@@ -66,11 +68,11 @@ struct BulkWriteState
+ 	/* We keep several writes queued, and WAL-log them in batches */
+ 	int			npending;
+ 	PendingWrite pending_writes[MAX_PENDING_WRITES];
+ 
+ 	/* Current size of the relation */
+-	BlockNumber pages_written;
++	BlockNumber relsize;
+ 
+ 	/* The RedoRecPtr at the time that the bulk operation started */
+ 	XLogRecPtr	start_RedoRecPtr;
+ 
+ 	MemoryContext memcxt;
+@@ -103,11 +105,11 @@ smgr_bulk_start_smgr(SMgrRelation smgr, ForkNumber forknum, bool use_wal)
+ 	state->smgr = smgr;
+ 	state->forknum = forknum;
+ 	state->use_wal = use_wal;
+ 
+ 	state->npending = 0;
+-	state->pages_written = 0;
++	state->relsize = smgrnblocks(smgr, forknum);
+ 
+ 	state->start_RedoRecPtr = GetRedoRecPtr();
+ 
+ 	/*
+ 	 * Remember the memory context.  We will use it to allocate all the
+@@ -277,30 +279,31 @@ smgr_bulk_flush(BulkWriteState *bulkstate)
+ 		BlockNumber blkno = pending_writes[i].blkno;
+ 		Page		page = pending_writes[i].buf->data;
+ 
+ 		PageSetChecksumInplace(page, blkno);
+ 
+-		if (blkno >= bulkstate->pages_written)
++		if (blkno >= bulkstate->relsize)
+ 		{
+ 			/*
+ 			 * If we have to write pages nonsequentially, fill in the space
+ 			 * with zeroes until we come back and overwrite.  This is not
+ 			 * logically necessary on standard Unix filesystems (unwritten
+ 			 * space will read as zeroes anyway), but it should help to avoid
+ 			 * fragmentation.  The dummy pages aren't WAL-logged though.
+ 			 */
+-			while (blkno > bulkstate->pages_written)
++			while (blkno > bulkstate->relsize)
+ 			{
+ 				/* don't set checksum for all-zero page */
+ 				smgrextend(bulkstate->smgr, bulkstate->forknum,
+-						   bulkstate->pages_written++,
++						   bulkstate->relsize,
+ 						   &zero_buffer,
+ 						   true);
++				bulkstate->relsize++;
+ 			}
+ 
+ 			smgrextend(bulkstate->smgr, bulkstate->forknum, blkno, page, true);
+-			bulkstate->pages_written = pending_writes[i].blkno + 1;
++			bulkstate->relsize++;
+ 		}
+ 		else
+ 			smgrwrite(bulkstate->smgr, bulkstate->forknum, blkno, page, true);
+ 		pfree(page);
+ 	}

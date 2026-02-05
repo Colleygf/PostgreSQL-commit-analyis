@@ -1,0 +1,85 @@
+commit 33ee2550d30bebb938238846369b2aae10e7f00f
+Author: Jeff Davis <jdavis@postgresql.org>
+Date:   Fri Mar 8 15:58:32 2024 -0800
+
+    Fix type signedness error in commit 5c40364dd6.
+    
+    Use ssize_t instead of size_t.
+    
+    Discussion: https://postgr.es/m/b20d6d97-7338-48ea-ba33-837a1c8ef98e@iki.fi
+    Reported-by: Heikki Linnakangas
+
+diff --git a/src/common/unicode_case.c b/src/common/unicode_case.c
+index 842db173ba8..8b77f39e4d1 100644
+--- a/src/common/unicode_case.c
++++ b/src/common/unicode_case.c
+@@ -19,12 +19,12 @@
+ #include "common/unicode_case_table.h"
+ #include "common/unicode_category.h"
+ #include "mb/pg_wchar.h"
+ 
+ static const pg_case_map *find_case_map(pg_wchar ucs);
+-static size_t convert_case(char *dst, size_t dstsize, const char *src, size_t srclen,
+-						   CaseKind casekind);
++static size_t convert_case(char *dst, size_t dstsize, const char *src,
++						   ssize_t srclen, CaseKind casekind);
+ 
+ pg_wchar
+ unicode_lowercase_simple(pg_wchar code)
+ {
+ 	const		pg_case_map *map = find_case_map(code);
+@@ -63,11 +63,11 @@ unicode_uppercase_simple(pg_wchar code)
+  *
+  * If dstsize is zero, dst may be NULL. This is useful for calculating the
+  * required buffer size before allocating.
+  */
+ size_t
+-unicode_strlower(char *dst, size_t dstsize, const char *src, size_t srclen)
++unicode_strlower(char *dst, size_t dstsize, const char *src, ssize_t srclen)
+ {
+ 	return convert_case(dst, dstsize, src, srclen, CaseLower);
+ }
+ 
+ /*
+@@ -85,22 +85,22 @@ unicode_strlower(char *dst, size_t dstsize, const char *src, size_t srclen)
+  *
+  * If dstsize is zero, dst may be NULL. This is useful for calculating the
+  * required buffer size before allocating.
+  */
+ size_t
+-unicode_strupper(char *dst, size_t dstsize, const char *src, size_t srclen)
++unicode_strupper(char *dst, size_t dstsize, const char *src, ssize_t srclen)
+ {
+ 	return convert_case(dst, dstsize, src, srclen, CaseUpper);
+ }
+ 
+ /*
+  * Implement Unicode Default Case Conversion algorithm.
+  *
+  * Map each character in the string for which a mapping is available.
+  */
+ static size_t
+-convert_case(char *dst, size_t dstsize, const char *src, size_t srclen,
++convert_case(char *dst, size_t dstsize, const char *src, ssize_t srclen,
+ 			 CaseKind casekind)
+ {
+ 	size_t		srcoff = 0;
+ 	size_t		result_len = 0;
+ 
+diff --git a/src/include/common/unicode_case.h b/src/include/common/unicode_case.h
+index ad6f62cc41d..df36d8db213 100644
+--- a/src/include/common/unicode_case.h
++++ b/src/include/common/unicode_case.h
+@@ -18,10 +18,10 @@
+ 
+ pg_wchar	unicode_lowercase_simple(pg_wchar ucs);
+ pg_wchar	unicode_titlecase_simple(pg_wchar ucs);
+ pg_wchar	unicode_uppercase_simple(pg_wchar ucs);
+ size_t		unicode_strlower(char *dst, size_t dstsize, const char *src,
+-							 size_t srclen);
++							 ssize_t srclen);
+ size_t		unicode_strupper(char *dst, size_t dstsize, const char *src,
+-							 size_t srclen);
++							 ssize_t srclen);
+ 
+ #endif							/* UNICODE_CASE_H */

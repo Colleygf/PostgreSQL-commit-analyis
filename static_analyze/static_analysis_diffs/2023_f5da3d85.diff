@@ -1,0 +1,94 @@
+commit f5da3d85b95640ac754ee14c47aeb90003e6d7c0
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Mon Feb 6 22:39:48 2023 +0100
+
+    Fix up outdated comments
+    
+    The existing comments in load_relcache_init_file() were not flexible
+    when new entries were added at the end, so they ended up a bit wrong.
+    Simplify the comments to avoid this issue.
+
+diff --git a/src/backend/utils/cache/relcache.c b/src/backend/utils/cache/relcache.c
+index dfda0ab7d69..b57a20c86e0 100644
+--- a/src/backend/utils/cache/relcache.c
++++ b/src/backend/utils/cache/relcache.c
+@@ -6139,11 +6139,11 @@ load_relcache_init_file(bool shared)
+ 
+ 			/* Count nailed indexes to ensure we have 'em all */
+ 			if (rel->rd_isnailed)
+ 				nailed_indexes++;
+ 
+-			/* next, read the pg_index tuple */
++			/* read the pg_index tuple */
+ 			if (fread(&len, 1, sizeof(len), fp) != sizeof(len))
+ 				goto read_failed;
+ 
+ 			rel->rd_indextuple = (HeapTuple) palloc(len);
+ 			if (fread(rel->rd_indextuple, 1, len, fp) != len)
+@@ -6170,60 +6170,60 @@ load_relcache_init_file(bool shared)
+ 			 * might vary across server executions.  Fortunately, it should be
+ 			 * safe to call the amhandler even while bootstrapping indexes.)
+ 			 */
+ 			InitIndexAmRoutine(rel);
+ 
+-			/* next, read the vector of opfamily OIDs */
++			/* read the vector of opfamily OIDs */
+ 			if (fread(&len, 1, sizeof(len), fp) != sizeof(len))
+ 				goto read_failed;
+ 
+ 			opfamily = (Oid *) MemoryContextAlloc(indexcxt, len);
+ 			if (fread(opfamily, 1, len, fp) != len)
+ 				goto read_failed;
+ 
+ 			rel->rd_opfamily = opfamily;
+ 
+-			/* next, read the vector of opcintype OIDs */
++			/* read the vector of opcintype OIDs */
+ 			if (fread(&len, 1, sizeof(len), fp) != sizeof(len))
+ 				goto read_failed;
+ 
+ 			opcintype = (Oid *) MemoryContextAlloc(indexcxt, len);
+ 			if (fread(opcintype, 1, len, fp) != len)
+ 				goto read_failed;
+ 
+ 			rel->rd_opcintype = opcintype;
+ 
+-			/* next, read the vector of support procedure OIDs */
++			/* read the vector of support procedure OIDs */
+ 			if (fread(&len, 1, sizeof(len), fp) != sizeof(len))
+ 				goto read_failed;
+ 			support = (RegProcedure *) MemoryContextAlloc(indexcxt, len);
+ 			if (fread(support, 1, len, fp) != len)
+ 				goto read_failed;
+ 
+ 			rel->rd_support = support;
+ 
+-			/* next, read the vector of collation OIDs */
++			/* read the vector of collation OIDs */
+ 			if (fread(&len, 1, sizeof(len), fp) != sizeof(len))
+ 				goto read_failed;
+ 
+ 			indcollation = (Oid *) MemoryContextAlloc(indexcxt, len);
+ 			if (fread(indcollation, 1, len, fp) != len)
+ 				goto read_failed;
+ 
+ 			rel->rd_indcollation = indcollation;
+ 
+-			/* finally, read the vector of indoption values */
++			/* read the vector of indoption values */
+ 			if (fread(&len, 1, sizeof(len), fp) != sizeof(len))
+ 				goto read_failed;
+ 
+ 			indoption = (int16 *) MemoryContextAlloc(indexcxt, len);
+ 			if (fread(indoption, 1, len, fp) != len)
+ 				goto read_failed;
+ 
+ 			rel->rd_indoption = indoption;
+ 
+-			/* finally, read the vector of opcoptions values */
++			/* read the vector of opcoptions values */
+ 			rel->rd_opcoptions = (bytea **)
+ 				MemoryContextAllocZero(indexcxt, sizeof(*rel->rd_opcoptions) * relform->relnatts);
+ 
+ 			for (i = 0; i < relform->relnatts; i++)
+ 			{

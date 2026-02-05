@@ -1,0 +1,76 @@
+commit b447d6075db8041b870ac526525f6873df222db4
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Sep 14 14:52:20 2022 +0900
+
+    Fix incorrect value for "strategy" with deflateParams() in walmethods.c
+    
+    The zlib documentation mentions the values supported for the compression
+    strategy, but this code has been using a hardcoded value of 0 rather
+    than Z_DEFAULT_STRATEGY.  This commit adjusts the code to use
+    Z_DEFAULT_STRATEGY.
+    
+    Backpatch down to where this code has been added to ease the backport of
+    any future patch touching this area.
+    
+    Reported-by: Tom Lane
+    Discussion: https://postgr.es/m/1400032.1662217889@sss.pgh.pa.us
+    Backpatch-through: 10
+
+diff --git a/src/bin/pg_basebackup/walmethods.c b/src/bin/pg_basebackup/walmethods.c
+index e90aa0ba377..4d4bc63fbe7 100644
+--- a/src/bin/pg_basebackup/walmethods.c
++++ b/src/bin/pg_basebackup/walmethods.c
+@@ -902,11 +902,11 @@ tar_open_for_write(const char *pathname, const char *temp_suffix, size_t pad_to_
+ 		/* Flush existing data */
+ 		if (!tar_write_compressed_data(NULL, 0, true))
+ 			return NULL;
+ 
+ 		/* Turn off compression for header */
+-		if (deflateParams(tar_data->zp, 0, 0) != Z_OK)
++		if (deflateParams(tar_data->zp, 0, Z_DEFAULT_STRATEGY) != Z_OK)
+ 		{
+ 			tar_set_error("could not change compression parameters");
+ 			return NULL;
+ 		}
+ 	}
+@@ -942,11 +942,12 @@ tar_open_for_write(const char *pathname, const char *temp_suffix, size_t pad_to_
+ 		if (!tar_write_compressed_data(tar_data->currentfile->header,
+ 									   TAR_BLOCK_SIZE, true))
+ 			return NULL;
+ 
+ 		/* Re-enable compression for the rest of the file */
+-		if (deflateParams(tar_data->zp, tar_data->compression_level, 0) != Z_OK)
++		if (deflateParams(tar_data->zp, tar_data->compression_level,
++						  Z_DEFAULT_STRATEGY) != Z_OK)
+ 		{
+ 			tar_set_error("could not change compression parameters");
+ 			return NULL;
+ 		}
+ 	}
+@@ -1160,11 +1161,11 @@ tar_close(Walfile f, WalCloseMethod method)
+ 	}
+ #ifdef HAVE_LIBZ
+ 	else if (tar_data->compression_algorithm == PG_COMPRESSION_GZIP)
+ 	{
+ 		/* Turn off compression */
+-		if (deflateParams(tar_data->zp, 0, 0) != Z_OK)
++		if (deflateParams(tar_data->zp, 0, Z_DEFAULT_STRATEGY) != Z_OK)
+ 		{
+ 			tar_set_error("could not change compression parameters");
+ 			return -1;
+ 		}
+ 
+@@ -1172,11 +1173,12 @@ tar_close(Walfile f, WalCloseMethod method)
+ 		if (!tar_write_compressed_data(tar_data->currentfile->header,
+ 									   TAR_BLOCK_SIZE, true))
+ 			return -1;
+ 
+ 		/* Turn compression back on */
+-		if (deflateParams(tar_data->zp, tar_data->compression_level, 0) != Z_OK)
++		if (deflateParams(tar_data->zp, tar_data->compression_level,
++						  Z_DEFAULT_STRATEGY) != Z_OK)
+ 		{
+ 			tar_set_error("could not change compression parameters");
+ 			return -1;
+ 		}
+ 	}

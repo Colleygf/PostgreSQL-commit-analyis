@@ -1,0 +1,61 @@
+commit 8ec97e78a7713a1ebf4976b55c19f6c9bc2716d9
+Author: Melanie Plageman <melanieplageman@gmail.com>
+Date:   Mon Sep 8 17:13:31 2025 -0400
+
+    Add error codes when vacuum discovers VM corruption
+    
+    Commit fd6ec93bf890314a and other previous work established the
+    principle that when an error is potentially reachable in case of on-disk
+    corruption but is not expected to be reached otherwise,
+    ERRCODE_DATA_CORRUPTED should be used. This allows log monitoring
+    software to search for evidence of corruption by filtering on the error
+    code.
+    
+    Enhance the existing log messages emitted when the heap page is found to
+    be inconsistent with the VM by adding this error code.
+    
+    Suggested-by: Andrey Borodin <x4mmm@yandex-team.ru>
+    Author: Melanie Plageman <melanieplageman@gmail.com>
+    Reviewed-by: Robert Haas <robertmhaas@gmail.com>
+    Discussion: https://postgr.es/m/87DD95AA-274F-4F4F-BAD9-7738E5B1F905%40yandex-team.ru
+
+diff --git a/src/backend/access/heap/vacuumlazy.c b/src/backend/access/heap/vacuumlazy.c
+index 932701d8420..981d9380a92 100644
+--- a/src/backend/access/heap/vacuumlazy.c
++++ b/src/backend/access/heap/vacuumlazy.c
+@@ -2119,12 +2119,15 @@ lazy_scan_prune(LVRelState *vacrel,
+ 	 * with buffer lock before concluding that the VM is corrupt.
+ 	 */
+ 	else if (all_visible_according_to_vm && !PageIsAllVisible(page) &&
+ 			 visibilitymap_get_status(vacrel->rel, blkno, &vmbuffer) != 0)
+ 	{
+-		elog(WARNING, "page is not marked all-visible but visibility map bit is set in relation \"%s\" page %u",
+-			 vacrel->relname, blkno);
++		ereport(WARNING,
++				(errcode(ERRCODE_DATA_CORRUPTED),
++				 errmsg("page is not marked all-visible but visibility map bit is set in relation \"%s\" page %u",
++						vacrel->relname, blkno)));
++
+ 		visibilitymap_clear(vacrel->rel, blkno, vmbuffer,
+ 							VISIBILITYMAP_VALID_BITS);
+ 	}
+ 
+ 	/*
+@@ -2141,12 +2144,15 @@ lazy_scan_prune(LVRelState *vacrel,
+ 	 * There should never be LP_DEAD items on a page with PD_ALL_VISIBLE set,
+ 	 * however.
+ 	 */
+ 	else if (presult.lpdead_items > 0 && PageIsAllVisible(page))
+ 	{
+-		elog(WARNING, "page containing LP_DEAD items is marked as all-visible in relation \"%s\" page %u",
+-			 vacrel->relname, blkno);
++		ereport(WARNING,
++				(errcode(ERRCODE_DATA_CORRUPTED),
++				 errmsg("page containing LP_DEAD items is marked as all-visible in relation \"%s\" page %u",
++						vacrel->relname, blkno)));
++
+ 		PageClearAllVisible(page);
+ 		MarkBufferDirty(buf);
+ 		visibilitymap_clear(vacrel->rel, blkno, vmbuffer,
+ 							VISIBILITYMAP_VALID_BITS);
+ 	}

@@ -1,0 +1,83 @@
+commit 486c2ea25c5e7e248c31b2dbb5db8ebcd3c7d813
+Author: Peter Geoghegan <pg@bowt.ie>
+Date:   Wed Jun 26 10:45:52 2024 -0400
+
+    Fix nbtree array unsatisfied inequality check.
+    
+    _bt_advance_array_keys didn't take sufficient care at the point where it
+    decides whether to start a new primitive index scan based on a call to
+    _bt_check_compare against finaltup (a call with the scan direction
+    flipped around).  The final decision was conditioned on rules about how
+    the scan key offset sktrig that initially triggered array advancement
+    (passed to _bt_advance_array_keys from its _bt_checkkeys caller)
+    compared to the offset set by its own _bt_check_compare finaltup call.
+    This approach was faulty, in that it allowed _bt_advance_array_keys to
+    incorrectly start a new primitive index scan, that landed on the same
+    leaf page (on assert-enabled builds it led to an assertion failure).
+    
+    In general, scans with array keys are expected to never have to read the
+    same leaf page more than once (barring cases involving cursors, and
+    cases where the scan restores a marked position for the inner side of a
+    merge join).  This principle was established by commit 5bf748b8.
+    
+    To fix, make the final decision based on whether the scan key offset set
+    by the _bt_check_compare finaltup call is an offset to an inequality
+    strategy scan key.  An unsatisfied required inequality strategy scan key
+    indicates that all of the scan's required equality strategy scan keys
+    must also be satisfied by finaltup (not just by caller's tuple), and
+    that there is a decent chance that _bt_first will be able to reposition
+    the scan to a position many leaf pages ahead of the current leaf page.
+    
+    Oversight in commit 5bf748b8.
+    
+    Discussion: https://postgr.es/m/CAH2-Wz=DyHbcg7o6zXqzyiin8WE8vzk4tvU8Lrnh-a=EAvO0TQ@mail.gmail.com
+
+diff --git a/src/backend/access/nbtree/nbtutils.c b/src/backend/access/nbtree/nbtutils.c
+index 05f0d23dc0b..d6de2072d40 100644
+--- a/src/backend/access/nbtree/nbtutils.c
++++ b/src/backend/access/nbtree/nbtutils.c
+@@ -2366,34 +2366,24 @@ _bt_advance_array_keys(IndexScanDesc scan, BTReadPageState *pstate,
+ 						  pstate->finaltup, nfinaltupatts, tupdesc,
+ 						  false, false, false,
+ 						  &continuescanflip, &opsktrig);
+ 
+ 		/*
+-		 * If we ended up here due to the all_required_satisfied criteria,
+-		 * test opsktrig in a way that ensures that finaltup contains the same
+-		 * prefix of key columns as caller's tuple (a prefix that satisfies
+-		 * earlier required-in-current-direction scan keys).
+-		 *
+-		 * If we ended up here due to the oppodir_inequality_sktrig criteria,
+-		 * test opsktrig in a way that ensures that the same scan key that our
+-		 * caller found to be unsatisfied (by the scan's tuple) was also the
+-		 * one unsatisfied just now (by finaltup).  That way we'll only start
+-		 * a new primitive scan when we're sure that both tuples _don't_ share
+-		 * the same prefix of satisfied equality-constrained attribute values,
+-		 * and that finaltup has a non-NULL attribute value indicated by the
+-		 * unsatisfied scan key at offset opsktrig/sktrig.  (This depends on
+-		 * _bt_check_compare not caring about the direction that inequalities
+-		 * are required in whenever NULL attribute values are unsatisfied.  It
+-		 * only cares about the scan direction, and its relationship to
+-		 * whether NULLs are stored first or last relative to non-NULLs.)
++		 * Only start a new primitive index scan when finaltup has a required
++		 * unsatisfied inequality (unsatisfied in the opposite direction)
+ 		 */
+ 		Assert(all_required_satisfied != oppodir_inequality_sktrig);
+ 		if (unlikely(!continuescanflip &&
+-					 ((all_required_satisfied && opsktrig > sktrig) ||
+-					  (oppodir_inequality_sktrig && opsktrig >= sktrig))))
++					 so->keyData[opsktrig].sk_strategy != BTEqualStrategyNumber))
+ 		{
+-			Assert(so->keyData[opsktrig].sk_strategy != BTEqualStrategyNumber);
++			/*
++			 * It's possible for the same inequality to be unsatisfied by both
++			 * caller's tuple (in scan's direction) and finaltup (in the
++			 * opposite direction) due to _bt_check_compare's behavior with
++			 * NULLs
++			 */
++			Assert(opsktrig >= sktrig); /* not opsktrig > sktrig due to NULLs */
+ 
+ 			/*
+ 			 * Make sure that any non-required arrays are set to the first
+ 			 * array element for the current scan direction
+ 			 */

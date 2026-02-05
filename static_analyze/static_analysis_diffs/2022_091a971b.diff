@@ -1,0 +1,65 @@
+commit 091a971bb59ca9751f32a4aa5aee969c5a915754
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Tue Mar 29 09:06:51 2022 +0900
+
+    Modify query on pg_hba_file_rules to check for errors in regression tests
+    
+    The regression tests include a query to check the execution path of
+    pg_hba_file_rules, but it has never checked that a given cluster has
+    correct contents in pg_hba.conf.  This commit extends the query of
+    pg_hba_file_rules to report any errors if anything bad is found.  For
+    EXEC_BACKEND builds, any connection attempt would fail when loading
+    pg_hba.conf if any incorrect content is found when parsed, so a failure
+    would be detected before even running this query.  However, this can
+    become handy for clusters where pg_hba.conf can be reloaded, where new
+    connection attempts are not subject to a fresh loading of pg_hba.conf.
+    
+    Author: Julien Rouhaud, based on an idea from me
+    Discussion: https://postgr.es/m/YkFhpydhyeNNo3Xl@paquier.xyz
+
+diff --git a/src/test/regress/expected/sysviews.out b/src/test/regress/expected/sysviews.out
+index 442eeb1e3fe..92b48502dd3 100644
+--- a/src/test/regress/expected/sysviews.out
++++ b/src/test/regress/expected/sysviews.out
+@@ -46,15 +46,16 @@ select count(*) >= 0 as ok from pg_file_settings;
+  ok 
+ ----
+  t
+ (1 row)
+ 
+--- There will surely be at least one rule
+-select count(*) > 0 as ok from pg_hba_file_rules;
+- ok 
+-----
+- t
++-- There will surely be at least one rule, with no errors.
++select count(*) > 0 as ok, count(*) FILTER (WHERE error IS NOT NULL) = 0 AS no_err
++  from pg_hba_file_rules;
++ ok | no_err 
++----+--------
++ t  | t
+ (1 row)
+ 
+ -- There will surely be at least one active lock
+ select count(*) > 0 as ok from pg_locks;
+  ok 
+diff --git a/src/test/regress/sql/sysviews.sql b/src/test/regress/sql/sysviews.sql
+index 4980f07be25..77e48ef7ccc 100644
+--- a/src/test/regress/sql/sysviews.sql
++++ b/src/test/regress/sql/sysviews.sql
+@@ -23,12 +23,13 @@ select count(*) > 20 as ok from pg_config;
+ -- We expect no cursors in this test; see also portals.sql
+ select count(*) = 0 as ok from pg_cursors;
+ 
+ select count(*) >= 0 as ok from pg_file_settings;
+ 
+--- There will surely be at least one rule
+-select count(*) > 0 as ok from pg_hba_file_rules;
++-- There will surely be at least one rule, with no errors.
++select count(*) > 0 as ok, count(*) FILTER (WHERE error IS NOT NULL) = 0 AS no_err
++  from pg_hba_file_rules;
+ 
+ -- There will surely be at least one active lock
+ select count(*) > 0 as ok from pg_locks;
+ 
+ -- We expect no prepared statements in this test; see also prepare.sql

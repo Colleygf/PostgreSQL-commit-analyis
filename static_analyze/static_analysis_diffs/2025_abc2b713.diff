@@ -1,0 +1,49 @@
+commit abc2b71383b4c49c2fbda74c281d50f3936551b8
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Thu Oct 23 13:24:56 2025 +0900
+
+    Add comments explaining overflow entries in the replication lag tracker.
+    
+    Commit 883a95646a8 introduced overflow entries in the replication lag tracker
+    to fix an issue where lag columns in pg_stat_replication could stall when
+    the replay LSN stopped advancing.
+    
+    This commit adds comments clarifying the purpose and behavior of overflow
+    entries to improve code readability and understanding.
+    
+    Since commit 883a95646a8 was recently applied and backpatched to all
+    supported branches, this follow-up commit is also backpatched accordingly.
+    
+    Author: Xuneng Zhou <xunengzhou@gmail.com>
+    Reviewed-by: Fujii Masao <masao.fujii@gmail.com>
+    Discussion: https://postgr.es/m/CABPTF7VxqQA_DePxyZ7Y8V+ErYyXkmwJ1P6NC+YC+cvxMipWKw@mail.gmail.com
+    Backpatch-through: 13
+
+diff --git a/src/backend/replication/walsender.c b/src/backend/replication/walsender.c
+index 1ce21a2ad98..548eafa7a73 100644
+--- a/src/backend/replication/walsender.c
++++ b/src/backend/replication/walsender.c
+@@ -231,10 +231,23 @@ typedef struct
+ 	XLogRecPtr	last_lsn;
+ 	WalTimeSample buffer[LAG_TRACKER_BUFFER_SIZE];
+ 	int			write_head;
+ 	int			read_heads[NUM_SYNC_REP_WAIT_MODE];
+ 	WalTimeSample last_read[NUM_SYNC_REP_WAIT_MODE];
++
++	/*
++	 * Overflow entries for read heads that collide with the write head.
++	 *
++	 * When the cyclic buffer fills (write head is about to collide with a
++	 * read head), we save that read head's current sample here and mark it as
++	 * using overflow (read_heads[i] = -1). This allows the write head to
++	 * continue advancing while the overflowed mode continues lag computation
++	 * using the saved sample.
++	 *
++	 * Once the standby's reported LSN advances past the overflow entry's LSN,
++	 * we transition back to normal buffer-based tracking.
++	 */
+ 	WalTimeSample overflowed[NUM_SYNC_REP_WAIT_MODE];
+ } LagTracker;
+ 
+ static LagTracker *lag_tracker;
+ 

@@ -1,0 +1,85 @@
+commit 88199b9d5fda605360ac903dd9d3de0ca36f0b8c
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Mar 22 08:44:59 2023 +0900
+
+    Fix a couple of typos
+    
+    PL/pgSQL was misspelled in a few places, so fix these.
+    
+    Author: Zhang Mingli
+    Reviewed-by: Richard Guo
+    Discussion: https://postgr.es/m/1bd41572-9cd9-465e-9f59-ee45385e51b4@Spark
+
+diff --git a/src/pl/plpython/expected/plpython_ereport.out b/src/pl/plpython/expected/plpython_ereport.out
+index 74dcc419ceb..0138d79d37c 100644
+--- a/src/pl/plpython/expected/plpython_ereport.out
++++ b/src/pl/plpython/expected/plpython_ereport.out
+@@ -77,11 +77,11 @@ DO $$ plpy.info('first message', 'second message', message='third message') $$ L
+ ERROR:  TypeError: argument 'message' given by name and position
+ CONTEXT:  Traceback (most recent call last):
+   PL/Python anonymous code block, line 1, in <module>
+     plpy.info('first message', 'second message', message='third message') 
+ PL/Python anonymous code block
+--- raise exception in python, handle exception in plgsql
++-- raise exception in python, handle exception in plpgsql
+ CREATE OR REPLACE FUNCTION raise_exception(_message text, _detail text DEFAULT NULL, _hint text DEFAULT NULL,
+                                            _sqlstate text DEFAULT NULL,
+                                            _schema_name text DEFAULT NULL,
+                                            _table_name text DEFAULT NULL,
+                                            _column_name text DEFAULT NULL,
+diff --git a/src/pl/plpython/sql/plpython_ereport.sql b/src/pl/plpython/sql/plpython_ereport.sql
+index d4f6223e59d..13d6ce70be8 100644
+--- a/src/pl/plpython/sql/plpython_ereport.sql
++++ b/src/pl/plpython/sql/plpython_ereport.sql
+@@ -38,11 +38,11 @@ $$ LANGUAGE plpython3u;
+ DO $$ plpy.info('wrong sqlstate', sqlstate='54444A') $$ LANGUAGE plpython3u;
+ DO $$ plpy.info('unsupported argument', blabla='fooboo') $$ LANGUAGE plpython3u;
+ DO $$ plpy.info('first message', message='second message') $$ LANGUAGE plpython3u;
+ DO $$ plpy.info('first message', 'second message', message='third message') $$ LANGUAGE plpython3u;
+ 
+--- raise exception in python, handle exception in plgsql
++-- raise exception in python, handle exception in plpgsql
+ CREATE OR REPLACE FUNCTION raise_exception(_message text, _detail text DEFAULT NULL, _hint text DEFAULT NULL,
+                                            _sqlstate text DEFAULT NULL,
+                                            _schema_name text DEFAULT NULL,
+                                            _table_name text DEFAULT NULL,
+                                            _column_name text DEFAULT NULL,
+diff --git a/src/test/modules/test_pg_dump/t/001_base.pl b/src/test/modules/test_pg_dump/t/001_base.pl
+index a74ea373bb2..78e76774238 100644
+--- a/src/test/modules/test_pg_dump/t/001_base.pl
++++ b/src/test/modules/test_pg_dump/t/001_base.pl
+@@ -206,19 +206,19 @@ my %pgdump_runs = (
+ 			'pg_dump', '--no-sync', "--file=$tempdir/with_extension.sql",
+ 			'--extension=test_pg_dump', 'postgres',
+ 		],
+ 	},
+ 
+-	# plgsql in the list blocks the dump of extension test_pg_dump
++	# plpgsql in the list blocks the dump of extension test_pg_dump
+ 	without_extension => {
+ 		dump_cmd => [
+ 			'pg_dump', '--no-sync', "--file=$tempdir/without_extension.sql",
+ 			'--extension=plpgsql', 'postgres',
+ 		],
+ 	},
+ 
+-	# plgsql in the list of extensions blocks the dump of extension
++	# plpgsql in the list of extensions blocks the dump of extension
+ 	# test_pg_dump.  "public" is the schema used by the extension
+ 	# test_pg_dump, but none of its objects should be dumped.
+ 	without_extension_explicit_schema => {
+ 		dump_cmd => [
+ 			'pg_dump',
+@@ -228,11 +228,11 @@ my %pgdump_runs = (
+ 			'--schema=public',
+ 			'postgres',
+ 		],
+ 	},
+ 
+-	# plgsql in the list of extensions blocks the dump of extension
++	# plpgsql in the list of extensions blocks the dump of extension
+ 	# test_pg_dump, but not the dump of objects not dependent on the
+ 	# extension located on a schema maintained by the extension.
+ 	without_extension_internal_schema => {
+ 		dump_cmd => [
+ 			'pg_dump',

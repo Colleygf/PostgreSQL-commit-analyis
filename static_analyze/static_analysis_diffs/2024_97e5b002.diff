@@ -1,0 +1,76 @@
+commit 97e5b0026fc276ab1bcde58ae98ae1fcd9c3acc3
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Thu May 23 02:13:43 2024 +0300
+
+    amcheck: Report an error when the next page to a leaf is not a leaf
+    
+    This is a very unlikely condition during checking a B-tree unique constraint,
+    meaning that the index structure is violated badly, and we shouldn't continue
+    checking to avoid endless loops, etc.  So it's worth immediately throwing an
+    error.
+    
+    Reported-by: Peter Geoghegan
+    Discussion: https://postgr.es/m/CAH2-Wzk%2B2116uOXdOViA27SHcr31WKPgmjsxXLBs_aTxAeThzg%40mail.gmail.com
+    Author: Pavel Borisov
+
+diff --git a/contrib/amcheck/verify_nbtree.c b/contrib/amcheck/verify_nbtree.c
+index 5354b393b11..4347f9594c9 100644
+--- a/contrib/amcheck/verify_nbtree.c
++++ b/contrib/amcheck/verify_nbtree.c
+@@ -1829,11 +1829,10 @@ bt_target_page_check(BtreeCheckState *state)
+ 		 * the rightmost page on level).
+ 		 */
+ 		if (offset == max)
+ 		{
+ 			BTScanInsert rightkey;
+-			BlockNumber rightblock_number;
+ 
+ 			/* first offset on a right index page (log only) */
+ 			OffsetNumber rightfirstoffset = InvalidOffsetNumber;
+ 
+ 			/* Get item in next/right page */
+@@ -1874,14 +1873,15 @@ bt_target_page_check(BtreeCheckState *state)
+ 
+ 			/*
+ 			 * If index has unique constraint make sure that no more than one
+ 			 * found equal items is visible.
+ 			 */
+-			rightblock_number = topaque->btpo_next;
+ 			if (state->checkunique && state->indexinfo->ii_Unique &&
+-				rightkey && P_ISLEAF(topaque) && rightblock_number != P_NONE)
++				rightkey && P_ISLEAF(topaque) && !P_RIGHTMOST(topaque))
+ 			{
++				BlockNumber rightblock_number = topaque->btpo_next;
++
+ 				elog(DEBUG2, "check cross page unique condition");
+ 
+ 				/*
+ 				 * Make _bt_compare compare only index keys without heap TIDs.
+ 				 * rightkey->scantid is modified destructively but it is ok
+@@ -1897,13 +1897,23 @@ bt_target_page_check(BtreeCheckState *state)
+ 					elog(DEBUG2, "cross page equal keys");
+ 					rightpage = palloc_btree_page(state,
+ 												  rightblock_number);
+ 					topaque = BTPageGetOpaque(rightpage);
+ 
+-					if (P_IGNORE(topaque) || !P_ISLEAF(topaque))
+-						break;
+-
++					if (P_IGNORE(topaque))
++					{
++						if (unlikely(!P_ISLEAF(topaque)))
++							ereport(ERROR,
++									(errcode(ERRCODE_INDEX_CORRUPTED),
++									 errmsg("right block of leaf block is non-leaf for index \"%s\"",
++											RelationGetRelationName(state->rel)),
++									 errdetail_internal("Block=%u page lsn=%X/%X.",
++														state->targetblock,
++														LSN_FORMAT_ARGS(state->targetlsn))));
++						else
++							break;
++					}
+ 					itemid = PageGetItemIdCareful(state, rightblock_number,
+ 												  rightpage,
+ 												  rightfirstoffset);
+ 					itup = (IndexTuple) PageGetItem(rightpage, itemid);
+ 

@@ -1,0 +1,65 @@
+commit 36e545cd051ffe58064c1f38faeb64f4feef4aec
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Thu Nov 10 16:56:49 2022 +0530
+
+    Fix comments atop ReorderBufferAddInvalidations.
+    
+    The comments atop seem to indicate that we always accumulate invalidation
+    messages in a top-level transaction which is neither required nor matches
+    with the code.
+    
+    Author: Amit Kapila
+    Reviewd by: Masahiko Sawada
+    Backpatch-through: 14, where it was introduced in commit c55040ccd0
+    Discussion: https://postgr.es/m/CAA4eK1LxGgnUroPz8STb6OfjVU1yaHoSA+T63URwmGCLdMJ0LA@mail.gmail.com
+
+diff --git a/src/backend/replication/logical/reorderbuffer.c b/src/backend/replication/logical/reorderbuffer.c
+index 22a15a482ab..31f7381f2d6 100644
+--- a/src/backend/replication/logical/reorderbuffer.c
++++ b/src/backend/replication/logical/reorderbuffer.c
+@@ -3206,20 +3206,21 @@ ReorderBufferAddNewTupleCids(ReorderBuffer *rb, TransactionId xid,
+ 	dlist_push_tail(&txn->tuplecids, &change->node);
+ 	txn->ntuplecids++;
+ }
+ 
+ /*
+- * Setup the invalidation of the toplevel transaction.
++ * Accumulate the invalidations for executing them later.
+  *
+  * This needs to be called for each XLOG_XACT_INVALIDATIONS message and
+- * accumulates all the invalidation messages in the toplevel transaction as
+- * well as in the form of change in reorder buffer.  We require to record it in
+- * form of the change so that we can execute only the required invalidations
+- * instead of executing all the invalidations on each CommandId increment.  We
+- * also need to accumulate these in the toplevel transaction because in some
+- * cases we skip processing the transaction (see ReorderBufferForget), we need
+- * to execute all the invalidations together.
++ * accumulates all the invalidation messages in the toplevel transaction, if
++ * available, otherwise in the current transaction, as well as in the form of
++ * change in reorder buffer.  We require to record it in form of the change
++ * so that we can execute only the required invalidations instead of executing
++ * all the invalidations on each CommandId increment.  We also need to
++ * accumulate these in the txn buffer because in some cases where we skip
++ * processing the transaction (see ReorderBufferForget), we need to execute
++ * all the invalidations together.
+  */
+ void
+ ReorderBufferAddInvalidations(ReorderBuffer *rb, TransactionId xid,
+ 							  XLogRecPtr lsn, Size nmsgs,
+ 							  SharedInvalidationMessage *msgs)
+@@ -3231,12 +3232,13 @@ ReorderBufferAddInvalidations(ReorderBuffer *rb, TransactionId xid,
+ 	txn = ReorderBufferTXNByXid(rb, xid, true, NULL, lsn, true);
+ 
+ 	oldcontext = MemoryContextSwitchTo(rb->context);
+ 
+ 	/*
+-	 * Collect all the invalidations under the top transaction so that we can
+-	 * execute them all together.  See comment atop this function
++	 * Collect all the invalidations under the top transaction, if available,
++	 * so that we can execute them all together.  See comments atop this
++	 * function.
+ 	 */
+ 	if (txn->toptxn)
+ 		txn = txn->toptxn;
+ 
+ 	Assert(nmsgs > 0);

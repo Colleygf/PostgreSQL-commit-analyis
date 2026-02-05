@@ -1,0 +1,67 @@
+commit d7c4830abb1867ca4fb83add2a5fac558f778b6a
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Jan 25 20:00:36 2023 +0900
+
+    doc: Fix network_ops -> inet_ops in SpGiST operator class list
+    
+    network_ops is an opclass family of SpGiST, and the opclass able to
+    work on the inet type is named inet_ops.
+    
+    Oversight in 7a1cd52, that reworked the design of the table listing all
+    the operators available.
+    
+    Reported-by: Laurence Parry
+    Reviewed-by: Tom Lane, David G. Johnston
+    Discussion: https://postgr.es/m/167458110639.2667300.14741268666497110766@wrigleys.postgresql.org
+    Backpatch-through: 14
+
+diff --git a/doc/src/sgml/spgist.sgml b/doc/src/sgml/spgist.sgml
+index 00432512de9..102f8627bd0 100644
+--- a/doc/src/sgml/spgist.sgml
++++ b/doc/src/sgml/spgist.sgml
+@@ -89,22 +89,11 @@
+      <row><entry><literal>&amp;&lt;| (box,box)</literal></entry></row>
+      <row><entry><literal>|&amp;&gt; (box,box)</literal></entry></row>
+      <row><entry><literal>|&gt;&gt; (box,box)</literal></entry></row>
+ 
+      <row>
+-      <entry valign="middle" morerows="5"><literal>kd_point_ops</literal></entry>
+-      <entry><literal>|&gt;&gt; (point,point)</literal></entry>
+-      <entry valign="middle" morerows="5"><literal>&lt;-&gt; (point,point)</literal></entry>
+-     </row>
+-     <row><entry><literal>&lt;&lt; (point,point)</literal></entry></row>
+-     <row><entry><literal>&gt;&gt; (point,point)</literal></entry></row>
+-     <row><entry><literal>&lt;&lt;| (point,point)</literal></entry></row>
+-     <row><entry><literal>~= (point,point)</literal></entry></row>
+-     <row><entry><literal>&lt;@ (point,box)</literal></entry></row>
+-
+-     <row>
+-      <entry valign="middle" morerows="10"><literal>network_ops</literal></entry>
++      <entry valign="middle" morerows="10"><literal>inet_ops</literal></entry>
+       <entry><literal>&lt;&lt; (inet,inet)</literal></entry>
+       <entry valign="middle" morerows="10"></entry>
+      </row>
+      <row><entry><literal>&lt;&lt;= (inet,inet)</literal></entry></row>
+      <row><entry><literal>&gt;&gt; (inet,inet)</literal></entry></row>
+@@ -115,10 +104,21 @@
+      <row><entry><literal>&lt;= (inet,inet)</literal></entry></row>
+      <row><entry><literal>&gt; (inet,inet)</literal></entry></row>
+      <row><entry><literal>&gt;= (inet,inet)</literal></entry></row>
+      <row><entry><literal>&amp;&amp; (inet,inet)</literal></entry></row>
+ 
++     <row>
++      <entry valign="middle" morerows="5"><literal>kd_point_ops</literal></entry>
++      <entry><literal>|&gt;&gt; (point,point)</literal></entry>
++      <entry valign="middle" morerows="5"><literal>&lt;-&gt; (point,point)</literal></entry>
++     </row>
++     <row><entry><literal>&lt;&lt; (point,point)</literal></entry></row>
++     <row><entry><literal>&gt;&gt; (point,point)</literal></entry></row>
++     <row><entry><literal>&lt;&lt;| (point,point)</literal></entry></row>
++     <row><entry><literal>~= (point,point)</literal></entry></row>
++     <row><entry><literal>&lt;@ (point,box)</literal></entry></row>
++
+      <row>
+       <entry valign="middle" morerows="11"><literal>poly_ops</literal></entry>
+       <entry><literal>&lt;&lt; (polygon,polygon)</literal></entry>
+       <entry valign="middle" morerows="11"><literal>&lt;-&gt; (polygon,point)</literal></entry>
+      </row>

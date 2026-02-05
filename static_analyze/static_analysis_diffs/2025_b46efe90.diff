@@ -1,0 +1,124 @@
+commit b46efe90482bc1105a17955fce02cb3708230f0e
+Author: Masahiko Sawada <msawada@postgresql.org>
+Date:   Thu Oct 9 10:59:27 2025 -0700
+
+    Fix access-to-already-freed-memory issue in pgoutput.
+    
+    While pgoutput caches relation synchronization information in
+    RelationSyncCache that resides in CacheMemoryContext, each entry's
+    information (such as row filter expressions and column lists) is
+    stored in the entry's private memory context (entry_cxt in
+    RelationSyncEntry), which is a descendant memory context of the
+    decoding context. If a logical decoding invoked via SQL functions like
+    pg_logical_slot_get_binary_changes fails with an error, subsequent
+    logical decoding executions could access already-freed memory of the
+    entry's cache, resulting in a crash.
+    
+    With this change, it's ensured that RelationSyncCache is cleaned up
+    even in error cases by using a memory context reset callback function.
+    
+    Backpatch to 15, where entry_cxt was introduced for column filtering
+    and row filtering.
+    
+    While the backbranches v13 and v14 have a similar issue where
+    RelationSyncCache persists even after an error when pgoutput is used
+    via SQL API, we decided not to backport this fix. This decision was
+    made because v13 is approaching its final minor release, and we won't
+    have an chance to fix any new issues that might arise. Additionally,
+    since using pgoutput via SQL API is not a common use case, the risk
+    outwights the benefit. If we receive bug reports, we can consider
+    backporting the fixes then.
+    
+    Author: vignesh C <vignesh21@gmail.com>
+    Co-authored-by: Masahiko Sawada <sawada.mshk@gmail.com>
+    Reviewed-by: Zhijie Hou <houzj.fnst@fujitsu.com>
+    Reviewed-by: Euler Taveira <euler@eulerto.com>
+    Discussion: https://postgr.es/m/CALDaNm0x-aCehgt8Bevs2cm=uhmwS28MvbYq1=s2Ekf0aDPkOA@mail.gmail.com
+    Backpatch-through: 15
+
+diff --git a/src/backend/replication/pgoutput/pgoutput.c b/src/backend/replication/pgoutput/pgoutput.c
+index 92eb17049c3..847806b0a2e 100644
+--- a/src/backend/replication/pgoutput/pgoutput.c
++++ b/src/backend/replication/pgoutput/pgoutput.c
+@@ -233,10 +233,11 @@ static void set_schema_sent_in_streamed_txn(RelationSyncEntry *entry,
+ 											TransactionId xid);
+ static bool get_schema_sent_in_streamed_txn(RelationSyncEntry *entry,
+ 											TransactionId xid);
+ static void init_tuple_slot(PGOutputData *data, Relation relation,
+ 							RelationSyncEntry *entry);
++static void pgoutput_memory_context_reset(void *arg);
+ 
+ /* row filter routines */
+ static EState *create_estate_for_relation(Relation rel);
+ static void pgoutput_row_filter_init(PGOutputData *data,
+ 									 List *publications,
+@@ -424,19 +425,33 @@ parse_output_parameters(List *options, PGOutputData *data)
+ 		ereport(ERROR,
+ 				errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+ 				errmsg("option \"%s\" missing", "publication_names"));
+ }
+ 
++/*
++ * Memory context reset callback of PGOutputData->context.
++ */
++static void
++pgoutput_memory_context_reset(void *arg)
++{
++	if (RelationSyncCache)
++	{
++		hash_destroy(RelationSyncCache);
++		RelationSyncCache = NULL;
++	}
++}
++
+ /*
+  * Initialize this plugin
+  */
+ static void
+ pgoutput_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt,
+ 				 bool is_init)
+ {
+ 	PGOutputData *data = palloc0(sizeof(PGOutputData));
+ 	static bool publication_callback_registered = false;
++	MemoryContextCallback *mcallback;
+ 
+ 	/* Create our memory context for private allocations. */
+ 	data->context = AllocSetContextCreate(ctx->context,
+ 										  "logical replication output context",
+ 										  ALLOCSET_DEFAULT_SIZES);
+@@ -447,10 +462,18 @@ pgoutput_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt,
+ 
+ 	data->pubctx = AllocSetContextCreate(ctx->context,
+ 										 "logical replication publication list context",
+ 										 ALLOCSET_SMALL_SIZES);
+ 
++	/*
++	 * Ensure to cleanup RelationSyncCache even when logical decoding invoked
++	 * via SQL interface ends up with an error.
++	 */
++	mcallback = palloc0(sizeof(MemoryContextCallback));
++	mcallback->func = pgoutput_memory_context_reset;
++	MemoryContextRegisterResetCallback(ctx->context, mcallback);
++
+ 	ctx->output_plugin_private = data;
+ 
+ 	/* This plugin uses binary protocol. */
+ 	opt->output_type = OUTPUT_PLUGIN_BINARY_OUTPUT;
+ 
+@@ -1758,15 +1781,11 @@ pgoutput_origin_filter(LogicalDecodingContext *ctx,
+  * will be cleaned up by logical decoding machinery.
+  */
+ static void
+ pgoutput_shutdown(LogicalDecodingContext *ctx)
+ {
+-	if (RelationSyncCache)
+-	{
+-		hash_destroy(RelationSyncCache);
+-		RelationSyncCache = NULL;
+-	}
++	pgoutput_memory_context_reset(NULL);
+ }
+ 
+ /*
+  * Load publications from the list of publication names.
+  *

@@ -1,0 +1,61 @@
+commit 990c8db1827c0c96fb20cb4fbfcc9690e9b45e15
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Wed Aug 27 15:46:39 2025 +0200
+
+    Fix: Don't strip $libdir from nested module_pathnames
+    
+    This patch fixes a bug in how 'load_external_function' handles
+    '$libdir/ prefixes in module paths.
+    
+    Previously, 'load_external_function' would unconditionally strip
+    '$libdir/' from the beginning of the 'filename' string.  This caused
+    an issue when the path was nested, such as "$libdir/nested/my_lib".
+    Stripping the prefix resulted in a path of "nested/my_lib", which
+    would fail to be found by the expand_dynamic_library_name function
+    because the original '$libdir' macro was removed.
+    
+    To fix this, the code now checks for the presence of an additional
+    directory separator ('/' or '\') after the '$libdir/' prefix.  The
+    prefix is only stripped if the remaining string does not contain a
+    separator.  This ensures that simple filenames like '"$libdir/my_lib"'
+    are correctly handled, while nested paths are left intact for
+    'expand_dynamic_library_name' to process correctly.
+    
+    Reported-by: Dilip Kumar <dilipbalaut@gmail.com>
+    Co-authored-by: Matheus Alcantara <matheusssilv97@gmail.com>
+    Co-authored-by: Dilip Kumar <dilipbalaut@gmail.com>
+    Reviewed-by: Srinath Reddy Sadipiralla <srinath2133@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/CAFiTN-uKNzAro4tVwtJhF1UqcygfJ%2BR%2BRL%3Db-_ZMYE3LdHoGhA%40mail.gmail.com
+
+diff --git a/src/backend/utils/fmgr/dfmgr.c b/src/backend/utils/fmgr/dfmgr.c
+index 4bb84ff7087..1366521f471 100644
+--- a/src/backend/utils/fmgr/dfmgr.c
++++ b/src/backend/utils/fmgr/dfmgr.c
+@@ -98,16 +98,23 @@ load_external_function(const char *filename, const char *funcname,
+ 	char	   *fullname;
+ 	void	   *lib_handle;
+ 	void	   *retval;
+ 
+ 	/*
+-	 * If the value starts with "$libdir/", strip that.  This is because many
+-	 * extensions have hardcoded '$libdir/foo' as their library name, which
+-	 * prevents using the path.
++	 * For extensions with hardcoded '$libdir/' library names, we strip the
++	 * prefix to allow the library search path to be used. This is done only
++	 * for simple names (e.g., "$libdir/foo"), not for nested paths (e.g.,
++	 * "$libdir/foo/bar").
++	 *
++	 * For nested paths, 'expand_dynamic_library_name' directly expands the
++	 * '$libdir' macro, so we leave them untouched.
+ 	 */
+ 	if (strncmp(filename, "$libdir/", 8) == 0)
+-		filename += 8;
++	{
++		if (first_dir_separator(filename + 8) == NULL)
++			filename += 8;
++	}
+ 
+ 	/* Expand the possibly-abbreviated filename to an exact path name */
+ 	fullname = expand_dynamic_library_name(filename);
+ 
+ 	/* Load the shared library, unless we already did */

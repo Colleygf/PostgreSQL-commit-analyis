@@ -1,0 +1,134 @@
+commit 5d6187d2a28326b3414c394ec4c28c51bb513c44
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Mon Oct 7 13:51:03 2024 -0500
+
+    Fix Y2038 issues with MyStartTime.
+    
+    Several places treat MyStartTime as a "long", which is only 32 bits
+    wide on some platforms.  In reality, MyStartTime is a pg_time_t,
+    i.e., a signed 64-bit integer.  This will lead to interesting bugs
+    on the aforementioned systems in 2038 when signed 32-bit integers
+    are no longer sufficient to store Unix time (e.g., "pg_ctl start"
+    hanging).  To fix, ensure that MyStartTime is handled as a 64-bit
+    value everywhere.  (Of course, users will need to ensure that
+    time_t is 64 bits wide on their system, too.)
+    
+    Co-authored-by: Max Johnson
+    Discussion: https://postgr.es/m/CO1PR07MB905262E8AC270FAAACED66008D682%40CO1PR07MB9052.namprd07.prod.outlook.com
+    Backpatch-through: 12
+
+diff --git a/contrib/postgres_fdw/option.c b/contrib/postgres_fdw/option.c
+index 630b304338a..d740893918c 100644
+--- a/contrib/postgres_fdw/option.c
++++ b/contrib/postgres_fdw/option.c
+@@ -520,11 +520,11 @@ process_pgfdw_appname(const char *appname)
+ 		{
+ 			case 'a':
+ 				appendStringInfoString(&buf, application_name);
+ 				break;
+ 			case 'c':
+-				appendStringInfo(&buf, "%lx.%x", (long) (MyStartTime), MyProcPid);
++				appendStringInfo(&buf, "%" INT64_MODIFIER "x.%x", MyStartTime, MyProcPid);
+ 				break;
+ 			case 'C':
+ 				appendStringInfoString(&buf, cluster_name);
+ 				break;
+ 			case 'd':
+diff --git a/src/backend/utils/error/csvlog.c b/src/backend/utils/error/csvlog.c
+index 855e130a97d..eab8df3fcc3 100644
+--- a/src/backend/utils/error/csvlog.c
++++ b/src/backend/utils/error/csvlog.c
+@@ -118,11 +118,11 @@ write_csvlog(ErrorData *edata)
+ 		appendStringInfoChar(&buf, '"');
+ 	}
+ 	appendStringInfoChar(&buf, ',');
+ 
+ 	/* session id */
+-	appendStringInfo(&buf, "%lx.%x", (long) MyStartTime, MyProcPid);
++	appendStringInfo(&buf, "%" INT64_MODIFIER "x.%x", MyStartTime, MyProcPid);
+ 	appendStringInfoChar(&buf, ',');
+ 
+ 	/* Line number */
+ 	appendStringInfo(&buf, "%ld", log_line_number);
+ 	appendStringInfoChar(&buf, ',');
+diff --git a/src/backend/utils/error/elog.c b/src/backend/utils/error/elog.c
+index 5cbb5b54168..987ff98067b 100644
+--- a/src/backend/utils/error/elog.c
++++ b/src/backend/utils/error/elog.c
+@@ -2942,16 +2942,16 @@ log_status_format(StringInfo buf, const char *format, ErrorData *edata)
+ 			case 'c':
+ 				if (padding != 0)
+ 				{
+ 					char		strfbuf[128];
+ 
+-					snprintf(strfbuf, sizeof(strfbuf) - 1, "%lx.%x",
+-							 (long) (MyStartTime), MyProcPid);
++					snprintf(strfbuf, sizeof(strfbuf) - 1, "%" INT64_MODIFIER "x.%x",
++							 MyStartTime, MyProcPid);
+ 					appendStringInfo(buf, "%*s", padding, strfbuf);
+ 				}
+ 				else
+-					appendStringInfo(buf, "%lx.%x", (long) (MyStartTime), MyProcPid);
++					appendStringInfo(buf, "%" INT64_MODIFIER "x.%x", MyStartTime, MyProcPid);
+ 				break;
+ 			case 'p':
+ 				if (padding != 0)
+ 					appendStringInfo(buf, "%*d", padding, MyProcPid);
+ 				else
+diff --git a/src/backend/utils/error/jsonlog.c b/src/backend/utils/error/jsonlog.c
+index bd0124869d5..2c7b14cacb1 100644
+--- a/src/backend/utils/error/jsonlog.c
++++ b/src/backend/utils/error/jsonlog.c
+@@ -166,12 +166,12 @@ write_jsonlog(ErrorData *edata)
+ 		if (MyProcPort->remote_port && MyProcPort->remote_port[0] != '\0')
+ 			appendJSONKeyValue(&buf, "remote_port", MyProcPort->remote_port, false);
+ 	}
+ 
+ 	/* Session id */
+-	appendJSONKeyValueFmt(&buf, "session_id", true, "%lx.%x",
+-						  (long) MyStartTime, MyProcPid);
++	appendJSONKeyValueFmt(&buf, "session_id", true, "%" INT64_MODIFIER "x.%x",
++						  MyStartTime, MyProcPid);
+ 
+ 	/* Line number */
+ 	appendJSONKeyValueFmt(&buf, "line_num", false, "%ld", log_line_number);
+ 
+ 	/* PS display */
+diff --git a/src/backend/utils/init/miscinit.c b/src/backend/utils/init/miscinit.c
+index 537d92c0cfd..ef60f41b8ce 100644
+--- a/src/backend/utils/init/miscinit.c
++++ b/src/backend/utils/init/miscinit.c
+@@ -1370,14 +1370,14 @@ CreateLockFile(const char *filename, bool amPostmaster,
+ 	 * Successfully created the file, now fill it.  See comment in pidfile.h
+ 	 * about the contents.  Note that we write the same first five lines into
+ 	 * both datadir and socket lockfiles; although more stuff may get added to
+ 	 * the datadir lockfile later.
+ 	 */
+-	snprintf(buffer, sizeof(buffer), "%d\n%s\n%ld\n%d\n%s\n",
++	snprintf(buffer, sizeof(buffer), "%d\n%s\n" INT64_FORMAT "\n%d\n%s\n",
+ 			 amPostmaster ? (int) my_pid : -((int) my_pid),
+ 			 DataDir,
+-			 (long) MyStartTime,
++			 MyStartTime,
+ 			 PostPortNumber,
+ 			 socketDir);
+ 
+ 	/*
+ 	 * In a standalone backend, the next line (LOCK_FILE_LINE_LISTEN_ADDR)
+diff --git a/src/bin/pg_ctl/pg_ctl.c b/src/bin/pg_ctl/pg_ctl.c
+index e7e878c22f0..d6bb2c33119 100644
+--- a/src/bin/pg_ctl/pg_ctl.c
++++ b/src/bin/pg_ctl/pg_ctl.c
+@@ -616,11 +616,11 @@ wait_for_postmaster_start(pid_t pm_pid, bool do_checkpoint)
+ 			 * at the wrong data directory, or this is a pre-existing pidfile
+ 			 * that hasn't (yet?) been overwritten by our child postmaster.
+ 			 * Allow 2 seconds slop for possible cross-process clock skew.
+ 			 */
+ 			pmpid = atol(optlines[LOCK_FILE_LINE_PID - 1]);
+-			pmstart = atol(optlines[LOCK_FILE_LINE_START_TIME - 1]);
++			pmstart = atoll(optlines[LOCK_FILE_LINE_START_TIME - 1]);
+ 			if (pmstart >= start_time - 2 &&
+ #ifndef WIN32
+ 				pmpid == pm_pid
+ #else
+ 			/* Windows can only reject standalone-backend PIDs */

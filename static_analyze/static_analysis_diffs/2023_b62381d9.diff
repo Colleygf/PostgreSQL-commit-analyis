@@ -1,0 +1,87 @@
+commit b62381d9a23b4b96259cf560e411137656201704
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sun May 21 11:21:19 2023 -0400
+
+    Doc: fix some rendering problems in the PDF docs build.
+    
+    Tweak column widths in a couple of tables to avoid "contents
+    ... exceed the available area" warnings.  Remove usage of
+    some non-Latin-1 characters.
+    
+    Discussion: https://postgr.es/m/614600.1684537037@sss.pgh.pa.us
+
+diff --git a/doc/src/sgml/charset.sgml b/doc/src/sgml/charset.sgml
+index 9db14649aa7..9a93daf37d0 100644
+--- a/doc/src/sgml/charset.sgml
++++ b/doc/src/sgml/charset.sgml
+@@ -1138,10 +1138,18 @@ SELECT 'w;x*y-z' = 'wxyz' COLLATE num_ignore_punct; -- true
+     </para>
+     <para>
+      <table id="icu-collation-levels">
+       <title>ICU Collation Levels</title>
+       <tgroup cols="8">
++       <colspec colname="col1" colwidth="1*"/>
++       <colspec colname="col2" colwidth="1.25*"/>
++       <colspec colname="col3" colwidth="1*"/>
++       <colspec colname="col4" colwidth="1*"/>
++       <colspec colname="col5" colwidth="1*"/>
++       <colspec colname="col6" colwidth="1*"/>
++       <colspec colname="col7" colwidth="1*"/>
++       <colspec colname="col8" colwidth="1*"/>
+        <thead>
+         <row>
+          <entry>Level</entry>
+          <entry>Description</entry>
+          <entry><literal>'f' = 'f'</literal></entry>
+@@ -1248,10 +1256,14 @@ SELECT 'x-y' = 'x_y' COLLATE level4; -- false
+     <title>Collation Settings for an ICU Locale</title>
+     <para>
+      <table id="icu-collation-settings-table">
+       <title>ICU Collation Settings</title>
+       <tgroup cols="4">
++       <colspec colname="col1" colwidth="1*"/>
++       <colspec colname="col2" colwidth="2*"/>
++       <colspec colname="col3" colwidth="2*"/>
++       <colspec colname="col4" colwidth="5*"/>
+        <thead>
+         <row>
+          <entry>Key</entry>
+          <entry>Values</entry>
+          <entry>Default</entry>
+@@ -1303,14 +1315,15 @@ SELECT 'x-y' = 'x_y' COLLATE level4; -- false
+            <literal>false</literal>. Locales for languages that require full
+            normalization typically enable it by default.
+           </para>
+           <para>
+            Full normalization is important in some cases, such as when
+-           multiple accents are applied to a single character. For instance,
+-           <literal>'ệ'</literal> can be composed of code points
+-           <literal>U&amp;'\0065\0323\0302'</literal> or
+-           <literal>U&amp;'\0065\0302\0323'</literal>. With full normalization
++           multiple accents are applied to a single character. For example,
++           the code point sequences <literal>U&amp;'\0065\0323\0302'</literal>
++           and <literal>U&amp;'\0065\0302\0323'</literal> represent
++           an <literal>e</literal> with circumflex and dot-below accents
++           applied in different orders. With full normalization
+            on, these code point sequences are treated as equal; otherwise they
+            are unequal.
+           </para>
+          </entry>
+         </row>
+diff --git a/doc/src/sgml/release-16.sgml b/doc/src/sgml/release-16.sgml
+index d5efe4645fb..9f6a272b30f 100644
+--- a/doc/src/sgml/release-16.sgml
++++ b/doc/src/sgml/release-16.sgml
+@@ -1770,11 +1770,11 @@ Author: Tom Lane <tgl@sss.pgh.pa.us>
+ 2022-11-12 [533e02e92] Fix volatility marking of timestamptz_trunc_zone.
+ -->
+ 
+ <listitem>
+ <para>
+-Change date_trunc(unit, timestamptz, time_zone) to be an immutable function (Przemysław Sztoch)
++Change date_trunc(unit, timestamptz, time_zone) to be an immutable function (Przemyslaw Sztoch)
+ </para>
+ 
+ <para>
+ This allows the creation of expression indexes using this function.
+ </para>

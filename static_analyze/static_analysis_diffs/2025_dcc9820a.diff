@@ -1,0 +1,48 @@
+commit dcc9820a3526eb8d89c5da75dad32b8ef4bf8545
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Thu Jul 24 13:30:43 2025 -0400
+
+    Avoid throwing away the error message in syncrep_yyerror.
+    
+    Commit 473a575e05979b4dbb28b3f2544f4ec8f184ce65 purported to make this
+    function stash the error message in *syncrep_parse_result_p, but
+    it didn't actually.
+    
+    As a result, an attempt to set synchronous_standby_names to any value
+    that does not parse resulted in a generic "parser failed." message
+    rather than anything more specific. This fixes that.
+    
+    Discussion: http://postgr.es/m/CA+TgmoYF9wPNZ-Q_EMfib_espgHycY-eX__6Tzo2GpYpVXqCdQ@mail.gmail.com
+    Backpatch-through: 18
+
+diff --git a/src/backend/replication/syncrep_scanner.l b/src/backend/replication/syncrep_scanner.l
+index 7dec1f869c7..02004d621e7 100644
+--- a/src/backend/replication/syncrep_scanner.l
++++ b/src/backend/replication/syncrep_scanner.l
+@@ -155,21 +155,20 @@ xdinside		[^"]+
+ void
+ syncrep_yyerror(SyncRepConfigData **syncrep_parse_result_p, char **syncrep_parse_error_msg_p, yyscan_t yyscanner, const char *message)
+ {
+ 	struct yyguts_t *yyg = (struct yyguts_t *) yyscanner;	/* needed for yytext
+ 															 * macro */
+-	char *syncrep_parse_error_msg = *syncrep_parse_error_msg_p;
+ 
+ 	/* report only the first error in a parse operation */
+-	if (syncrep_parse_error_msg)
++	if (*syncrep_parse_error_msg_p)
+ 		return;
+ 	if (yytext[0])
+-		syncrep_parse_error_msg = psprintf("%s at or near \"%s\"",
+-										   message, yytext);
++		*syncrep_parse_error_msg_p = psprintf("%s at or near \"%s\"",
++											  message, yytext);
+ 	else
+-		syncrep_parse_error_msg = psprintf("%s at end of input",
+-										   message);
++		*syncrep_parse_error_msg_p = psprintf("%s at end of input",
++											  message);
+ }
+ 
+ void
+ syncrep_scanner_init(const char *str, yyscan_t *yyscannerp)
+ {

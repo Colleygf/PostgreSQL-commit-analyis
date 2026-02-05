@@ -1,0 +1,112 @@
+commit f011acdd61fc296ec8822ca4edc18e32b6bd2b56
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Tue Mar 4 09:18:32 2025 +0100
+
+    Fix ALTER TABLE ADD VIRTUAL GENERATED COLUMN when table rewrite
+    
+    demo:
+    CREATE TABLE gtest20a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) VIRTUAL);
+    ALTER TABLE gtest20a ADD COLUMN c float8 DEFAULT RANDOM() CHECK (b < 60);
+    ERROR:  no generation expression found for column number 2 of table "pg_temp_17306"
+    
+    In ATRewriteTable, the variable OIDNewHeap (if valid) corresponding
+    pg_attrdef default expression entry was not populated.  So OIDNewHeap
+    cannot be used to call expand_generated_columns_in_expr or
+    build_generation_expression.  Therefore in ATRewriteTable, we can only
+    use the existing relation to expand the generated expression.
+    
+    Author: jian he <jian.universality@gmail.com>
+    Reviewed-by: Srinath Reddy <srinath2133@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/CACJufxEJ%3DFoajabWXjszo_yrQeKSxdZ87KJqBW373rSbajKGAA%40mail.gmail.com
+
+diff --git a/src/backend/commands/tablecmds.c b/src/backend/commands/tablecmds.c
+index 13156391241..8826ca5c32c 100644
+--- a/src/backend/commands/tablecmds.c
++++ b/src/backend/commands/tablecmds.c
+@@ -6135,11 +6135,11 @@ ATRewriteTable(AlteredTableInfo *tab, Oid OIDNewHeap)
+ 
+ 		switch (con->contype)
+ 		{
+ 			case CONSTR_CHECK:
+ 				needscan = true;
+-				con->qualstate = ExecPrepareExpr((Expr *) expand_generated_columns_in_expr(con->qual, newrel ? newrel : oldrel, 1), estate);
++				con->qualstate = ExecPrepareExpr((Expr *) expand_generated_columns_in_expr(con->qual, oldrel, 1), estate);
+ 				break;
+ 			case CONSTR_FOREIGN:
+ 				/* Nothing to do here */
+ 				break;
+ 			default:
+diff --git a/src/test/regress/expected/generated_stored.out b/src/test/regress/expected/generated_stored.out
+index 3ce0dd1831c..8cccd1d7fe9 100644
+--- a/src/test/regress/expected/generated_stored.out
++++ b/src/test/regress/expected/generated_stored.out
+@@ -654,10 +654,14 @@ ALTER TABLE gtest20 ALTER COLUMN b SET EXPRESSION AS (a * 3);  -- ok
+ CREATE TABLE gtest20a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED);
+ INSERT INTO gtest20a (a) VALUES (10);
+ INSERT INTO gtest20a (a) VALUES (30);
+ ALTER TABLE gtest20a ADD CHECK (b < 50);  -- fails on existing row
+ ERROR:  check constraint "gtest20a_b_check" of relation "gtest20a" is violated by some row
++-- table rewrite cases
++ALTER TABLE gtest20a ADD COLUMN c float8 DEFAULT random() CHECK (b < 50); -- fails on existing row
++ERROR:  check constraint "gtest20a_b_check" of relation "gtest20a" is violated by some row
++ALTER TABLE gtest20a ADD COLUMN c float8 DEFAULT random() CHECK (b < 61); -- ok
+ CREATE TABLE gtest20b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED);
+ INSERT INTO gtest20b (a) VALUES (10);
+ INSERT INTO gtest20b (a) VALUES (30);
+ ALTER TABLE gtest20b ADD CONSTRAINT chk CHECK (b < 50) NOT VALID;
+ ALTER TABLE gtest20b VALIDATE CONSTRAINT chk;  -- fails on existing row
+diff --git a/src/test/regress/expected/generated_virtual.out b/src/test/regress/expected/generated_virtual.out
+index b339fbcebfa..7ef05f45be7 100644
+--- a/src/test/regress/expected/generated_virtual.out
++++ b/src/test/regress/expected/generated_virtual.out
+@@ -645,10 +645,14 @@ DETAIL:  Column "b" of relation "gtest20" is a virtual generated column.
+ CREATE TABLE gtest20a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) VIRTUAL);
+ INSERT INTO gtest20a (a) VALUES (10);
+ INSERT INTO gtest20a (a) VALUES (30);
+ ALTER TABLE gtest20a ADD CHECK (b < 50);  -- fails on existing row
+ ERROR:  check constraint "gtest20a_b_check" of relation "gtest20a" is violated by some row
++-- table rewrite cases
++ALTER TABLE gtest20a ADD COLUMN c float8 DEFAULT random() CHECK (b < 50); -- fails on existing row
++ERROR:  check constraint "gtest20a_b_check" of relation "gtest20a" is violated by some row
++ALTER TABLE gtest20a ADD COLUMN c float8 DEFAULT random() CHECK (b < 61); -- ok
+ CREATE TABLE gtest20b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) VIRTUAL);
+ INSERT INTO gtest20b (a) VALUES (10);
+ INSERT INTO gtest20b (a) VALUES (30);
+ ALTER TABLE gtest20b ADD CONSTRAINT chk CHECK (b < 50) NOT VALID;
+ ALTER TABLE gtest20b VALIDATE CONSTRAINT chk;  -- fails on existing row
+diff --git a/src/test/regress/sql/generated_stored.sql b/src/test/regress/sql/generated_stored.sql
+index b7749ce355f..50e94e5c673 100644
+--- a/src/test/regress/sql/generated_stored.sql
++++ b/src/test/regress/sql/generated_stored.sql
+@@ -317,10 +317,13 @@ ALTER TABLE gtest20 ALTER COLUMN b SET EXPRESSION AS (a * 3);  -- ok
+ 
+ CREATE TABLE gtest20a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED);
+ INSERT INTO gtest20a (a) VALUES (10);
+ INSERT INTO gtest20a (a) VALUES (30);
+ ALTER TABLE gtest20a ADD CHECK (b < 50);  -- fails on existing row
++-- table rewrite cases
++ALTER TABLE gtest20a ADD COLUMN c float8 DEFAULT random() CHECK (b < 50); -- fails on existing row
++ALTER TABLE gtest20a ADD COLUMN c float8 DEFAULT random() CHECK (b < 61); -- ok
+ 
+ CREATE TABLE gtest20b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) STORED);
+ INSERT INTO gtest20b (a) VALUES (10);
+ INSERT INTO gtest20b (a) VALUES (30);
+ ALTER TABLE gtest20b ADD CONSTRAINT chk CHECK (b < 50) NOT VALID;
+diff --git a/src/test/regress/sql/generated_virtual.sql b/src/test/regress/sql/generated_virtual.sql
+index c80630c11a5..dab8c92ef99 100644
+--- a/src/test/regress/sql/generated_virtual.sql
++++ b/src/test/regress/sql/generated_virtual.sql
+@@ -317,10 +317,13 @@ ALTER TABLE gtest20 ALTER COLUMN b SET EXPRESSION AS (a * 3);  -- ok (currently
+ 
+ CREATE TABLE gtest20a (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) VIRTUAL);
+ INSERT INTO gtest20a (a) VALUES (10);
+ INSERT INTO gtest20a (a) VALUES (30);
+ ALTER TABLE gtest20a ADD CHECK (b < 50);  -- fails on existing row
++-- table rewrite cases
++ALTER TABLE gtest20a ADD COLUMN c float8 DEFAULT random() CHECK (b < 50); -- fails on existing row
++ALTER TABLE gtest20a ADD COLUMN c float8 DEFAULT random() CHECK (b < 61); -- ok
+ 
+ CREATE TABLE gtest20b (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) VIRTUAL);
+ INSERT INTO gtest20b (a) VALUES (10);
+ INSERT INTO gtest20b (a) VALUES (30);
+ ALTER TABLE gtest20b ADD CONSTRAINT chk CHECK (b < 50) NOT VALID;

@@ -1,0 +1,96 @@
+commit 9520f8d92a8681e441cc863422babd544353dd39
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Mon May 23 10:07:36 2022 +0200
+
+    psql: Update \timing also in case of an error
+    
+    The changes to show all query results (7844c9918) broke \timing output
+    in case of an error; it didn't update the timing result and showed
+    0.000 ms.
+    
+    Fix by updating the timing result also in the error case.  Also, for
+    robustness, update the timing result any time a result is obtained,
+    not only for the last, so a sensible value is always available.
+    
+    Reported-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Author: Richard Guo <guofenglinux@gmail.com>
+    Author: Fabien COELHO <coelho@cri.ensmp.fr>
+    Discussion: https://www.postgresql.org/message-id/3813350.1652111765%40sss.pgh.pa.us
+
+diff --git a/src/bin/psql/common.c b/src/bin/psql/common.c
+index 9b140badeb9..03e6d9ce8f8 100644
+--- a/src/bin/psql/common.c
++++ b/src/bin/psql/common.c
+@@ -1564,10 +1564,20 @@ ExecQueryAndProcessResults(const char *query, double *elapsed_msec, bool *svpt_g
+ 				 */
+ 				result = NULL;
+ 			else
+ 				result = PQgetResult(pset.db);
+ 
++			/*
++			 * Get current timing measure in case an error occurs
++			 */
++			if (timing)
++			{
++				INSTR_TIME_SET_CURRENT(after);
++				INSTR_TIME_SUBTRACT(after, before);
++				*elapsed_msec = INSTR_TIME_GET_MILLISEC(after);
++			}
++
+ 			continue;
+ 		}
+ 		else if (svpt_gone_p && !*svpt_gone_p)
+ 		{
+ 			/*
+@@ -1617,22 +1627,22 @@ ExecQueryAndProcessResults(const char *query, double *elapsed_msec, bool *svpt_g
+ 		next_result = PQgetResult(pset.db);
+ 		notices.current ^= 1;
+ 		last = (next_result == NULL);
+ 
+ 		/*
+-		 * Get timing measure before printing the last result.
++		 * Update current timing measure.
+ 		 *
+ 		 * It will include the display of previous results, if any. This
+ 		 * cannot be helped because the server goes on processing further
+ 		 * queries anyway while the previous ones are being displayed. The
+ 		 * parallel execution of the client display hides the server time when
+ 		 * it is shorter.
+ 		 *
+ 		 * With combined queries, timing must be understood as an upper bound
+ 		 * of the time spent processing them.
+ 		 */
+-		if (last && timing)
++		if (timing)
+ 		{
+ 			INSTR_TIME_SET_CURRENT(after);
+ 			INSTR_TIME_SUBTRACT(after, before);
+ 			*elapsed_msec = INSTR_TIME_GET_MILLISEC(after);
+ 		}
+diff --git a/src/bin/psql/t/001_basic.pl b/src/bin/psql/t/001_basic.pl
+index 90e69d7cdba..c3ed18e84da 100644
+--- a/src/bin/psql/t/001_basic.pl
++++ b/src/bin/psql/t/001_basic.pl
+@@ -83,12 +83,20 @@ psql_fails_like(
+ psql_like(
+ 	$node,
+ 	'\timing on
+ SELECT 1',
+ 	qr/^1$
+-^Time: \d+.\d\d\d ms/m,
+-	'\timing');
++^Time: \d+\.\d\d\d ms/m,
++	'\timing with successful query');
++
++# test \timing with query that fails
++{
++	my ($ret, $stdout, $stderr) = $node->psql('postgres', "\\timing on\nSELECT error");
++	isnt($ret, 0, '\timing with query error: query failed');
++	like($stdout, qr/^Time: \d+\.\d\d\d ms/m, '\timing with query error: timing output appears');
++	unlike($stdout, qr/^Time: 0\.000 ms/m, '\timing with query error: timing was updated');
++}
+ 
+ # test that ENCODING variable is set and that it is updated when
+ # client encoding is changed
+ psql_like(
+ 	$node,

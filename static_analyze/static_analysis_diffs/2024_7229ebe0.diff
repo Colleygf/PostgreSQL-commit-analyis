@@ -1,0 +1,61 @@
+commit 7229ebe011dff3f418251a4836f6d098923aa1e1
+Author: Masahiko Sawada <msawada@postgresql.org>
+Date:   Mon Aug 26 16:16:12 2024 -0700
+
+    Fix identation.
+
+diff --git a/src/backend/replication/logical/reorderbuffer.c b/src/backend/replication/logical/reorderbuffer.c
+index b3139c41e2b..d1c4258844f 100644
+--- a/src/backend/replication/logical/reorderbuffer.c
++++ b/src/backend/replication/logical/reorderbuffer.c
+@@ -1538,14 +1538,14 @@ ReorderBufferCleanupTXN(ReorderBuffer *rb, ReorderBufferTXN *txn)
+ 
+ 		/* Check we're not mixing changes from different transactions. */
+ 		Assert(change->txn == txn);
+ 
+ 		/*
+-		 * Instead of updating the memory counter for individual changes,
+-		 * we sum up the size of memory to free so we can update the memory
+-		 * counter all together below. This saves costs of maintaining
+-		 * the max-heap.
++		 * Instead of updating the memory counter for individual changes, we
++		 * sum up the size of memory to free so we can update the memory
++		 * counter all together below. This saves costs of maintaining the
++		 * max-heap.
+ 		 */
+ 		mem_freed += ReorderBufferChangeSize(change);
+ 
+ 		ReorderBufferReturnChange(rb, change, false);
+ 	}
+@@ -1626,11 +1626,11 @@ ReorderBufferCleanupTXN(ReorderBuffer *rb, ReorderBufferTXN *txn)
+  */
+ static void
+ ReorderBufferTruncateTXN(ReorderBuffer *rb, ReorderBufferTXN *txn, bool txn_prepared)
+ {
+ 	dlist_mutable_iter iter;
+-	Size	mem_freed = 0;
++	Size		mem_freed = 0;
+ 
+ 	/* cleanup subtransactions & their changes */
+ 	dlist_foreach_modify(iter, &txn->subtxns)
+ 	{
+ 		ReorderBufferTXN *subtxn;
+@@ -1660,14 +1660,14 @@ ReorderBufferTruncateTXN(ReorderBuffer *rb, ReorderBufferTXN *txn, bool txn_prep
+ 
+ 		/* remove the change from it's containing list */
+ 		dlist_delete(&change->node);
+ 
+ 		/*
+-		 * Instead of updating the memory counter for individual changes,
+-		 * we sum up the size of memory to free so we can update the memory
+-		 * counter all together below. This saves costs of maintaining
+-		 * the max-heap.
++		 * Instead of updating the memory counter for individual changes, we
++		 * sum up the size of memory to free so we can update the memory
++		 * counter all together below. This saves costs of maintaining the
++		 * max-heap.
+ 		 */
+ 		mem_freed += ReorderBufferChangeSize(change);
+ 
+ 		ReorderBufferReturnChange(rb, change, false);
+ 	}

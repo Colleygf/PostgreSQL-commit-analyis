@@ -1,0 +1,71 @@
+commit c95d2159c1dd3f269383a9bd830e1c804dba34c8
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Fri Jul 26 14:52:08 2024 +0300
+
+    Fix fallback behavior when server sends an ERROR early at startup
+    
+    With sslmode=prefer, the desired behavior is to completely fail the
+    connection attempt, *not* fall back to a plaintext connection, if the
+    server responds to the SSLRequest with an error ('E') response instead
+    of rejecting SSL with an 'N' response. This was broken in commit
+    05fd30c0e7.
+    
+    Reported-by: Jacob Champion
+    Reviewed-by: Michael Paquier
+    Discussion: https://www.postgresql.org/message-id/CAOYmi%2Bnwvu21mJ4DYKUa98HdfM_KZJi7B1MhyXtnsyOO-PB6Ww%40mail.gmail.com
+    Backpatch-through: 17
+
+diff --git a/src/interfaces/libpq/fe-connect.c b/src/interfaces/libpq/fe-connect.c
+index e003279fb6c..360d9a45476 100644
+--- a/src/interfaces/libpq/fe-connect.c
++++ b/src/interfaces/libpq/fe-connect.c
+@@ -3519,10 +3519,16 @@ keep_going:						/* We will come back to here until there is
+ 						 * into AWAITING_RESPONSE state and let the code there
+ 						 * deal with it.  Note we have *not* consumed the "E"
+ 						 * byte here.
+ 						 */
+ 						conn->status = CONNECTION_AWAITING_RESPONSE;
++
++						/*
++						 * Don't fall back to a plaintext connection after
++						 * reading the error.
++						 */
++						conn->failed_enc_methods |= conn->allowed_enc_methods & (~conn->current_enc_method);
+ 						goto keep_going;
+ 					}
+ 					else
+ 					{
+ 						libpq_append_conn_error(conn, "received invalid response to SSL negotiation: %c",
+@@ -3610,10 +3616,17 @@ keep_going:						/* We will come back to here until there is
+ 						 * according to either protocol 2 or protocol 3.
+ 						 * Rather than duplicate the code for that, we flip
+ 						 * into AWAITING_RESPONSE state and let the code there
+ 						 * deal with it.  Note we have *not* consumed the "E"
+ 						 * byte here.
++						 *
++						 * Note that unlike on an error response to
++						 * SSLRequest, we allow falling back to SSL or
++						 * plaintext connection here.  GSS support was
++						 * introduced in PostgreSQL version 12, so an error
++						 * response might mean that we are connecting to a
++						 * pre-v12 server.
+ 						 */
+ 						conn->status = CONNECTION_AWAITING_RESPONSE;
+ 						goto keep_going;
+ 					}
+ 
+@@ -3657,10 +3670,14 @@ keep_going:						/* We will come back to here until there is
+ 					conn->status = CONNECTION_MADE;
+ 					return PGRES_POLLING_WRITING;
+ 				}
+ 				else if (pollres == PGRES_POLLING_FAILED)
+ 				{
++					/*
++					 * GSS handshake failed.  We will retry with an SSL or
++					 * plaintext connection, if permitted by the options.
++					 */
+ 					CONNECTION_FAILED();
+ 				}
+ 				/* Else, return POLLING_READING or POLLING_WRITING status */
+ 				return pollres;
+ #else							/* !ENABLE_GSS */

@@ -1,0 +1,96 @@
+commit 387803d81d6256fcb60b9192bb5b00042442b4e3
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Tue Oct 25 15:20:00 2022 +1300
+
+    Fix lstat() for broken junction points on Windows.
+    
+    When using junction points to emulate symlinks on Windows, one edge case
+    was not handled correctly by commit c5cb8f3b: if a junction point is
+    broken (pointing to a non-existent path), we'd report ENOENT.  This
+    doesn't break any known use case, but was noticed while developing a
+    test suite for these functions and is fixed here for completeness.
+    
+    Also add translation ERROR_CANT_RESOLVE_FILENAME -> ENOENT, as that is
+    one of the errors Windows can report for some kinds of broken paths.
+    
+    Discussion: https://postgr.es/m/CA%2BhUKG%2BajSQ_8eu2AogTncOnZ5me2D-Cn66iN_-wZnRjLN%2Bicg%40mail.gmail.com
+
+diff --git a/src/port/win32error.c b/src/port/win32error.c
+index a78d3238271..67ce805d775 100644
+--- a/src/port/win32error.c
++++ b/src/port/win32error.c
+@@ -165,10 +165,13 @@ static const struct
+ 	{
+ 		ERROR_DELETE_PENDING, ENOENT
+ 	},
+ 	{
+ 		ERROR_INVALID_NAME, ENOENT
++	},
++	{
++		ERROR_CANT_RESOLVE_FILENAME, ENOENT
+ 	}
+ };
+ 
+ void
+ _dosmaperr(unsigned long e)
+diff --git a/src/port/win32stat.c b/src/port/win32stat.c
+index 5f3d0d22ff4..ce8d87093d8 100644
+--- a/src/port/win32stat.c
++++ b/src/port/win32stat.c
+@@ -123,19 +123,34 @@ _pglstat64(const char *name, struct stat *buf)
+ 	HANDLE		hFile;
+ 	int			ret;
+ 
+ 	hFile = pgwin32_open_handle(name, O_RDONLY, true);
+ 	if (hFile == INVALID_HANDLE_VALUE)
+-		return -1;
+-
+-	ret = fileinfo_to_stat(hFile, buf);
++	{
++		if (errno == ENOENT)
++		{
++			/*
++			 * If it's a junction point pointing to a non-existent path, we'll
++			 * have ENOENT here (because pgwin32_open_handle does not use
++			 * FILE_FLAG_OPEN_REPARSE_POINT).  In that case, we'll try again
++			 * with readlink() below, which will distinguish true ENOENT from
++			 * pseudo-symlink.
++			 */
++			memset(buf, 0, sizeof(*buf));
++			ret = 0;
++		}
++		else
++			return -1;
++	}
++	else
++		ret = fileinfo_to_stat(hFile, buf);
+ 
+ 	/*
+ 	 * Junction points appear as directories to fileinfo_to_stat(), so we'll
+ 	 * need to do a bit more work to distinguish them.
+ 	 */
+-	if (ret == 0 && S_ISDIR(buf->st_mode))
++	if ((ret == 0 && S_ISDIR(buf->st_mode)) || hFile == INVALID_HANDLE_VALUE)
+ 	{
+ 		char		next[MAXPGPATH];
+ 		ssize_t		size;
+ 
+ 		/*
+@@ -167,14 +182,16 @@ _pglstat64(const char *name, struct stat *buf)
+ 		{
+ 			/* It's a junction point, so report it as a symlink. */
+ 			buf->st_mode &= ~S_IFDIR;
+ 			buf->st_mode |= S_IFLNK;
+ 			buf->st_size = size;
++			ret = 0;
+ 		}
+ 	}
+ 
+-	CloseHandle(hFile);
++	if (hFile != INVALID_HANDLE_VALUE)
++		CloseHandle(hFile);
+ 	return ret;
+ }
+ 
+ /*
+  * Windows implementation of stat().

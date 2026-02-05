@@ -1,0 +1,128 @@
+commit 68ad9816c189958a0731d8d5ead7545878fdf15d
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Mon Oct 21 15:08:22 2024 -0400
+
+    Fix wrong assertion and poor error messages in "COPY (query) TO".
+    
+    If the query is rewritten into a NOTIFY command by a DO INSTEAD
+    rule, we'd get an assertion failure, or in non-assert builds
+    issue a rather confusing error message.  Improve that.
+    
+    Also fix a longstanding grammar mistake in a nearby error message.
+    
+    Per bug #18664 from Alexander Lakhin.  Back-patch to all supported
+    branches.
+    
+    Tender Wang and Tom Lane
+    
+    Discussion: https://postgr.es/m/18664-ffd0ebc2386598df@postgresql.org
+
+diff --git a/src/backend/commands/copyto.c b/src/backend/commands/copyto.c
+index 463083e645d..f55e6d96751 100644
+--- a/src/backend/commands/copyto.c
++++ b/src/backend/commands/copyto.c
+@@ -473,11 +473,11 @@ BeginCopyTo(ParseState *pstate,
+ 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+ 							 errmsg("conditional DO INSTEAD rules are not supported for COPY")));
+ 				if (q->querySource == QSRC_NON_INSTEAD_RULE)
+ 					ereport(ERROR,
+ 							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+-							 errmsg("DO ALSO rules are not supported for the COPY")));
++							 errmsg("DO ALSO rules are not supported for COPY")));
+ 			}
+ 
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+ 					 errmsg("multi-statement DO INSTEAD rules are not supported for COPY")));
+@@ -490,11 +490,15 @@ BeginCopyTo(ParseState *pstate,
+ 			IsA(query->utilityStmt, CreateTableAsStmt))
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+ 					 errmsg("COPY (SELECT INTO) is not supported")));
+ 
+-		Assert(query->utilityStmt == NULL);
++		/* The only other utility command we could see is NOTIFY */
++		if (query->utilityStmt != NULL)
++			ereport(ERROR,
++					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
++					 errmsg("COPY query must not be a utility command")));
+ 
+ 		/*
+ 		 * Similarly the grammar doesn't enforce the presence of a RETURNING
+ 		 * clause, but this is required here.
+ 		 */
+diff --git a/src/test/regress/expected/copydml.out b/src/test/regress/expected/copydml.out
+index b5a225628f4..e91e83260aa 100644
+--- a/src/test/regress/expected/copydml.out
++++ b/src/test/regress/expected/copydml.out
+@@ -36,11 +36,11 @@ create rule qqq as on insert to copydml_test do instead nothing;
+ copy (insert into copydml_test default values) to stdout;
+ ERROR:  DO INSTEAD NOTHING rules are not supported for COPY
+ drop rule qqq on copydml_test;
+ create rule qqq as on insert to copydml_test do also delete from copydml_test;
+ copy (insert into copydml_test default values) to stdout;
+-ERROR:  DO ALSO rules are not supported for the COPY
++ERROR:  DO ALSO rules are not supported for COPY
+ drop rule qqq on copydml_test;
+ create rule qqq as on insert to copydml_test do instead (delete from copydml_test; delete from copydml_test);
+ copy (insert into copydml_test default values) to stdout;
+ ERROR:  multi-statement DO INSTEAD rules are not supported for COPY
+ drop rule qqq on copydml_test;
+@@ -52,11 +52,11 @@ create rule qqq as on update to copydml_test do instead nothing;
+ copy (update copydml_test set t = 'f') to stdout;
+ ERROR:  DO INSTEAD NOTHING rules are not supported for COPY
+ drop rule qqq on copydml_test;
+ create rule qqq as on update to copydml_test do also delete from copydml_test;
+ copy (update copydml_test set t = 'f') to stdout;
+-ERROR:  DO ALSO rules are not supported for the COPY
++ERROR:  DO ALSO rules are not supported for COPY
+ drop rule qqq on copydml_test;
+ create rule qqq as on update to copydml_test do instead (delete from copydml_test; delete from copydml_test);
+ copy (update copydml_test set t = 'f') to stdout;
+ ERROR:  multi-statement DO INSTEAD rules are not supported for COPY
+ drop rule qqq on copydml_test;
+@@ -68,20 +68,24 @@ create rule qqq as on delete to copydml_test do instead nothing;
+ copy (delete from copydml_test) to stdout;
+ ERROR:  DO INSTEAD NOTHING rules are not supported for COPY
+ drop rule qqq on copydml_test;
+ create rule qqq as on delete to copydml_test do also insert into copydml_test default values;
+ copy (delete from copydml_test) to stdout;
+-ERROR:  DO ALSO rules are not supported for the COPY
++ERROR:  DO ALSO rules are not supported for COPY
+ drop rule qqq on copydml_test;
+ create rule qqq as on delete to copydml_test do instead (insert into copydml_test default values; insert into copydml_test default values);
+ copy (delete from copydml_test) to stdout;
+ ERROR:  multi-statement DO INSTEAD rules are not supported for COPY
+ drop rule qqq on copydml_test;
+ create rule qqq as on delete to copydml_test where old.t <> 'f' do instead insert into copydml_test default values;
+ copy (delete from copydml_test) to stdout;
+ ERROR:  conditional DO INSTEAD rules are not supported for COPY
+ drop rule qqq on copydml_test;
++create rule qqq as on insert to copydml_test do instead notify copydml_test;
++copy (insert into copydml_test default values) to stdout;
++ERROR:  COPY query must not be a utility command
++drop rule qqq on copydml_test;
+ -- triggers
+ create function qqq_trig() returns trigger as $$
+ begin
+ if tg_op in ('INSERT', 'UPDATE') then
+     raise notice '% % %', tg_when, tg_op, new.id;
+diff --git a/src/test/regress/sql/copydml.sql b/src/test/regress/sql/copydml.sql
+index 4578342253b..b7eeb0eed81 100644
+--- a/src/test/regress/sql/copydml.sql
++++ b/src/test/regress/sql/copydml.sql
+@@ -64,10 +64,14 @@ copy (delete from copydml_test) to stdout;
+ drop rule qqq on copydml_test;
+ create rule qqq as on delete to copydml_test where old.t <> 'f' do instead insert into copydml_test default values;
+ copy (delete from copydml_test) to stdout;
+ drop rule qqq on copydml_test;
+ 
++create rule qqq as on insert to copydml_test do instead notify copydml_test;
++copy (insert into copydml_test default values) to stdout;
++drop rule qqq on copydml_test;
++
+ -- triggers
+ create function qqq_trig() returns trigger as $$
+ begin
+ if tg_op in ('INSERT', 'UPDATE') then
+     raise notice '% % %', tg_when, tg_op, new.id;

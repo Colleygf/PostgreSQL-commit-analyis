@@ -1,0 +1,99 @@
+commit 6538be9e1e412224c69f447d2b08342ba47ce9f1
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Tue Feb 15 10:58:28 2022 +0100
+
+    Fix XML namespace declarations
+    
+    The XSL stylesheets used a mix of incorrect or outdated namespace
+    declarations for XHTML, probably based on ancient advice and examples.
+    Clean all this up.
+    
+    Besides improving correctness (although probably no impact in
+    practice, other than possible validation failures), this removes a
+    bunch of useless namespace declarations in the HTML output.
+    
+    Reported-by: Andres Freund <andres@anarazel.de>
+    Discussion: https://www.postgresql.org/message-id/flat/20220213201618.qz6p6noon3wagr3f%40alap3.anarazel.de
+
+diff --git a/doc/src/sgml/stylesheet-hh.xsl b/doc/src/sgml/stylesheet-hh.xsl
+index 1b1ab4bbe9e..6f4b706dac6 100644
+--- a/doc/src/sgml/stylesheet-hh.xsl
++++ b/doc/src/sgml/stylesheet-hh.xsl
+@@ -1,10 +1,8 @@
+ <?xml version='1.0'?>
+ <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+-                version='1.0'
+-                xmlns="http://www.w3.org/TR/xhtml1/transitional"
+-                exclude-result-prefixes="#default">
++                version='1.0'>
+ 
+ <xsl:import href="http://docbook.sourceforge.net/release/xsl/current/htmlhelp/htmlhelp.xsl"/>
+ <xsl:include href="stylesheet-common.xsl" />
+ 
+ <!-- Parameters -->
+diff --git a/doc/src/sgml/stylesheet-html-common.xsl b/doc/src/sgml/stylesheet-html-common.xsl
+index d9961089c65..96dd2cc038d 100644
+--- a/doc/src/sgml/stylesheet-html-common.xsl
++++ b/doc/src/sgml/stylesheet-html-common.xsl
+@@ -2,11 +2,12 @@
+ <!DOCTYPE xsl:stylesheet [
+ <!ENTITY % common.entities SYSTEM "http://docbook.sourceforge.net/release/xsl/current/common/entities.ent">
+ %common.entities;
+ ]>
+ <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+-                version="1.0">
++                version="1.0"
++                xmlns="http://www.w3.org/1999/xhtml">
+ 
+ <!--
+   This file contains XSLT stylesheet customizations that are common to
+   all HTML output variants (chunked and single-page).
+   -->
+diff --git a/doc/src/sgml/stylesheet-html-nochunk.xsl b/doc/src/sgml/stylesheet-html-nochunk.xsl
+index 78add26a9f4..8167127b93a 100644
+--- a/doc/src/sgml/stylesheet-html-nochunk.xsl
++++ b/doc/src/sgml/stylesheet-html-nochunk.xsl
+@@ -1,10 +1,8 @@
+ <?xml version='1.0'?>
+ <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+-                version='1.0'
+-                xmlns="http://www.w3.org/TR/xhtml1/transitional"
+-                exclude-result-prefixes="#default">
++                version='1.0'>
+ 
+ <xsl:import href="http://docbook.sourceforge.net/release/xsl/current/xhtml/docbook.xsl"/>
+ <xsl:include href="stylesheet-common.xsl" />
+ <xsl:include href="stylesheet-html-common.xsl" />
+ <xsl:include href="stylesheet-speedup-xhtml.xsl" />
+diff --git a/doc/src/sgml/stylesheet-text.xsl b/doc/src/sgml/stylesheet-text.xsl
+index 476b871870d..529cc9ec38a 100644
+--- a/doc/src/sgml/stylesheet-text.xsl
++++ b/doc/src/sgml/stylesheet-text.xsl
+@@ -1,10 +1,9 @@
+ <?xml version='1.0'?>
+ <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+                 version='1.0'
+-                xmlns="http://www.w3.org/TR/xhtml1/transitional"
+-                exclude-result-prefixes="#default">
++                xmlns="http://www.w3.org/1999/xhtml">
+ 
+ <xsl:import href="http://docbook.sourceforge.net/release/xsl/current/xhtml/docbook.xsl"/>
+ <xsl:import href="stylesheet-common.xsl" />
+ 
+ <!-- The customizations here are somewhat random in order to make the text
+diff --git a/doc/src/sgml/stylesheet.xsl b/doc/src/sgml/stylesheet.xsl
+index 0eac594f0cc..b6141303abd 100644
+--- a/doc/src/sgml/stylesheet.xsl
++++ b/doc/src/sgml/stylesheet.xsl
+@@ -1,10 +1,9 @@
+ <?xml version='1.0'?>
+ <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+                 version='1.0'
+-                xmlns="http://www.w3.org/TR/xhtml1/transitional"
+-                exclude-result-prefixes="#default">
++                xmlns="http://www.w3.org/1999/xhtml">
+ 
+ <xsl:import href="http://docbook.sourceforge.net/release/xsl/current/xhtml/chunk.xsl"/>
+ <xsl:include href="stylesheet-common.xsl" />
+ <xsl:include href="stylesheet-html-common.xsl" />
+ <xsl:include href="stylesheet-speedup-xhtml.xsl" />

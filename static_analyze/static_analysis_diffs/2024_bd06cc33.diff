@@ -1,0 +1,83 @@
+commit bd06cc338d82fd0c56de6421fe5ef143ec79cf6e
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Aug 19 12:34:18 2024 +0900
+
+    Fix more holes with SLRU code in need of int64 for segment numbers
+    
+    This is a continuation of c9e24573905b, containing changes included into
+    the proposed patch that have been missed in the actual commit.  I have
+    managed to miss these diffs while doing a rebase of the original patch.
+    
+    Thanks to Noah Misch, Peter Eisentraut and Alexander Korotkov for the
+    pokes.
+    
+    Discussion: https://postgr.es/m/92fe572d-638e-4162-aef6-1c42a2936f25@eisentraut.org
+    Discussion: https://postgr.es/m/20240810175055.cd.nmisch@google.com
+    Backpatch-through: 17
+
+diff --git a/src/backend/access/transam/multixact.c b/src/backend/access/transam/multixact.c
+index c601ff98a14..b7b47ef076a 100644
+--- a/src/backend/access/transam/multixact.c
++++ b/src/backend/access/transam/multixact.c
+@@ -118,11 +118,11 @@ static inline int
+ MultiXactIdToOffsetEntry(MultiXactId multi)
+ {
+ 	return multi % MULTIXACT_OFFSETS_PER_PAGE;
+ }
+ 
+-static inline int
++static inline int64
+ MultiXactIdToOffsetSegment(MultiXactId multi)
+ {
+ 	return MultiXactIdToOffsetPage(multi) / SLRU_PAGES_PER_SEGMENT;
+ }
+ 
+@@ -172,11 +172,11 @@ static inline int64
+ MXOffsetToMemberPage(MultiXactOffset offset)
+ {
+ 	return offset / MULTIXACT_MEMBERS_PER_PAGE;
+ }
+ 
+-static inline int
++static inline int64
+ MXOffsetToMemberSegment(MultiXactOffset offset)
+ {
+ 	return MXOffsetToMemberPage(offset) / SLRU_PAGES_PER_SEGMENT;
+ }
+ 
+@@ -3037,14 +3037,14 @@ SlruScanDirCbFindEarliest(SlruCtl ctl, char *filename, int64 segpage, void *data
+  * SLRU. C.f. TruncateMultiXact().
+  */
+ static void
+ PerformMembersTruncation(MultiXactOffset oldestOffset, MultiXactOffset newOldestOffset)
+ {
+-	const int	maxsegment = MXOffsetToMemberSegment(MaxMultiXactOffset);
+-	int			startsegment = MXOffsetToMemberSegment(oldestOffset);
+-	int			endsegment = MXOffsetToMemberSegment(newOldestOffset);
+-	int			segment = startsegment;
++	const int64 maxsegment = MXOffsetToMemberSegment(MaxMultiXactOffset);
++	int64		startsegment = MXOffsetToMemberSegment(oldestOffset);
++	int64		endsegment = MXOffsetToMemberSegment(newOldestOffset);
++	int64		segment = startsegment;
+ 
+ 	/*
+ 	 * Delete all the segments but the last one. The last segment can still
+ 	 * contain, possibly partially, valid data.
+ 	 */
+diff --git a/src/backend/access/transam/slru.c b/src/backend/access/transam/slru.c
+index 27473009b00..e7f73bf4275 100644
+--- a/src/backend/access/transam/slru.c
++++ b/src/backend/access/transam/slru.c
+@@ -1530,11 +1530,11 @@ SlruDeleteSegment(SlruCtl ctl, int64 segno)
+ 	LWLockAcquire(&shared->bank_locks[prevbank].lock, LW_EXCLUSIVE);
+ restart:
+ 	did_write = false;
+ 	for (int slotno = 0; slotno < shared->num_slots; slotno++)
+ 	{
+-		int			pagesegno;
++		int64		pagesegno;
+ 		int			curbank = SlotGetBankNumber(slotno);
+ 
+ 		/*
+ 		 * If the current bank lock is not same as the previous bank lock then
+ 		 * release the previous lock and acquire the new lock.

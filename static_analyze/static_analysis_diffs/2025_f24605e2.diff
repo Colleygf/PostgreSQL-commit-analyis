@@ -1,0 +1,87 @@
+commit f24605e2dc1687917766f43775f0dcde2cf678a0
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu May 22 13:52:46 2025 -0400
+
+    Fix memory leak in XMLSERIALIZE(... INDENT).
+    
+    xmltotext_with_options sometimes tries to replace the existing
+    root node of a libxml2 document.  In that case xmlDocSetRootElement
+    will unlink and return the old root node; if we fail to free it,
+    it's leaked for the remainder of the session.  The amount of memory
+    at stake is not large, a couple hundred bytes per occurrence, but
+    that could still become annoying in heavy usage.
+    
+    Our only other xmlDocSetRootElement call is not at risk because
+    it's working on a just-created document, but let's modify that
+    code too to make it clear that it's dependent on that.
+    
+    Author: Tom Lane <tgl@sss.pgh.pa.us>
+    Reviewed-by: Jim Jones <jim.jones@uni-muenster.de>
+    Discussion: https://postgr.es/m/1358967.1747858817@sss.pgh.pa.us
+    Backpatch-through: 16
+
+diff --git a/src/backend/utils/adt/xml.c b/src/backend/utils/adt/xml.c
+index db8d0d6a7e8..a4150bff2ea 100644
+--- a/src/backend/utils/adt/xml.c
++++ b/src/backend/utils/adt/xml.c
+@@ -752,19 +752,26 @@ xmltotext_with_options(xmltype *data, XmlOptionType xmloption_arg, bool indent)
+ 			 * libxml's dump functions don't work well for that without help.
+ 			 * We build a fake root node that serves as a container for the
+ 			 * content nodes, and then iterate over the nodes.
+ 			 */
+ 			xmlNodePtr	root;
++			xmlNodePtr	oldroot;
+ 			xmlNodePtr	newline;
+ 
+ 			root = xmlNewNode(NULL, (const xmlChar *) "content-root");
+ 			if (root == NULL || xmlerrcxt->err_occurred)
+ 				xml_ereport(xmlerrcxt, ERROR, ERRCODE_OUT_OF_MEMORY,
+ 							"could not allocate xml node");
+ 
+-			/* This attaches root to doc, so we need not free it separately. */
+-			xmlDocSetRootElement(doc, root);
++			/*
++			 * This attaches root to doc, so we need not free it separately...
++			 * but instead, we have to free the old root if there was one.
++			 */
++			oldroot = xmlDocSetRootElement(doc, root);
++			if (oldroot != NULL)
++				xmlFreeNode(oldroot);
++
+ 			xmlAddChildList(root, content_nodes);
+ 
+ 			/*
+ 			 * We use this node to insert newlines in the dump.  Note: in at
+ 			 * least some libxml versions, xmlNewDocText would not attach the
+@@ -1848,10 +1855,11 @@ xml_parse(text *data, XmlOptionType xmloption_arg,
+ 			}
+ 		}
+ 		else
+ 		{
+ 			xmlNodePtr	root;
++			xmlNodePtr	oldroot PG_USED_FOR_ASSERTS_ONLY;
+ 
+ 			/* set up document with empty root node to be the context node */
+ 			doc = xmlNewDoc(version);
+ 			if (doc == NULL || xmlerrcxt->err_occurred)
+ 				xml_ereport(xmlerrcxt, ERROR, ERRCODE_OUT_OF_MEMORY,
+@@ -1866,12 +1874,17 @@ xml_parse(text *data, XmlOptionType xmloption_arg,
+ 
+ 			root = xmlNewNode(NULL, (const xmlChar *) "content-root");
+ 			if (root == NULL || xmlerrcxt->err_occurred)
+ 				xml_ereport(xmlerrcxt, ERROR, ERRCODE_OUT_OF_MEMORY,
+ 							"could not allocate xml node");
+-			/* This attaches root to doc, so we need not free it separately. */
+-			xmlDocSetRootElement(doc, root);
++
++			/*
++			 * This attaches root to doc, so we need not free it separately;
++			 * and there can't yet be any old root to free.
++			 */
++			oldroot = xmlDocSetRootElement(doc, root);
++			Assert(oldroot == NULL);
+ 
+ 			/* allow empty content */
+ 			if (*(utf8string + count))
+ 			{
+ 				xmlNodePtr	node_list = NULL;

@@ -1,0 +1,128 @@
+commit f4857082bc16f36a5cdc6f8328cdc8071bb1715e
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Tue Nov 1 14:34:44 2022 -0400
+
+    Fix planner failure with extended statistics on partitioned tables.
+    
+    Some cases would result in "cache lookup failed for statistics object",
+    due to trying to fetch inherited statistics when only non-inherited
+    ones are available or vice versa.
+    
+    Richard Guo and Justin Pryzby
+    
+    Discussion: https://postgr.es/m/20221030170520.GM16921@telsasoft.com
+
+diff --git a/src/backend/utils/adt/selfuncs.c b/src/backend/utils/adt/selfuncs.c
+index 69e0fb98f5b..d597b7e81fc 100644
+--- a/src/backend/utils/adt/selfuncs.c
++++ b/src/backend/utils/adt/selfuncs.c
+@@ -3911,11 +3911,11 @@ estimate_multivariate_ndistinct(PlannerInfo *root, RelOptInfo *rel,
+ 	int			nmatches_vars;
+ 	int			nmatches_exprs;
+ 	Oid			statOid = InvalidOid;
+ 	MVNDistinct *stats;
+ 	StatisticExtInfo *matched_info = NULL;
+-	RangeTblEntry *rte;
++	RangeTblEntry *rte = planner_rt_fetch(rel->relid, root);
+ 
+ 	/* bail out immediately if the table has no extended statistics */
+ 	if (!rel->statlist)
+ 		return false;
+ 
+@@ -3931,10 +3931,14 @@ estimate_multivariate_ndistinct(PlannerInfo *root, RelOptInfo *rel,
+ 
+ 		/* skip statistics of other kinds */
+ 		if (info->kind != STATS_EXT_NDISTINCT)
+ 			continue;
+ 
++		/* skip statistics with mismatching stxdinherit value */
++		if (info->inherit != rte->inh)
++			continue;
++
+ 		/*
+ 		 * Determine how many expressions (and variables in non-matched
+ 		 * expressions) match. We'll then use these numbers to pick the
+ 		 * statistics object that best matches the clauses.
+ 		 */
+@@ -4002,11 +4006,10 @@ estimate_multivariate_ndistinct(PlannerInfo *root, RelOptInfo *rel,
+ 	if (statOid == InvalidOid)
+ 		return false;
+ 
+ 	Assert(nmatches_vars + nmatches_exprs > 1);
+ 
+-	rte = planner_rt_fetch(rel->relid, root);
+ 	stats = statext_ndistinct_load(statOid, rte->inh);
+ 
+ 	/*
+ 	 * If we have a match, search it for the specific item that matches (there
+ 	 * must be one), and construct the output values.
+@@ -5239,10 +5242,14 @@ examine_variable(PlannerInfo *root, Node *node, int varRelid,
+ 
+ 			/* skip stats without per-expression stats */
+ 			if (info->kind != STATS_EXT_EXPRESSIONS)
+ 				continue;
+ 
++			/* skip stats with mismatching stxdinherit value */
++			if (info->inherit != rte->inh)
++				continue;
++
+ 			pos = 0;
+ 			foreach(expr_item, info->exprs)
+ 			{
+ 				Node	   *expr = (Node *) lfirst(expr_item);
+ 
+diff --git a/src/test/regress/expected/stats_ext.out b/src/test/regress/expected/stats_ext.out
+index a2bc409e06f..03880874c17 100644
+--- a/src/test/regress/expected/stats_ext.out
++++ b/src/test/regress/expected/stats_ext.out
+@@ -230,11 +230,11 @@ SELECT * FROM check_estimated_rows('SELECT a, b FROM ONLY stxdinh WHERE a = 0 AN
+ DROP TABLE stxdinh, stxdinh1, stxdinh2;
+ -- Ensure inherited stats ARE applied to inherited query in partitioned table
+ CREATE TABLE stxdinp(i int, a int, b int) PARTITION BY RANGE (i);
+ CREATE TABLE stxdinp1 PARTITION OF stxdinp FOR VALUES FROM (1) TO (100);
+ INSERT INTO stxdinp SELECT 1, a/100, a/100 FROM generate_series(1, 999) a;
+-CREATE STATISTICS stxdinp ON a, b FROM stxdinp;
++CREATE STATISTICS stxdinp ON (a + 1), a, b FROM stxdinp;
+ VACUUM ANALYZE stxdinp; -- partitions are processed recursively
+ SELECT 1 FROM pg_statistic_ext WHERE stxrelid = 'stxdinp'::regclass;
+  ?column? 
+ ----------
+         1
+@@ -244,10 +244,16 @@ SELECT * FROM check_estimated_rows('SELECT a, b FROM stxdinp GROUP BY 1, 2');
+  estimated | actual 
+ -----------+--------
+         10 |     10
+ (1 row)
+ 
++SELECT * FROM check_estimated_rows('SELECT a + 1, b FROM ONLY stxdinp GROUP BY 1, 2');
++ estimated | actual 
++-----------+--------
++         1 |      0
++(1 row)
++
+ DROP TABLE stxdinp;
+ -- basic test for statistics on expressions
+ CREATE TABLE ab1 (a INTEGER, b INTEGER, c TIMESTAMP, d TIMESTAMPTZ);
+ -- expression stats may be built on a single expression column
+ CREATE STATISTICS ab1_exprstat_1 ON (a+b) FROM ab1;
+diff --git a/src/test/regress/sql/stats_ext.sql b/src/test/regress/sql/stats_ext.sql
+index 19417561bd6..d0d42cd0136 100644
+--- a/src/test/regress/sql/stats_ext.sql
++++ b/src/test/regress/sql/stats_ext.sql
+@@ -137,14 +137,15 @@ DROP TABLE stxdinh, stxdinh1, stxdinh2;
+ 
+ -- Ensure inherited stats ARE applied to inherited query in partitioned table
+ CREATE TABLE stxdinp(i int, a int, b int) PARTITION BY RANGE (i);
+ CREATE TABLE stxdinp1 PARTITION OF stxdinp FOR VALUES FROM (1) TO (100);
+ INSERT INTO stxdinp SELECT 1, a/100, a/100 FROM generate_series(1, 999) a;
+-CREATE STATISTICS stxdinp ON a, b FROM stxdinp;
++CREATE STATISTICS stxdinp ON (a + 1), a, b FROM stxdinp;
+ VACUUM ANALYZE stxdinp; -- partitions are processed recursively
+ SELECT 1 FROM pg_statistic_ext WHERE stxrelid = 'stxdinp'::regclass;
+ SELECT * FROM check_estimated_rows('SELECT a, b FROM stxdinp GROUP BY 1, 2');
++SELECT * FROM check_estimated_rows('SELECT a + 1, b FROM ONLY stxdinp GROUP BY 1, 2');
+ DROP TABLE stxdinp;
+ 
+ -- basic test for statistics on expressions
+ CREATE TABLE ab1 (a INTEGER, b INTEGER, c TIMESTAMP, d TIMESTAMPTZ);
+ 

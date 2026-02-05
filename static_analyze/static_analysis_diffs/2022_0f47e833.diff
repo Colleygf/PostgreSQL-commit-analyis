@@ -1,0 +1,56 @@
+commit 0f47e833bf6d96c1a2c5173c8e0f6c6cc30f9592
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Wed Jan 19 08:07:16 2022 -0500
+
+    Fix alignment problem with bbsink_copystream buffer.
+    
+    bbsink_copystream wants to store a type byte just before the buffer,
+    but basebackup.c wants the buffer to be aligned so that it can call
+    PageIsNew() and PageGetLSN() on it. Therefore, instead of inserting
+    1 extra byte before the buffer, insert MAXIMUM_ALIGNOF extra bytes
+    and only use the last one.
+    
+    On most machines this doesn't cause any problem (except perhaps for
+    performance) but some buildfarm machines with -fsanitize=alignment
+    dump core.
+    
+    Discussion: http://postgr.es/m/CA+TgmoYx5=1A2K9JYV-9zdhyokU4KKTyNQ9q7CiXrX=YBBMWVw@mail.gmail.com
+
+diff --git a/src/backend/replication/basebackup_copy.c b/src/backend/replication/basebackup_copy.c
+index f42b368c033..8dfdff06449 100644
+--- a/src/backend/replication/basebackup_copy.c
++++ b/src/backend/replication/basebackup_copy.c
+@@ -150,22 +150,26 @@ bbsink_copystream_new(void)
+ static void
+ bbsink_copystream_begin_backup(bbsink *sink)
+ {
+ 	bbsink_copystream *mysink = (bbsink_copystream *) sink;
+ 	bbsink_state *state = sink->bbs_state;
++	char *buf;
+ 
+ 	/*
+ 	 * Initialize buffer. We ultimately want to send the archive and manifest
+ 	 * data by means of CopyData messages where the payload portion of each
+-	 * message begins with a type byte, so we set up a buffer that begins with
+-	 * a the type byte we're going to need, and then arrange things so that
+-	 * the data we're given will be written just after that type byte. That
+-	 * will allow us to ship the data with a single call to pq_putmessage and
+-	 * without needing any extra copying.
++	 * message begins with a type byte. However, basebackup.c expects the
++	 * buffer to be aligned, so we can't just allocate one extra byte for the
++	 * type byte. Instead, allocate enough extra bytes that the portion of
++	 * the buffer we reveal to our callers can be aligned, while leaving room
++	 * to slip the type byte in just beforehand.  That will allow us to ship
++	 * the data with a single call to pq_putmessage and without needing any
++	 * extra copying.
+ 	 */
+-	mysink->msgbuffer = palloc(mysink->base.bbs_buffer_length + 1);
+-	mysink->base.bbs_buffer = mysink->msgbuffer + 1;
++	buf = palloc(mysink->base.bbs_buffer_length + MAXIMUM_ALIGNOF);
++	mysink->msgbuffer = buf + (MAXIMUM_ALIGNOF - 1);
++	mysink->base.bbs_buffer = buf + MAXIMUM_ALIGNOF;
+ 	mysink->msgbuffer[0] = 'd'; /* archive or manifest data */
+ 
+ 	/* Tell client the backup start location. */
+ 	SendXlogRecPtrResult(state->startptr, state->starttli);
+ 

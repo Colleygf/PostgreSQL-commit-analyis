@@ -1,0 +1,66 @@
+commit c5d34f4a550f26583a0b92e294eff7d001e318d3
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Sat Nov 8 12:25:45 2025 +1300
+
+    Fix generic read and write barriers for Clang.
+    
+    generic-gcc.h maps our read and write barriers to C11 acquire and
+    release fences using compiler builtins, for platforms where we don't
+    have our own hand-rolled assembler.  This is apparently enough for GCC,
+    but the C11 memory model is only defined in terms of atomic accesses,
+    and our barriers for non-atomic, non-volatile accesses were not always
+    respected under Clang's stricter interpretation of the standard.
+    
+    This explains the occasional breakage observed on new RISC-V + Clang
+    animal greenfly in lock-free PgAioHandle manipulation code containing a
+    repeating pattern of loads and read barriers.  The problem can also be
+    observed in code generated for MIPS and LoongAarch, though we aren't
+    currently testing those with Clang, and on x86, though we use our own
+    assembler there.  The scariest aspect is that we use the generic version
+    on very common ARM systems, but it doesn't seem to reorder the relevant
+    code there (or we'd have debugged this long ago).
+    
+    Fix by inserting an explicit compiler barrier.  It expands to an empty
+    assembler block declared to have memory side-effects, so registers are
+    flushed and reordering is prevented.  In those respects this is like the
+    architecture-specific assembler versions, but the compiler is still in
+    charge of generating the appropriate fence instruction.  Done for write
+    barriers on principle, though concrete problems have only been observed
+    with read barriers.
+    
+    Reported-by: Alexander Lakhin <exclusion@gmail.com>
+    Tested-by: Alexander Lakhin <exclusion@gmail.com>
+    Discussion: https://postgr.es/m/d79691be-22bd-457d-9d90-18033b78c40a%40gmail.com
+    Backpatch-through: 13
+
+diff --git a/src/include/port/atomics/generic-gcc.h b/src/include/port/atomics/generic-gcc.h
+index e7dfad4f0d5..a0751f2286a 100644
+--- a/src/include/port/atomics/generic-gcc.h
++++ b/src/include/port/atomics/generic-gcc.h
+@@ -42,16 +42,24 @@
+ #	endif
+ #endif /* !defined(pg_memory_barrier_impl) */
+ 
+ #if !defined(pg_read_barrier_impl) && defined(HAVE_GCC__ATOMIC_INT32_CAS)
+ /* acquire semantics include read barrier semantics */
+-#		define pg_read_barrier_impl()		__atomic_thread_fence(__ATOMIC_ACQUIRE)
++#		define pg_read_barrier_impl() do \
++{ \
++	pg_compiler_barrier_impl(); \
++	__atomic_thread_fence(__ATOMIC_ACQUIRE); \
++} while (0)
+ #endif
+ 
+ #if !defined(pg_write_barrier_impl) && defined(HAVE_GCC__ATOMIC_INT32_CAS)
+ /* release semantics include write barrier semantics */
+-#		define pg_write_barrier_impl()		__atomic_thread_fence(__ATOMIC_RELEASE)
++#		define pg_write_barrier_impl() do \
++{ \
++	pg_compiler_barrier_impl(); \
++	__atomic_thread_fence(__ATOMIC_RELEASE); \
++} while (0)
+ #endif
+ 
+ 
+ /* generic gcc based atomic flag implementation */
+ #if !defined(PG_HAVE_ATOMIC_FLAG_SUPPORT) \

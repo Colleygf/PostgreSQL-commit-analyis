@@ -1,0 +1,97 @@
+commit 7fe1aa991b622feaabfac5ed9c918fe8a1d598c9
+Author: Tomas Vondra <tomas.vondra@postgresql.org>
+Date:   Wed Feb 22 15:24:09 2023 +0100
+
+    Fix snapshot handling in logicalmsg_decode
+    
+    Whe decoding a transactional logical message, logicalmsg_decode called
+    SnapBuildGetOrBuildSnapshot. But we may not have a consistent snapshot
+    yet at that point. We don't actually need the snapshot in this case
+    (during replay we'll have the snapshot from the transaction), so in
+    practice this is harmless. But in assert-enabled build this crashes.
+    
+    Fixed by requesting the snapshot only in non-transactional case, where
+    we are guaranteed to have SNAPBUILD_CONSISTENT.
+    
+    Backpatch to 11. The issue exists since 9.6.
+    
+    Backpatch-through: 11
+    Reviewed-by: Andres Freund
+    Discussion: https://postgr.es/m/84d60912-6eab-9b84-5de3-41765a5449e8@enterprisedb.com
+
+diff --git a/src/backend/replication/logical/decode.c b/src/backend/replication/logical/decode.c
+index a53e23c679d..8fe7bb65f1f 100644
+--- a/src/backend/replication/logical/decode.c
++++ b/src/backend/replication/logical/decode.c
+@@ -562,11 +562,11 @@ logicalmsg_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
+ 	SnapBuild  *builder = ctx->snapshot_builder;
+ 	XLogReaderState *r = buf->record;
+ 	TransactionId xid = XLogRecGetXid(r);
+ 	uint8		info = XLogRecGetInfo(r) & ~XLR_INFO_MASK;
+ 	RepOriginId origin_id = XLogRecGetOrigin(r);
+-	Snapshot	snapshot;
++	Snapshot	snapshot = NULL;
+ 	xl_logical_message *message;
+ 
+ 	if (info != XLOG_LOGICAL_MESSAGE)
+ 		elog(ERROR, "unexpected RM_LOGICALMSG_ID record type: %u", info);
+ 
+@@ -592,11 +592,21 @@ logicalmsg_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
+ 	else if (!message->transactional &&
+ 			 (SnapBuildCurrentState(builder) != SNAPBUILD_CONSISTENT ||
+ 			  SnapBuildXactNeedsSkip(builder, buf->origptr)))
+ 		return;
+ 
+-	snapshot = SnapBuildGetOrBuildSnapshot(builder);
++	/*
++	 * If this is a non-transactional change, get the snapshot we're expected
++	 * to use. We only get here when the snapshot is consistent, and the
++	 * change is not meant to be skipped.
++	 *
++	 * For transactional changes we don't need a snapshot, we'll use the
++	 * regular snapshot maintained by ReorderBuffer. We just leave it NULL.
++	 */
++	if (!message->transactional)
++		snapshot = SnapBuildGetOrBuildSnapshot(builder);
++
+ 	ReorderBufferQueueMessage(ctx->reorder, xid, snapshot, buf->endptr,
+ 							  message->transactional,
+ 							  message->message, /* first part of message is
+ 												 * prefix */
+ 							  message->message_size,
+diff --git a/src/backend/replication/logical/reorderbuffer.c b/src/backend/replication/logical/reorderbuffer.c
+index d5f90a5f5d2..2d17c551a80 100644
+--- a/src/backend/replication/logical/reorderbuffer.c
++++ b/src/backend/replication/logical/reorderbuffer.c
+@@ -854,10 +854,17 @@ ReorderBufferQueueMessage(ReorderBuffer *rb, TransactionId xid,
+ 		MemoryContext oldcontext;
+ 		ReorderBufferChange *change;
+ 
+ 		Assert(xid != InvalidTransactionId);
+ 
++		/*
++		 * We don't expect snapshots for transactional changes - we'll use the
++		 * snapshot derived later during apply (unless the change gets
++		 * skipped).
++		 */
++		Assert(!snap);
++
+ 		oldcontext = MemoryContextSwitchTo(rb->context);
+ 
+ 		change = ReorderBufferGetChange(rb);
+ 		change->action = REORDER_BUFFER_CHANGE_MESSAGE;
+ 		change->data.msg.prefix = pstrdup(prefix);
+@@ -872,10 +879,13 @@ ReorderBufferQueueMessage(ReorderBuffer *rb, TransactionId xid,
+ 	else
+ 	{
+ 		ReorderBufferTXN *txn = NULL;
+ 		volatile Snapshot snapshot_now = snap;
+ 
++		/* Non-transactional changes require a valid snapshot. */
++		Assert(snapshot_now);
++
+ 		if (xid != InvalidTransactionId)
+ 			txn = ReorderBufferTXNByXid(rb, xid, true, NULL, lsn, true);
+ 
+ 		/* setup snapshot to allow catalog access */
+ 		SetupHistoricSnapshot(snapshot_now, NULL);

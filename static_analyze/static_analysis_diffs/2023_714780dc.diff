@@ -1,0 +1,122 @@
+commit 714780dcddf01865aa4323fedec59ffbefc7e707
+Author: Peter Geoghegan <pg@bowt.ie>
+Date:   Thu Sep 28 16:29:37 2023 -0700
+
+    Fix btmarkpos/btrestrpos array key wraparound bug.
+    
+    nbtree's mark/restore processing failed to correctly handle an edge case
+    involving array key advancement and related search-type scan key state.
+    Scans with ScalarArrayScalarArrayOpExpr quals requiring mark/restore
+    processing (for a merge join) could incorrectly conclude that an
+    affected array/scan key must not have advanced during the time between
+    marking and restoring the scan's position.
+    
+    As a result of all this, array key handling within btrestrpos could skip
+    a required call to _bt_preprocess_keys().  This confusion allowed later
+    primitive index scans to overlook tuples matching the true current array
+    keys.  The scan's search-type scan keys would still have spurious values
+    corresponding to the final array element(s) -- not values matching the
+    first/now-current array element(s).
+    
+    To fix, remember that "array key wraparound" has taken place during the
+    ongoing btrescan in a flag variable stored in the scan's state, and use
+    that information at the point where btrestrpos decides if another call
+    to _bt_preprocess_keys is required.
+    
+    Oversight in commit 70bc5833, which taught nbtree to handle array keys
+    during mark/restore processing, but missed this subtlety.  That commit
+    was itself a bug fix for an issue in commit 9e8da0f7, which taught
+    nbtree to handle ScalarArrayOpExpr quals natively.
+    
+    Author: Peter Geoghegan <pg@bowt.ie>
+    Discussion: https://postgr.es/m/CAH2-WzkgP3DDRJxw6DgjCxo-cu-DKrvjEv_ArkP2ctBJatDCYg@mail.gmail.com
+    Backpatch: 11- (all supported branches).
+
+diff --git a/src/backend/access/nbtree/nbtree.c b/src/backend/access/nbtree/nbtree.c
+index 62bc9917f13..6c5b5c69ce5 100644
+--- a/src/backend/access/nbtree/nbtree.c
++++ b/src/backend/access/nbtree/nbtree.c
+@@ -362,10 +362,11 @@ btbeginscan(Relation rel, int nkeys, int norderbys)
+ 		so->keyData = (ScanKey) palloc(scan->numberOfKeys * sizeof(ScanKeyData));
+ 	else
+ 		so->keyData = NULL;
+ 
+ 	so->arrayKeyData = NULL;	/* assume no array keys for now */
++	so->arraysStarted = false;
+ 	so->numArrayKeys = 0;
+ 	so->arrayKeys = NULL;
+ 	so->arrayContext = NULL;
+ 
+ 	so->killedItems = NULL;		/* until needed */
+diff --git a/src/backend/access/nbtree/nbtutils.c b/src/backend/access/nbtree/nbtutils.c
+index 7da499c4dd5..e4528db4779 100644
+--- a/src/backend/access/nbtree/nbtutils.c
++++ b/src/backend/access/nbtree/nbtutils.c
+@@ -537,10 +537,12 @@ _bt_start_array_keys(IndexScanDesc scan, ScanDirection dir)
+ 			curArrayKey->cur_elem = curArrayKey->num_elems - 1;
+ 		else
+ 			curArrayKey->cur_elem = 0;
+ 		skey->sk_argument = curArrayKey->elem_values[curArrayKey->cur_elem];
+ 	}
++
++	so->arraysStarted = true;
+ }
+ 
+ /*
+  * _bt_advance_array_keys() -- Advance to next set of array elements
+  *
+@@ -596,10 +598,18 @@ _bt_advance_array_keys(IndexScanDesc scan, ScanDirection dir)
+ 
+ 	/* advance parallel scan */
+ 	if (scan->parallel_scan != NULL)
+ 		_bt_parallel_advance_array_keys(scan);
+ 
++	/*
++	 * When no new array keys were found, the scan is "past the end" of the
++	 * array keys.  _bt_start_array_keys can still "restart" the array keys if
++	 * a rescan is required.
++	 */
++	if (!found)
++		so->arraysStarted = false;
++
+ 	return found;
+ }
+ 
+ /*
+  * _bt_mark_array_keys() -- Handle array keys during btmarkpos
+@@ -649,12 +659,17 @@ _bt_restore_array_keys(IndexScanDesc scan)
+ 
+ 	/*
+ 	 * If we changed any keys, we must redo _bt_preprocess_keys.  That might
+ 	 * sound like overkill, but in cases with multiple keys per index column
+ 	 * it seems necessary to do the full set of pushups.
++	 *
++	 * Also do this whenever the scan's set of array keys "wrapped around" at
++	 * the end of the last primitive index scan.  There won't have been a call
++	 * to _bt_preprocess_keys from some other place following wrap around, so
++	 * we do it for ourselves.
+ 	 */
+-	if (changed)
++	if (changed || !so->arraysStarted)
+ 	{
+ 		_bt_preprocess_keys(scan);
+ 		/* The mark should have been set on a consistent set of keys... */
+ 		Assert(so->qual_ok);
+ 	}
+diff --git a/src/include/access/nbtree.h b/src/include/access/nbtree.h
+index f5c66964ca0..6345e16d78d 100644
+--- a/src/include/access/nbtree.h
++++ b/src/include/access/nbtree.h
+@@ -1041,10 +1041,12 @@ typedef struct BTScanOpaqueData
+ 	int			numberOfKeys;	/* number of preprocessed scan keys */
+ 	ScanKey		keyData;		/* array of preprocessed scan keys */
+ 
+ 	/* workspace for SK_SEARCHARRAY support */
+ 	ScanKey		arrayKeyData;	/* modified copy of scan->keyData */
++	bool		arraysStarted;	/* Started array keys, but have yet to "reach
++								 * past the end" of all arrays? */
+ 	int			numArrayKeys;	/* number of equality-type array keys (-1 if
+ 								 * there are any unsatisfiable array keys) */
+ 	int			arrayKeyCount;	/* count indicating number of array scan keys
+ 								 * processed */
+ 	BTArrayKeyInfo *arrayKeys;	/* info about each equality-type array key */

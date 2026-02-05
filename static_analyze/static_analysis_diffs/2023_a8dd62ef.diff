@@ -1,0 +1,136 @@
+commit a8dd62ef4959141e410278fd68b3d1821e0bbbaa
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Tue Dec 19 15:20:39 2023 +0900
+
+    pgstattuple: Fix failure with pgstathashindex() for partitioned indexes
+    
+    As coded, the function relied on index_open() when opening an index
+    relation, allowing partitioned indexes to be processed by
+    pgstathashindex().  This was leading to a "could not open file" error
+    because partitioned indexes have no physical files, or to a crash with
+    an assertion failure (like on HEAD).
+    
+    This issue is fixed by applying the same checks as the other stat
+    functions for indexes, with a lookup at both RELKIND_INDEX and the index
+    AM expected.
+    
+    Author: Alexander Lakhin
+    Discussion: https://postgr.es/m/18246-f4d9ff7cb3af77e6@postgresql.org
+    Backpatch-through: 12
+
+diff --git a/contrib/pgstattuple/expected/pgstattuple.out b/contrib/pgstattuple/expected/pgstattuple.out
+index e4ac86f9e30..283856e109e 100644
+--- a/contrib/pgstattuple/expected/pgstattuple.out
++++ b/contrib/pgstattuple/expected/pgstattuple.out
+@@ -151,10 +151,11 @@ ERROR:  relation "test_hashidx" is not a btree index
+ select pgstatginindex('test_hashidx');
+ ERROR:  relation "test_hashidx" is not a GIN index
+ -- check that using any of these functions with unsupported relations will fail
+ create table test_partitioned (a int) partition by range (a);
+ create index test_partitioned_index on test_partitioned(a);
++create index test_partitioned_hash_index on test_partitioned using hash(a);
+ -- these should all fail
+ select pgstattuple('test_partitioned');
+ ERROR:  cannot get tuple-level statistics for relation "test_partitioned"
+ DETAIL:  This operation is not supported for partitioned tables.
+ select pgstattuple('test_partitioned_index');
+@@ -169,11 +170,13 @@ DETAIL:  This operation is not supported for partitioned tables.
+ select pgstatindex('test_partitioned');
+ ERROR:  relation "test_partitioned" is not a btree index
+ select pgstatginindex('test_partitioned');
+ ERROR:  relation "test_partitioned" is not a GIN index
+ select pgstathashindex('test_partitioned');
+-ERROR:  "test_partitioned" is not an index
++ERROR:  relation "test_partitioned" is not a hash index
++select pgstathashindex('test_partitioned_hash_index');
++ERROR:  relation "test_partitioned_hash_index" is not a hash index
+ create view test_view as select 1;
+ -- these should all fail
+ select pgstattuple('test_view');
+ ERROR:  cannot get tuple-level statistics for relation "test_view"
+ DETAIL:  This operation is not supported for views.
+@@ -186,11 +189,11 @@ DETAIL:  This operation is not supported for views.
+ select pgstatindex('test_view');
+ ERROR:  relation "test_view" is not a btree index
+ select pgstatginindex('test_view');
+ ERROR:  relation "test_view" is not a GIN index
+ select pgstathashindex('test_view');
+-ERROR:  "test_view" is not an index
++ERROR:  relation "test_view" is not a hash index
+ create foreign data wrapper dummy;
+ create server dummy_server foreign data wrapper dummy;
+ create foreign table test_foreign_table () server dummy_server;
+ -- these should all fail
+ select pgstattuple('test_foreign_table');
+@@ -205,11 +208,11 @@ DETAIL:  This operation is not supported for foreign tables.
+ select pgstatindex('test_foreign_table');
+ ERROR:  relation "test_foreign_table" is not a btree index
+ select pgstatginindex('test_foreign_table');
+ ERROR:  relation "test_foreign_table" is not a GIN index
+ select pgstathashindex('test_foreign_table');
+-ERROR:  "test_foreign_table" is not an index
++ERROR:  relation "test_foreign_table" is not a hash index
+ -- a partition of a partitioned table should work though
+ create table test_partition partition of test_partitioned for values from (1) to (100);
+ select pgstattuple('test_partition');
+      pgstattuple     
+ ---------------------
+@@ -251,11 +254,11 @@ select pg_relpages((select reltoastrelid from pg_class where relname = 'test'));
+ select pgstatindex('test_partition');
+ ERROR:  relation "test_partition" is not a btree index
+ select pgstatginindex('test_partition');
+ ERROR:  relation "test_partition" is not a GIN index
+ select pgstathashindex('test_partition');
+-ERROR:  "test_partition" is not an index
++ERROR:  relation "test_partition" is not a hash index
+ -- an actual index of a partitioned table should work though
+ create index test_partition_idx on test_partition(a);
+ create index test_partition_hash_idx on test_partition using hash (a);
+ -- these should work
+ select pgstatindex('test_partition_idx');
+diff --git a/contrib/pgstattuple/pgstatindex.c b/contrib/pgstattuple/pgstatindex.c
+index 8e5a4d6a663..5c06ba6db43 100644
+--- a/contrib/pgstattuple/pgstatindex.c
++++ b/contrib/pgstattuple/pgstatindex.c
+@@ -598,14 +598,13 @@ pgstathashindex(PG_FUNCTION_ARGS)
+ 	Buffer		metabuf;
+ 	HashMetaPage metap;
+ 	float8		free_percent;
+ 	uint64		total_space;
+ 
+-	rel = index_open(relid, AccessShareLock);
++	rel = relation_open(relid, AccessShareLock);
+ 
+-	/* index_open() checks that it's an index */
+-	if (!IS_HASH(rel))
++	if (!IS_INDEX(rel) || !IS_HASH(rel))
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+ 				 errmsg("relation \"%s\" is not a hash index",
+ 						RelationGetRelationName(rel))));
+ 
+diff --git a/contrib/pgstattuple/sql/pgstattuple.sql b/contrib/pgstattuple/sql/pgstattuple.sql
+index 5111be0e625..b08c31c21b7 100644
+--- a/contrib/pgstattuple/sql/pgstattuple.sql
++++ b/contrib/pgstattuple/sql/pgstattuple.sql
+@@ -63,18 +63,20 @@ select pgstatindex('test_hashidx');
+ select pgstatginindex('test_hashidx');
+ 
+ -- check that using any of these functions with unsupported relations will fail
+ create table test_partitioned (a int) partition by range (a);
+ create index test_partitioned_index on test_partitioned(a);
++create index test_partitioned_hash_index on test_partitioned using hash(a);
+ -- these should all fail
+ select pgstattuple('test_partitioned');
+ select pgstattuple('test_partitioned_index');
+ select pgstattuple_approx('test_partitioned');
+ select pg_relpages('test_partitioned');
+ select pgstatindex('test_partitioned');
+ select pgstatginindex('test_partitioned');
+ select pgstathashindex('test_partitioned');
++select pgstathashindex('test_partitioned_hash_index');
+ 
+ create view test_view as select 1;
+ -- these should all fail
+ select pgstattuple('test_view');
+ select pgstattuple_approx('test_view');

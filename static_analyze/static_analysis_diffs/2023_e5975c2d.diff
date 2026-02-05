@@ -1,0 +1,81 @@
+commit e5975c2daad0327b9faa6b62bcfbf173680d14b9
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Sep 20 13:36:54 2023 +0900
+
+    doc: Fix description of BUFFER_USAGE_LIMIT for VACUUM and ANALYZE
+    
+    BUFFER_USAGE_LIMIT requires a parameter, and 'B' is a supported unit.
+    
+    Author: Ryoga Yoshida
+    Reviewed-by: Shinya Kato
+    Discussion: https://postgr.es/m/9374034cb91b647b55a774a8980b0228@oss.nttdata.com
+    Backpatch-through: 16
+
+diff --git a/doc/src/sgml/ref/analyze.sgml b/doc/src/sgml/ref/analyze.sgml
+index 1fba089265a..4c79a01eb6e 100644
+--- a/doc/src/sgml/ref/analyze.sgml
++++ b/doc/src/sgml/ref/analyze.sgml
+@@ -25,11 +25,11 @@ ANALYZE [ ( <replaceable class="parameter">option</replaceable> [, ...] ) ] [ <r
+ 
+ <phrase>where <replaceable class="parameter">option</replaceable> can be one of:</phrase>
+ 
+     VERBOSE [ <replaceable class="parameter">boolean</replaceable> ]
+     SKIP_LOCKED [ <replaceable class="parameter">boolean</replaceable> ]
+-    BUFFER_USAGE_LIMIT [ <replaceable class="parameter">size</replaceable> ]
++    BUFFER_USAGE_LIMIT <replaceable class="parameter">size</replaceable>
+ 
+ <phrase>and <replaceable class="parameter">table_and_columns</replaceable> is:</phrase>
+ 
+     <replaceable class="parameter">table_name</replaceable> [ ( <replaceable class="parameter">column_name</replaceable> [, ...] ) ]
+ </synopsis>
+@@ -126,13 +126,13 @@ ANALYZE [ ( <replaceable class="parameter">option</replaceable> [, ...] ) ] [ <r
+     <term><replaceable class="parameter">size</replaceable></term>
+     <listitem>
+      <para>
+       Specifies an amount of memory in kilobytes.  Sizes may also be specified
+       as a string containing the numerical size followed by any one of the
+-      following memory units: <literal>kB</literal> (kilobytes),
+-      <literal>MB</literal> (megabytes), <literal>GB</literal> (gigabytes), or
+-      <literal>TB</literal> (terabytes).
++      following memory units: <literal>B</literal> (bytes),
++      <literal>kB</literal> (kilobytes), <literal>MB</literal> (megabytes),
++      <literal>GB</literal> (gigabytes), or <literal>TB</literal> (terabytes).
+      </para>
+     </listitem>
+    </varlistentry>
+ 
+    <varlistentry>
+diff --git a/doc/src/sgml/ref/vacuum.sgml b/doc/src/sgml/ref/vacuum.sgml
+index 90cde70c070..a87c2e320e2 100644
+--- a/doc/src/sgml/ref/vacuum.sgml
++++ b/doc/src/sgml/ref/vacuum.sgml
+@@ -36,11 +36,11 @@ VACUUM [ ( <replaceable class="parameter">option</replaceable> [, ...] ) ] [ <re
+     PROCESS_TOAST [ <replaceable class="parameter">boolean</replaceable> ]
+     TRUNCATE [ <replaceable class="parameter">boolean</replaceable> ]
+     PARALLEL <replaceable class="parameter">integer</replaceable>
+     SKIP_DATABASE_STATS [ <replaceable class="parameter">boolean</replaceable> ]
+     ONLY_DATABASE_STATS [ <replaceable class="parameter">boolean</replaceable> ]
+-    BUFFER_USAGE_LIMIT [ <replaceable class="parameter">size</replaceable> ]
++    BUFFER_USAGE_LIMIT <replaceable class="parameter">size</replaceable>
+ 
+ <phrase>and <replaceable class="parameter">table_and_columns</replaceable> is:</phrase>
+ 
+     <replaceable class="parameter">table_name</replaceable> [ ( <replaceable class="parameter">column_name</replaceable> [, ...] ) ]
+ </synopsis>
+@@ -387,13 +387,13 @@ VACUUM [ ( <replaceable class="parameter">option</replaceable> [, ...] ) ] [ <re
+     <term><replaceable class="parameter">size</replaceable></term>
+     <listitem>
+      <para>
+       Specifies an amount of memory in kilobytes.  Sizes may also be specified
+       as a string containing the numerical size followed by any one of the
+-      following memory units: <literal>kB</literal> (kilobytes),
+-      <literal>MB</literal> (megabytes), <literal>GB</literal> (gigabytes), or
+-      <literal>TB</literal> (terabytes).
++      following memory units: <literal>B</literal> (bytes),
++      <literal>kB</literal> (kilobytes), <literal>MB</literal> (megabytes),
++      <literal>GB</literal> (gigabytes), or <literal>TB</literal> (terabytes).
+      </para>
+     </listitem>
+    </varlistentry>
+ 
+    <varlistentry>

@@ -1,0 +1,65 @@
+commit f05b1fa1ff5b2133d636a427d00fe85eedad49b3
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Tue Aug 8 08:17:53 2023 +0900
+
+    doc: Fix incorrect entries generated from wait_event_names.txt
+    
+    fa88928 has introduced wait_event_names.txt, and some of its entries had
+    some documentation fields with more information than necessary.
+    
+    This commit brings back the description of all the wait events to be
+    consistent with the older stable branches.  Five descriptions were
+    incorrect.
+    
+    Author: Bertrand Drouvot
+    Discussion: https://postgr.es/m/e378989e-1899-643a-dec1-10f691a0a105@gmail.com
+
+diff --git a/src/backend/utils/activity/wait_event_names.txt b/src/backend/utils/activity/wait_event_names.txt
+index 2ea4789b00d..fcd9d2c63cd 100644
+--- a/src/backend/utils/activity/wait_event_names.txt
++++ b/src/backend/utils/activity/wait_event_names.txt
+@@ -135,11 +135,11 @@ WAIT_EVENT_RECOVERY_END_COMMAND	RecoveryEndCommand	"Waiting for <xref linkend="g
+ WAIT_EVENT_RECOVERY_PAUSE	RecoveryPause	"Waiting for recovery to be resumed."
+ WAIT_EVENT_REPLICATION_ORIGIN_DROP	ReplicationOriginDrop	"Waiting for a replication origin to become inactive so it can be dropped."
+ WAIT_EVENT_REPLICATION_SLOT_DROP	ReplicationSlotDrop	"Waiting for a replication slot to become inactive so it can be dropped."
+ WAIT_EVENT_RESTORE_COMMAND	RestoreCommand	"Waiting for <xref linkend="guc-restore-command"/> to complete."
+ WAIT_EVENT_SAFE_SNAPSHOT	SafeSnapshot	"Waiting to obtain a valid snapshot for a <literal>READ ONLY DEFERRABLE</literal> transaction."
+-WAIT_EVENT_SYNC_REP	SyncRep	"Waiting for confirmation from a remote server during synchronous replication. Waiting to read or update information about the state of synchronous replication."
++WAIT_EVENT_SYNC_REP	SyncRep	"Waiting for confirmation from a remote server during synchronous replication."
+ WAIT_EVENT_WAL_RECEIVER_EXIT	WalReceiverExit	"Waiting for the WAL receiver to exit."
+ WAIT_EVENT_WAL_RECEIVER_WAIT_START	WalReceiverWaitStart	"Waiting for startup process to send initial data for streaming replication."
+ WAIT_EVENT_XACT_GROUP_UPDATE	XactGroupUpdate	"Waiting for the group leader to update transaction status at end of a parallel operation."
+ 
+ 
+@@ -175,13 +175,13 @@ WAIT_EVENT_BASEBACKUP_SYNC	BaseBackupSync	"Waiting for data written by a base ba
+ WAIT_EVENT_BASEBACKUP_WRITE	BaseBackupWrite	"Waiting for base backup to write to a file."
+ WAIT_EVENT_BUFFILE_READ	BufFileRead	"Waiting for a read from a buffered file."
+ WAIT_EVENT_BUFFILE_WRITE	BufFileWrite	"Waiting for a write to a buffered file."
+ WAIT_EVENT_BUFFILE_TRUNCATE	BufFileTruncate	"Waiting for a buffered file to be truncated."
+ WAIT_EVENT_CONTROL_FILE_READ	ControlFileRead	"Waiting for a read from the <filename>pg_control</filename> file."
+-WAIT_EVENT_CONTROL_FILE_SYNC	ControlFileSync	"Waiting for the <filename>pg_control</filename> file to reach durable storage. Waiting for an update to the <filename>pg_control</filename> file to reach durable storage."
++WAIT_EVENT_CONTROL_FILE_SYNC	ControlFileSync	"Waiting for the <filename>pg_control</filename> file to reach durable storage."
+ WAIT_EVENT_CONTROL_FILE_SYNC_UPDATE	ControlFileSyncUpdate	"Waiting for an update to the <filename>pg_control</filename> file to reach durable storage."
+-WAIT_EVENT_CONTROL_FILE_WRITE	ControlFileWrite	"Waiting for a write to the <filename>pg_control</filename> file. Waiting for a write to update the <filename>pg_control</filename> file."
++WAIT_EVENT_CONTROL_FILE_WRITE	ControlFileWrite	"Waiting for a write to the <filename>pg_control</filename> file."
+ WAIT_EVENT_CONTROL_FILE_WRITE_UPDATE	ControlFileWriteUpdate	"Waiting for a write to update the <filename>pg_control</filename> file."
+ WAIT_EVENT_COPY_FILE_READ	CopyFileRead	"Waiting for a read during a file copy operation."
+ WAIT_EVENT_COPY_FILE_WRITE	CopyFileWrite	"Waiting for a write during a file copy operation."
+ WAIT_EVENT_DATA_FILE_EXTEND	DataFileExtend	"Waiting for a relation data file to be extended."
+ WAIT_EVENT_DATA_FILE_FLUSH	DataFileFlush	"Waiting for a relation data file to reach durable storage."
+@@ -239,13 +239,13 @@ WAIT_EVENT_WAL_COPY_READ	WALCopyRead	"Waiting for a read when creating a new WAL
+ WAIT_EVENT_WAL_COPY_SYNC	WALCopySync	"Waiting for a new WAL segment created by copying an existing one to reach durable storage."
+ WAIT_EVENT_WAL_COPY_WRITE	WALCopyWrite	"Waiting for a write when creating a new WAL segment by copying an existing one."
+ WAIT_EVENT_WAL_INIT_SYNC	WALInitSync	"Waiting for a newly initialized WAL file to reach durable storage."
+ WAIT_EVENT_WAL_INIT_WRITE	WALInitWrite	"Waiting for a write while initializing a new WAL file."
+ WAIT_EVENT_WAL_READ	WALRead	"Waiting for a read from a WAL file."
+-WAIT_EVENT_WAL_SYNC	WALSync	"Waiting for a WAL file to reach durable storage. Waiting for data to reach durable storage while assigning a new WAL sync method."
++WAIT_EVENT_WAL_SYNC	WALSync	"Waiting for a WAL file to reach durable storage."
+ WAIT_EVENT_WAL_SYNC_METHOD_ASSIGN	WALSyncMethodAssign	"Waiting for data to reach durable storage while assigning a new WAL sync method."
+-WAIT_EVENT_WAL_WRITE	WALWrite	"Waiting for a write to a WAL file. Waiting for WAL buffers to be written to disk."
++WAIT_EVENT_WAL_WRITE	WALWrite	"Waiting for a write to a WAL file."
+ 
+ 
+ #
+ # Wait events - Buffer Pin
+ #

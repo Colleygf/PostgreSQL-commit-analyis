@@ -1,0 +1,77 @@
+commit dd766a441d69d16d1c8ab0d3a41a10649702d202
+Author: Tatsuo Ishii <ishii@postgresql.org>
+Date:   Sun Oct 19 09:29:26 2025 +0900
+
+    Fix Coverity issue reported in commit 2273fa32bce.
+    
+    Coverity complains that the return value from gettuple_eval_partition
+    (stored in variable "datum") in a do..while loop in
+    WinGetFuncArgInPartition is overwritten when exiting the while
+    loop. This commit tries to fix the issue by changing the
+    gettuple_eval_partition call to:
+    
+    (void) gettuple_eval_partition()
+    
+    explicitly stating that we discard the return value. We are just
+    interested in whether we are inside or outside of partition, NULL or
+    NOT NULL here.
+    
+    Also enhance some comments for easier code reading.
+    
+    Reported-by: Michael Paquier <michael@paquier.xyz>
+    Discussion: https://postgr.es/m/aPCOabSE4VfJLaky%40paquier.xyz
+
+diff --git a/src/backend/executor/nodeWindowAgg.c b/src/backend/executor/nodeWindowAgg.c
+index 47e00be7b49..aa145d4e1a9 100644
+--- a/src/backend/executor/nodeWindowAgg.c
++++ b/src/backend/executor/nodeWindowAgg.c
+@@ -3268,12 +3268,13 @@ window_gettupleslot(WindowObject winobj, int64 pos, TupleTableSlot *slot)
+ 	MemoryContextSwitchTo(oldcontext);
+ 
+ 	return true;
+ }
+ 
+-/*
+- * get tuple and evaluate in partition
++/* gettuple_eval_partition
++ * get tuple in a patition and evaluate the window function's argument
++ * expression on it.
+  */
+ static Datum
+ gettuple_eval_partition(WindowObject winobj, int argno,
+ 						int64 abs_pos, bool *isnull, bool *isout)
+ {
+@@ -3788,23 +3789,29 @@ WinGetFuncArgInPartition(WindowObject winobj, int argno,
+ 			notnull_offset++;
+ 		else if (nn_info == NN_NULL)	/* this row is known to be NULL */
+ 			continue;			/* keep on moving forward or backward */
+ 		else					/* need to check NULL or not */
+ 		{
+-			/* get tuple and evaluate in partition */
+-			datum = gettuple_eval_partition(winobj, argno,
+-											abs_pos, isnull, &myisout);
++			/*
++			 * NOT NULL info does not exist yet.  Get tuple and evaluate func
++			 * arg in partition. We ignore the return value from
++			 * gettuple_eval_partition because we are just interested in
++			 * whether we are inside or outside of partition, NULL or NOT
++			 * NULL.
++			 */
++			(void) gettuple_eval_partition(winobj, argno,
++										   abs_pos, isnull, &myisout);
+ 			if (myisout)		/* out of partition? */
+ 				break;
+ 			if (!*isnull)
+ 				notnull_offset++;
+ 			/* record the row status */
+ 			put_notnull_info(winobj, abs_pos, *isnull);
+ 		}
+ 	} while (notnull_offset < notnull_relpos);
+ 
+-	/* get tuple and evaluate in partition */
++	/* get tuple and evaluate func arg in partition */
+ 	datum = gettuple_eval_partition(winobj, argno,
+ 									abs_pos, isnull, &myisout);
+ 	if (!myisout && set_mark)
+ 		WinSetMarkPosition(winobj, abs_pos);
+ 	if (isout)

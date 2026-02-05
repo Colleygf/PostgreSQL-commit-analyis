@@ -1,0 +1,56 @@
+commit 75240f65e700d7d157be27653c70fe75108f25c1
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Mon Sep 23 12:30:51 2024 -0400
+
+    jsonapi: fix memory leakage during OOM error recovery.
+    
+    Coverity pointed out that inc_lex_level() would leak memory
+    (not to mention corrupt the pstack data structure) if some
+    but not all of its three REALLOC's failed.  To fix, store
+    successfully-updated pointers back into the pstack struct
+    immediately.
+    
+    Oversight in 0785d1b8b, so no need for back-patch.
+
+diff --git a/src/common/jsonapi.c b/src/common/jsonapi.c
+index 6892a4be4e0..45838d8a184 100644
+--- a/src/common/jsonapi.c
++++ b/src/common/jsonapi.c
+@@ -542,23 +542,32 @@ inc_lex_level(JsonLexContext *lex)
+ 
+ 		new_stack_size = lex->pstack->stack_size + JS_STACK_CHUNK_SIZE;
+ 
+ 		new_prediction = REALLOC(lex->pstack->prediction,
+ 								 new_stack_size * JS_MAX_PROD_LEN);
++#ifdef JSONAPI_USE_PQEXPBUFFER
++		if (!new_prediction)
++			return false;
++#endif
++		lex->pstack->prediction = new_prediction;
++
+ 		new_fnames = REALLOC(lex->pstack->fnames,
+ 							 new_stack_size * sizeof(char *));
+-		new_fnull = REALLOC(lex->pstack->fnull, new_stack_size * sizeof(bool));
++#ifdef JSONAPI_USE_PQEXPBUFFER
++		if (!new_fnames)
++			return false;
++#endif
++		lex->pstack->fnames = new_fnames;
+ 
++		new_fnull = REALLOC(lex->pstack->fnull, new_stack_size * sizeof(bool));
+ #ifdef JSONAPI_USE_PQEXPBUFFER
+-		if (!new_prediction || !new_fnames || !new_fnull)
++		if (!new_fnull)
+ 			return false;
+ #endif
++		lex->pstack->fnull = new_fnull;
+ 
+ 		lex->pstack->stack_size = new_stack_size;
+-		lex->pstack->prediction = new_prediction;
+-		lex->pstack->fnames = new_fnames;
+-		lex->pstack->fnull = new_fnull;
+ 	}
+ 
+ 	lex->lex_level += 1;
+ 	return true;
+ }

@@ -1,0 +1,81 @@
+commit de9037d0d085f25d3c220a45bfbb7abc5794a0c8
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Wed Jan 15 16:53:53 2025 +0100
+
+    Downgrade errors in object_ownercheck() to internal
+    
+    The "does not exist" errors in object_ownership() were written as
+    ereport(), suggesting that they are user-facing.  But no code path
+    except one can reach this function without first checking that the
+    object exists.  If this were actually a user-facing error message,
+    then there would be some problems: get_object_class_descr() is meant
+    to be for internal errors only and does not support translation.
+    
+    The one case that can reach this without first checking the object
+    existence is from be_lo_unlink().  (This makes some sense since large
+    objects are referred to by their OID directly.)  In this one case, we
+    can add a line of code to check the object existence explicitly,
+    consistent with other LO code.
+    
+    For the rest, downgrade the error messages to elog()s.  The new
+    message wordings are the same as in DropObjectById().
+    
+    Reviewed-by: Alvaro Herrera <alvherre@alvh.no-ip.org>
+    Discussion: https://www.postgresql.org/message-id/flat/da2f8942-be6d-48d0-ac1c-a053370a6b1f@eisentraut.org
+
+diff --git a/src/backend/catalog/aclchk.c b/src/backend/catalog/aclchk.c
+index b196294fb29..bd006931938 100644
+--- a/src/backend/catalog/aclchk.c
++++ b/src/backend/catalog/aclchk.c
+@@ -4080,13 +4080,12 @@ object_ownercheck(Oid classid, Oid objectid, Oid roleid)
+ 		/* we can get the object's tuple from the syscache */
+ 		HeapTuple	tuple;
+ 
+ 		tuple = SearchSysCache1(cacheid, ObjectIdGetDatum(objectid));
+ 		if (!HeapTupleIsValid(tuple))
+-			ereport(ERROR,
+-					(errcode(ERRCODE_UNDEFINED_OBJECT),
+-					 errmsg("%s with OID %u does not exist", get_object_class_descr(classid), objectid)));
++			elog(ERROR, "cache lookup failed for %s %u",
++				 get_object_class_descr(classid), objectid);
+ 
+ 		ownerId = DatumGetObjectId(SysCacheGetAttrNotNull(cacheid,
+ 														  tuple,
+ 														  get_object_attnum_owner(classid)));
+ 		ReleaseSysCache(tuple);
+@@ -4111,13 +4110,12 @@ object_ownercheck(Oid classid, Oid objectid, Oid roleid)
+ 								  get_object_oid_index(classid), true,
+ 								  NULL, 1, entry);
+ 
+ 		tuple = systable_getnext(scan);
+ 		if (!HeapTupleIsValid(tuple))
+-			ereport(ERROR,
+-					(errcode(ERRCODE_UNDEFINED_OBJECT),
+-					 errmsg("%s with OID %u does not exist", get_object_class_descr(classid), objectid)));
++			elog(ERROR, "could not find tuple for %s %u",
++				 get_object_class_descr(classid), objectid);
+ 
+ 		ownerId = DatumGetObjectId(heap_getattr(tuple,
+ 												get_object_attnum_owner(classid),
+ 												RelationGetDescr(rel),
+ 												&isnull));
+diff --git a/src/backend/libpq/be-fsstubs.c b/src/backend/libpq/be-fsstubs.c
+index a272e82b850..e5a34c61931 100644
+--- a/src/backend/libpq/be-fsstubs.c
++++ b/src/backend/libpq/be-fsstubs.c
+@@ -315,10 +315,15 @@ be_lo_unlink(PG_FUNCTION_ARGS)
+ {
+ 	Oid			lobjId = PG_GETARG_OID(0);
+ 
+ 	PreventCommandIfReadOnly("lo_unlink()");
+ 
++	if (!LargeObjectExists(lobjId))
++		ereport(ERROR,
++				(errcode(ERRCODE_UNDEFINED_OBJECT),
++				 errmsg("large object %u does not exist", lobjId)));
++
+ 	/*
+ 	 * Must be owner of the large object.  It would be cleaner to check this
+ 	 * in inv_drop(), but we want to throw the error before not after closing
+ 	 * relevant FDs.
+ 	 */

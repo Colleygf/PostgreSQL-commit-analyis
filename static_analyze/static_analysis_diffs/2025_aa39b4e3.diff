@@ -1,0 +1,66 @@
+commit aa39b4e35ac65d4c1672ba2a29707008a754ddf5
+Author: Álvaro Herrera <alvherre@kurilemu.de>
+Date:   Tue Jul 8 18:37:55 2025 +0200
+
+    Fix a couple more places in docs for pg_lsn change
+    
+    Also, revert Unicode linestyle to ASCII.
+    
+    Reported-by: Japin Li <japinli@hotmail.com>
+    Discussion: https://postgr.es/m/ME0P300MB04453A39931F95805C4205A8B64FA@ME0P300MB0445.AUSP300.PROD.OUTLOOK.COM
+
+diff --git a/doc/src/sgml/datatype.sgml b/doc/src/sgml/datatype.sgml
+index 49a7c180a80..0994e089311 100644
+--- a/doc/src/sgml/datatype.sgml
++++ b/doc/src/sgml/datatype.sgml
+@@ -5119,11 +5119,11 @@ WHERE ...
+     those write-ahead log locations.  Also the number of bytes can be
+     added into and subtracted from LSN using the
+     <literal>+(pg_lsn,numeric)</literal> and
+     <literal>-(pg_lsn,numeric)</literal> operators, respectively. Note that
+     the calculated LSN should be in the range of <type>pg_lsn</type> type,
+-    i.e., between <literal>0/0</literal> and
++    i.e., between <literal>0/00000000</literal> and
+     <literal>FFFFFFFF/FFFFFFFF</literal>.
+    </para>
+   </sect1>
+ 
+   <sect1 id="datatype-pseudo">
+diff --git a/doc/src/sgml/func.sgml b/doc/src/sgml/func.sgml
+index 810b2b50f0d..c28aa71f570 100644
+--- a/doc/src/sgml/func.sgml
++++ b/doc/src/sgml/func.sgml
+@@ -28519,11 +28519,11 @@ acl      | {postgres=arwdDxtm/postgres,foo=r/postgres}
+        </para>
+        <para>
+         Returns information about the progress of the WAL summarizer. If the
+         WAL summarizer has never run since the instance was started, then
+         <literal>summarized_tli</literal> and <literal>summarized_lsn</literal>
+-        will be <literal>0</literal> and <literal>0/0</literal> respectively;
++        will be <literal>0</literal> and <literal>0/00000000</literal> respectively;
+         otherwise, they will be the TLI and ending LSN of the last WAL summary
+         file written to disk. If the WAL summarizer is currently running,
+         <literal>pending_lsn</literal> will be the ending LSN of the last
+         record that it has consumed, which must always be greater than or
+         equal to <literal>summarized_lsn</literal>; if the WAL summarizer is
+diff --git a/doc/src/sgml/pageinspect.sgml b/doc/src/sgml/pageinspect.sgml
+index 12873d17d7f..12929333665 100644
+--- a/doc/src/sgml/pageinspect.sgml
++++ b/doc/src/sgml/pageinspect.sgml
+@@ -739,13 +739,13 @@ test=# SELECT first_tid, nbytes, tids[0:5] AS some_tids
+       a <acronym>GiST</acronym> index page's opaque area, such as the NSN,
+       rightlink and page type.
+       For example:
+ <screen>
+ test=# SELECT * FROM gist_page_opaque_info(get_raw_page('test_gist_idx', 2));
+-    lsn     │    nsn     │ rightlink │ flags  
+-────────────┼────────────┼───────────┼────────
+- 0/0B5FE088 │ 0/00000000 │         1 │ {leaf}
++    lsn     |    nsn     | rightlink | flags  
++------------+------------+-----------+--------
++ 0/0B5FE088 | 0/00000000 |         1 | {leaf}
+ (1 row)
+ </screen>
+      </para>
+     </listitem>
+    </varlistentry>

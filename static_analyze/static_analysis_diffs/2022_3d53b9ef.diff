@@ -1,0 +1,116 @@
+commit 3d53b9ef1a4cda7b6303a0496f8531eceeef0e77
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Tue Sep 20 18:50:16 2022 +0200
+
+    Fix `trap` in a few shell scripts
+    
+    The original `trap` lines in these scripts are incomplete: in case of
+    any signal, they delete the working directory but let the script run to
+    completion, which is useless because it will only proceed to complain
+    about the working directory being removed.  Add `exit` there, with the
+    original exit value (not rm's).
+    
+    Since this is mostly just cosmetic, no backpatch.
+    
+    Discussion: https://postgr.es/m/20220913181002.hzsosy7qkemb7ky7@alvherre.pgsql
+
+diff --git a/src/tools/find_static b/src/tools/find_static
+index 1cc9ec3b3dc..b75930251d9 100755
+--- a/src/tools/find_static
++++ b/src/tools/find_static
+@@ -1,10 +1,10 @@
+ #!/bin/sh
+ 
+ # src/tools/find_static
+ 
+-trap "rm -f /tmp/$$" 0 1 2 3 15
++trap "ret=$?; rm -rf /tmp/$$; exit $ret" 0 1 2 3 15
+ 
+ # This script finds functions that are either never called, or
+ # should be static.
+ # Some functions, like library functions and debug_print functions,
+ # should remain unchanged.
+diff --git a/src/tools/make_ctags b/src/tools/make_ctags
+index d8d18d1569f..912b6fafac1 100755
+--- a/src/tools/make_ctags
++++ b/src/tools/make_ctags
+@@ -3,11 +3,11 @@
+ # src/tools/make_ctags
+ 
+ command -v ctags >/dev/null || \
+ 	{ echo "'ctags' program not found" 1>&2; exit 1; }
+ 
+-trap "rm -f /tmp/$$" 0 1 2 3 15
++trap "ret=$?; rm -rf /tmp/$$; exit $ret" 0 1 2 3 15
+ rm -f ./tags
+ 
+ IS_EXUBERANT=""
+ ctags --version 2>&1 | grep Exuberant && IS_EXUBERANT="Y"
+ 
+diff --git a/src/tools/pginclude/cpluspluscheck b/src/tools/pginclude/cpluspluscheck
+index bffca18890c..b393f2a2eaa 100755
+--- a/src/tools/pginclude/cpluspluscheck
++++ b/src/tools/pginclude/cpluspluscheck
+@@ -48,11 +48,11 @@ for flag in $CPPFLAGS; do
+ done
+ 
+ # Create temp directory.
+ tmp=`mktemp -d /tmp/$me.XXXXXX`
+ 
+-trap 'rm -rf $tmp' 0 1 2 3 15
++trap "ret=$?; rm -rf $tmp; exit $ret" 0 1 2 3 15
+ 
+ exit_status=0
+ 
+ # Scan all of src/ and contrib/ for header files.
+ for f in `cd "$srcdir" && find src contrib -name '*.h' -print`
+diff --git a/src/tools/pginclude/headerscheck b/src/tools/pginclude/headerscheck
+index bd45ee5e5c7..2a39856f88c 100755
+--- a/src/tools/pginclude/headerscheck
++++ b/src/tools/pginclude/headerscheck
+@@ -44,11 +44,11 @@ CPPFLAGS=`echo "$CPPFLAGS" | sed "s|\\\$(PG_SYSROOT)|$PG_SYSROOT|g"`
+ # (EXTRAFLAGS is not set here, but user can pass it in if need be.)
+ 
+ # Create temp directory.
+ tmp=`mktemp -d /tmp/$me.XXXXXX`
+ 
+-trap 'rm -rf $tmp' 0 1 2 3 15
++trap "ret=$?; rm -rf $tmp; exit $ret" 0 1 2 3 15
+ 
+ exit_status=0
+ 
+ # Scan all of src/ and contrib/ for header files.
+ for f in `cd "$srcdir" && find src contrib -name '*.h' -print`
+@@ -152,13 +152,13 @@ do
+ 		EXTRAINCLUDES="$perl_includespec" ;;
+ 	    src/pl/plpython/*)
+ 		EXTRAINCLUDES="$python_includespec" ;;
+ 	    src/interfaces/ecpg/*)
+ 		EXTRAINCLUDES="-I $builddir/src/interfaces/ecpg/include -I $srcdir/src/interfaces/ecpg/include" ;;
+-		src/backend/parser/*)
++	    src/backend/parser/*)
+ 		EXTRAINCLUDES="-I $builddir/src/backend/parser/" ;;
+-		src/backend/utils/adt/*)
++	    src/backend/utils/adt/*)
+ 		EXTRAINCLUDES="-I $builddir/src/backend/utils/adt/" ;;
+ 	    *)
+ 		EXTRAINCLUDES="" ;;
+ 	esac
+ 
+diff --git a/src/tools/pgtest b/src/tools/pgtest
+index 70f6a62ad02..fa665ff8172 100755
+--- a/src/tools/pgtest
++++ b/src/tools/pgtest
+@@ -12,11 +12,11 @@
+ 
+ MAKE="make"
+ 
+ [ ! -d src ] && echo "This must be run from the top of the PostgreSQL source tree" 1>&2 && exit 1
+ 
+-trap "rm -rf /tmp/$$" 0 1 2 3 15
++trap "ret=$?; rm -rf /tmp/$$; exit $ret" 0 1 2 3 15
+ mkdir /tmp/$$
+ TMP="/tmp/$$"
+ 
+ if [ "X$1" != "X-n" ]
+ then	CLEAN="Y"

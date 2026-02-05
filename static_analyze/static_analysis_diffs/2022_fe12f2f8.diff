@@ -1,0 +1,64 @@
+commit fe12f2f8fa608156c2d3c027cdd6aa9af0788e3a
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sun Dec 4 13:17:18 2022 -0500
+
+    Fix generate_partitionwise_join_paths() to tolerate failure.
+    
+    We might fail to generate a partitionwise join, because
+    reparameterize_path_by_child() does not support all path types.
+    This should not be a hard failure condition: we should just fall back
+    to a non-partitioned join.  However, generate_partitionwise_join_paths
+    did not consider this possibility and would emit the (misleading)
+    error "could not devise a query plan for the given query" if we'd
+    failed to make any paths for a child join.  Fix it to give up on
+    partitionwise joining if so.  (The accepted technique for giving up
+    appears to be to set rel->nparts = 0, which I find pretty bizarre,
+    but there you have it.)
+    
+    I have not added a test case because there'd be little point:
+    any omissions of this sort that we identify would soon get fixed
+    by extending reparameterize_path_by_child(), so the test would stop
+    proving anything.  However, right now there is a known test case based
+    on failure to cover MaterialPath, and with that I've found that this
+    is broken in all supported versions.  Hence, patch all the way back.
+    
+    Original report and patch by me; thanks to Richard Guo for
+    identifying a test case that works against committed versions.
+    
+    Discussion: https://postgr.es/m/1854233.1669949723@sss.pgh.pa.us
+
+diff --git a/src/backend/optimizer/path/allpaths.c b/src/backend/optimizer/path/allpaths.c
+index 4ddaed31a44..03ee6dc8322 100644
+--- a/src/backend/optimizer/path/allpaths.c
++++ b/src/backend/optimizer/path/allpaths.c
+@@ -4271,16 +4271,28 @@ generate_partitionwise_join_paths(PlannerInfo *root, RelOptInfo *rel)
+ 
+ 		/* If it's been pruned entirely, it's certainly dummy. */
+ 		if (child_rel == NULL)
+ 			continue;
+ 
+-		/* Add partitionwise join paths for partitioned child-joins. */
++		/* Make partitionwise join paths for this partitioned child-join. */
+ 		generate_partitionwise_join_paths(root, child_rel);
+ 
++		/* If we failed to make any path for this child, we must give up. */
++		if (child_rel->pathlist == NIL)
++		{
++			/*
++			 * Mark the parent joinrel as unpartitioned so that later
++			 * functions treat it correctly.
++			 */
++			rel->nparts = 0;
++			return;
++		}
++
++		/* Else, identify the cheapest path for it. */
+ 		set_cheapest(child_rel);
+ 
+-		/* Dummy children will not be scanned, so ignore those. */
++		/* Dummy children need not be scanned, so ignore those. */
+ 		if (IS_DUMMY_REL(child_rel))
+ 			continue;
+ 
+ #ifdef OPTIMIZER_DEBUG
+ 		debug_print_rel(root, child_rel);

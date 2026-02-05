@@ -1,0 +1,78 @@
+commit 46b4ba533cee9f64a60714d91607e74362abf67f
+Author: Bruce Momjian <bruce@momjian.us>
+Date:   Mon Apr 7 21:33:42 2025 -0400
+
+    Fix PG 17 [NOT] NULL optimization bug for domains
+    
+    A PG 17 optimization allowed columns with NOT NULL constraints to skip
+    table scans for IS NULL queries, and to skip IS NOT NULL checks for IS
+    NOT NULL queries.  This didn't work for domain types, since domain types
+    don't follow the IS NULL/IS NOT NULL constraint logic.  To fix, disable
+    this optimization for domains for PG 17+.
+    
+    Reported-by: Jan Behrens
+    
+    Diagnosed-by: Tom Lane
+    
+    Discussion: https://postgr.es/m/Z37p0paENWWUarj-@momjian.us
+    
+    Backpatch-through: 17
+
+diff --git a/doc/src/sgml/ref/create_domain.sgml b/doc/src/sgml/ref/create_domain.sgml
+index ce555203486..c111285a69c 100644
+--- a/doc/src/sgml/ref/create_domain.sgml
++++ b/doc/src/sgml/ref/create_domain.sgml
+@@ -281,11 +281,12 @@ CREATE TABLE us_snail_addy (
+   </para>
+ 
+   <para>
+    The syntax <literal>NOT NULL</literal> in this command is a
+    <productname>PostgreSQL</productname> extension.  (A standard-conforming
+-   way to write the same would be <literal>CHECK (VALUE IS NOT
++   way to write the same for non-composite data types would be
++   <literal>CHECK (VALUE IS NOT
+    NULL)</literal>.  However, per <xref linkend="sql-createdomain-notes"/>,
+    such constraints are best avoided in practice anyway.)  The
+    <literal>NULL</literal> <quote>constraint</quote> is a
+    <productname>PostgreSQL</productname> extension (see also <xref
+    linkend="sql-createtable-compatibility"/>).
+diff --git a/src/backend/optimizer/plan/initsplan.c b/src/backend/optimizer/plan/initsplan.c
+index 1d1aa27d450..01804b085b3 100644
+--- a/src/backend/optimizer/plan/initsplan.c
++++ b/src/backend/optimizer/plan/initsplan.c
+@@ -3107,10 +3107,17 @@ restriction_is_always_true(PlannerInfo *root,
+ 
+ 		/* is this NullTest an IS_NOT_NULL qual? */
+ 		if (nulltest->nulltesttype != IS_NOT_NULL)
+ 			return false;
+ 
++		/*
++		 * Empty rows can appear NULL in some contexts and NOT NULL in others,
++		 * so avoid this optimization for row expressions.
++		 */
++		if (nulltest->argisrow)
++			return false;
++
+ 		return expr_is_nonnullable(root, nulltest->arg);
+ 	}
+ 
+ 	/* If it's an OR, check its sub-clauses */
+ 	if (restriction_is_or_clause(restrictinfo))
+@@ -3165,10 +3172,17 @@ restriction_is_always_false(PlannerInfo *root,
+ 
+ 		/* is this NullTest an IS_NULL qual? */
+ 		if (nulltest->nulltesttype != IS_NULL)
+ 			return false;
+ 
++		/*
++		 * Empty rows can appear NULL in some contexts and NOT NULL in others,
++		 * so avoid this optimization for row expressions.
++		 */
++		if (nulltest->argisrow)
++			return false;
++
+ 		return expr_is_nonnullable(root, nulltest->arg);
+ 	}
+ 
+ 	/* If it's an OR, check its sub-clauses */
+ 	if (restriction_is_or_clause(restrictinfo))

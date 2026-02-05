@@ -1,0 +1,64 @@
+commit 4f15759bdcddd23e874526a6b2c0ff86e0beb042
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu Jan 23 14:23:04 2025 -0500
+
+    Don't ask for bug reports about pthread_is_threaded_np() != 0.
+    
+    We thought that this condition was unreachable in ExitPostmaster,
+    but actually it's possible if you have both a misconfigured locale
+    setting and some other mistake that causes PostmasterMain to bail
+    out before reaching its own check of pthread_is_threaded_np().
+    
+    Given the lack of other reports, let's not ask for bug reports if
+    this occurs; instead just give the same hint as in PostmasterMain.
+    
+    Bug: #18783
+    Reported-by: anani191181515@gmail.com
+    Author: Tom Lane <tgl@sss.pgh.pa.us>
+    Reviewed-by: Noah Misch <noah@leadboat.com>
+    Discussion: https://postgr.es/m/18783-d1873b95a59b9103@postgresql.org
+    Discussion: https://postgr.es/m/206317.1737656533@sss.pgh.pa.us
+    Backpatch-through: 13
+
+diff --git a/src/backend/postmaster/postmaster.c b/src/backend/postmaster/postmaster.c
+index 5f615d0f605..5488289a489 100644
+--- a/src/backend/postmaster/postmaster.c
++++ b/src/backend/postmaster/postmaster.c
+@@ -1336,10 +1336,12 @@ PostmasterMain(int argc, char *argv[])
+ 	 * environment variable is unset or empty.  CFLocaleCopyCurrent() makes
+ 	 * the process multithreaded.  The postmaster calls sigprocmask() and
+ 	 * calls fork() without an immediate exec(), both of which have undefined
+ 	 * behavior in a multithreaded program.  A multithreaded postmaster is the
+ 	 * normal case on Windows, which offers neither fork() nor sigprocmask().
++	 * Currently, macOS is the only platform having pthread_is_threaded_np(),
++	 * so we need not worry whether this HINT is appropriate elsewhere.
+ 	 */
+ 	if (pthread_is_threaded_np() != 0)
+ 		ereport(FATAL,
+ 				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+ 				 errmsg("postmaster became multithreaded during startup"),
+@@ -3533,19 +3535,20 @@ ExitPostmaster(int status)
+ {
+ #ifdef HAVE_PTHREAD_IS_THREADED_NP
+ 
+ 	/*
+ 	 * There is no known cause for a postmaster to become multithreaded after
+-	 * startup.  Recheck to account for the possibility of unknown causes.
++	 * startup.  However, we might reach here via an error exit before
++	 * reaching the test in PostmasterMain, so provide the same hint as there.
+ 	 * This message uses LOG level, because an unclean shutdown at this point
+ 	 * would usually not look much different from a clean shutdown.
+ 	 */
+ 	if (pthread_is_threaded_np() != 0)
+ 		ereport(LOG,
+-				(errcode(ERRCODE_INTERNAL_ERROR),
+-				 errmsg_internal("postmaster became multithreaded"),
+-				 errdetail("Please report this to <%s>.", PACKAGE_BUGREPORT)));
++				(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
++				 errmsg("postmaster became multithreaded"),
++				 errhint("Set the LC_ALL environment variable to a valid locale.")));
+ #endif
+ 
+ 	/* should cleanup shared memory and kill all backends */
+ 
+ 	/*

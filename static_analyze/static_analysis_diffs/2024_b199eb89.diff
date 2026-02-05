@@ -1,0 +1,105 @@
+commit b199eb89c67d737ced55721590f7fc8ff585e837
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Jan 22 13:55:25 2024 +0900
+
+    Fix some typos
+    
+    Author: Yongtao Huang
+    Discussion: https://postgr.es/m/CAOe1Go1F99o5JsphtXdDC5bxm7AzetU8q3AxLh4AAVGKu1AzEQ@mail.gmail.com
+
+diff --git a/src/backend/access/index/indexam.c b/src/backend/access/index/indexam.c
+index 85d844f4b64..bbd499abcfb 100644
+--- a/src/backend/access/index/indexam.c
++++ b/src/backend/access/index/indexam.c
+@@ -140,11 +140,11 @@ index_open(Oid relationId, LOCKMODE lockmode)
+ 
+ 	return r;
+ }
+ 
+ /* ----------------
+- *		try_index_open - open a index relation by relation OID
++ *		try_index_open - open an index relation by relation OID
+  *
+  *		Same as index_open, except return NULL instead of failing
+  *		if the relation does not exist.
+  * ----------------
+  */
+diff --git a/src/backend/commands/explain.c b/src/backend/commands/explain.c
+index 3d590a6b9f5..843472e6ddc 100644
+--- a/src/backend/commands/explain.c
++++ b/src/backend/commands/explain.c
+@@ -2393,11 +2393,11 @@ show_sort_keys(SortState *sortstate, List *ancestors, ExplainState *es)
+ 						 plan->nullsFirst,
+ 						 ancestors, es);
+ }
+ 
+ /*
+- * Show the sort keys for a IncrementalSort node.
++ * Show the sort keys for an IncrementalSort node.
+  */
+ static void
+ show_incremental_sort_keys(IncrementalSortState *incrsortstate,
+ 						   List *ancestors, ExplainState *es)
+ {
+diff --git a/src/backend/replication/logical/worker.c b/src/backend/replication/logical/worker.c
+index 911835c5cb3..9b598caf3ca 100644
+--- a/src/backend/replication/logical/worker.c
++++ b/src/backend/replication/logical/worker.c
+@@ -330,11 +330,11 @@ static TransactionId stream_xid = InvalidTransactionId;
+  * The number of changes applied by parallel apply worker during one streaming
+  * block.
+  */
+ static uint32 parallel_stream_nchanges = 0;
+ 
+-/* Are we initializing a apply worker? */
++/* Are we initializing an apply worker? */
+ bool		InitializingApplyWorker = false;
+ 
+ /*
+  * We enable skipping all data modification changes (INSERT, UPDATE, etc.) for
+  * the subscription if the remote transaction's finish LSN matches the subskiplsn.
+diff --git a/src/backend/utils/activity/wait_event.c b/src/backend/utils/activity/wait_event.c
+index ec14119a71a..e7dd489cbd9 100644
+--- a/src/backend/utils/activity/wait_event.c
++++ b/src/backend/utils/activity/wait_event.c
+@@ -47,11 +47,11 @@ uint32	   *my_wait_event_info = &local_my_wait_event_info;
+ 
+ /*
+  * Hash tables for storing custom wait event ids and their names in
+  * shared memory.
+  *
+- * WaitEventExtensionHashById is used to find the name from a event id.
++ * WaitEventExtensionHashById is used to find the name from an event id.
+  * Any backend can search it to find custom wait events.
+  *
+  * WaitEventExtensionHashByName is used to find the event ID from a name.
+  * It is used to ensure that no duplicated entries are registered.
+  *
+diff --git a/src/test/modules/test_ginpostinglist/expected/test_ginpostinglist.out b/src/test/modules/test_ginpostinglist/expected/test_ginpostinglist.out
+index 4d0beaecea9..c3f40ab71d9 100644
+--- a/src/test/modules/test_ginpostinglist/expected/test_ginpostinglist.out
++++ b/src/test/modules/test_ginpostinglist/expected/test_ginpostinglist.out
+@@ -1,9 +1,9 @@
+ CREATE EXTENSION test_ginpostinglist;
+ --
+ -- All the logic is in the test_ginpostinglist() function. It will throw
+--- a error if something fails.
++-- an error if something fails.
+ --
+ SELECT test_ginpostinglist();
+ NOTICE:  testing with (0, 1), (0, 2), max 14 bytes
+ NOTICE:  encoded 2 item pointers to 10 bytes
+ NOTICE:  testing with (0, 1), (0, 291), max 14 bytes
+diff --git a/src/test/modules/test_ginpostinglist/sql/test_ginpostinglist.sql b/src/test/modules/test_ginpostinglist/sql/test_ginpostinglist.sql
+index b8cab7accec..107baf8f275 100644
+--- a/src/test/modules/test_ginpostinglist/sql/test_ginpostinglist.sql
++++ b/src/test/modules/test_ginpostinglist/sql/test_ginpostinglist.sql
+@@ -1,7 +1,7 @@
+ CREATE EXTENSION test_ginpostinglist;
+ 
+ --
+ -- All the logic is in the test_ginpostinglist() function. It will throw
+--- a error if something fails.
++-- an error if something fails.
+ --
+ SELECT test_ginpostinglist();

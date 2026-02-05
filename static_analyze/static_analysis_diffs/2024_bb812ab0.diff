@@ -1,0 +1,95 @@
+commit bb812ab0917e153f11bf449d7cb996815c07e387
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Jan 24 14:20:01 2024 +0900
+
+    Fix ALTER TABLE .. ADD COLUMN with complex inheritance trees
+    
+    This command, when used to add a column on a parent table with a complex
+    inheritance tree, tried to update multiple times the same tuple in
+    pg_attribute for a child table when incrementing attinhcount, causing
+    failures with "tuple already updated by self" because of a missing
+    CommandCounterIncrement() between two updates.
+    
+    This exists for a rather long time, so backpatch all the way down.
+    
+    Reported-by: Alexander Lakhin
+    Author: Tender Wang
+    Reviewed-by: Richard Guo
+    Discussion: https://postgr.es/m/18297-b04cd83a55b51e35@postgresql.org
+    Backpatch-through: 12
+
+diff --git a/src/backend/commands/tablecmds.c b/src/backend/commands/tablecmds.c
+index 2a56a4357c9..5ccd0eec1c7 100644
+--- a/src/backend/commands/tablecmds.c
++++ b/src/backend/commands/tablecmds.c
+@@ -7075,10 +7075,14 @@ ATExecAddColumn(List **wqueue, AlteredTableInfo *tab, Relation rel,
+ 			ereport(NOTICE,
+ 					(errmsg("merging definition of column \"%s\" for child \"%s\"",
+ 							colDef->colname, RelationGetRelationName(rel))));
+ 
+ 			table_close(attrdesc, RowExclusiveLock);
++
++			/* Make the child column change visible */
++			CommandCounterIncrement();
++
+ 			return InvalidObjectAddress;
+ 		}
+ 	}
+ 
+ 	/* skip if the name already exists and if_not_exists is true */
+diff --git a/src/test/regress/expected/inherit.out b/src/test/regress/expected/inherit.out
+index 0f1aa831f64..56a40d50f90 100644
+--- a/src/test/regress/expected/inherit.out
++++ b/src/test/regress/expected/inherit.out
+@@ -1086,10 +1086,27 @@ ALTER TABLE inhts RENAME d TO dd;
+  dd     | integer |           |          |         | plain   |              | 
+ Inherits: inht1,
+           inhs1
+ 
+ DROP TABLE inhts;
++-- Test for adding a column to a parent table with complex inheritance
++CREATE TABLE inhta ();
++CREATE TABLE inhtb () INHERITS (inhta);
++CREATE TABLE inhtc () INHERITS (inhtb);
++CREATE TABLE inhtd () INHERITS (inhta, inhtb, inhtc);
++ALTER TABLE inhta ADD COLUMN i int;
++NOTICE:  merging definition of column "i" for child "inhtd"
++NOTICE:  merging definition of column "i" for child "inhtd"
++\d+ inhta
++                                   Table "public.inhta"
++ Column |  Type   | Collation | Nullable | Default | Storage | Stats target | Description 
++--------+---------+-----------+----------+---------+---------+--------------+-------------
++ i      | integer |           |          |         | plain   |              | 
++Child tables: inhtb,
++              inhtd
++
++DROP TABLE inhta, inhtb, inhtc, inhtd;
+ -- Test for renaming in diamond inheritance
+ CREATE TABLE inht2 (x int) INHERITS (inht1);
+ CREATE TABLE inht3 (y int) INHERITS (inht1);
+ CREATE TABLE inht4 (z int) INHERITS (inht2, inht3);
+ NOTICE:  merging multiple inherited definitions of column "aa"
+diff --git a/src/test/regress/sql/inherit.sql b/src/test/regress/sql/inherit.sql
+index f7b4062ce51..971aac54fda 100644
+--- a/src/test/regress/sql/inherit.sql
++++ b/src/test/regress/sql/inherit.sql
+@@ -370,10 +370,19 @@ ALTER TABLE inhts RENAME aa TO aaa;      -- to be failed
+ ALTER TABLE inhts RENAME d TO dd;
+ \d+ inhts
+ 
+ DROP TABLE inhts;
+ 
++-- Test for adding a column to a parent table with complex inheritance
++CREATE TABLE inhta ();
++CREATE TABLE inhtb () INHERITS (inhta);
++CREATE TABLE inhtc () INHERITS (inhtb);
++CREATE TABLE inhtd () INHERITS (inhta, inhtb, inhtc);
++ALTER TABLE inhta ADD COLUMN i int;
++\d+ inhta
++DROP TABLE inhta, inhtb, inhtc, inhtd;
++
+ -- Test for renaming in diamond inheritance
+ CREATE TABLE inht2 (x int) INHERITS (inht1);
+ CREATE TABLE inht3 (y int) INHERITS (inht1);
+ CREATE TABLE inht4 (z int) INHERITS (inht2, inht3);
+ 

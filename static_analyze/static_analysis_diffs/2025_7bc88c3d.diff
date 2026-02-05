@@ -1,0 +1,92 @@
+commit 7bc88c3d6f3af3af5330c0e209c8a3c411267d00
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Fri Dec 5 12:30:43 2025 +0900
+
+    Fix some compiler warnings
+    
+    Some of the buildfarm members with some old gcc versions have been
+    complaining about an always-true test for a NULL pointer caused by a
+    combination of SOFT_ERROR_OCCURRED() and a local ErrorSaveContext
+    variable.
+    
+    These warnings are taken care of by removing SOFT_ERROR_OCCURRED(),
+    switching to a direct variable check, like 56b1e88c804b.
+    
+    Oversights in e1405aa5e3ac and 44eba8f06e55.
+    
+    Reported-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/1341064.1764895052@sss.pgh.pa.us
+
+diff --git a/src/backend/utils/adt/pg_dependencies.c b/src/backend/utils/adt/pg_dependencies.c
+index 56abb744177..236790b1439 100644
+--- a/src/backend/utils/adt/pg_dependencies.c
++++ b/src/backend/utils/adt/pg_dependencies.c
+@@ -492,11 +492,11 @@ dependencies_scalar(void *state, char *token, JsonTokenType tokentype)
+ 	switch (parse->state)
+ 	{
+ 		case DEPS_EXPECT_ATTNUM:
+ 			attnum = pg_strtoint16_safe(token, (Node *) &escontext);
+ 
+-			if (SOFT_ERROR_OCCURRED(&escontext))
++			if (escontext.error_occurred)
+ 			{
+ 				errsave(parse->escontext,
+ 						errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+ 						errmsg("malformed pg_dependencies: \"%s\"", parse->str),
+ 						errdetail("Invalid \"%s\" value.", PG_DEPENDENCIES_KEY_ATTRIBUTES));
+@@ -537,11 +537,11 @@ dependencies_scalar(void *state, char *token, JsonTokenType tokentype)
+ 
+ 		case DEPS_EXPECT_DEPENDENCY:
+ 			parse->dependency = (AttrNumber)
+ 				pg_strtoint16_safe(token, (Node *) &escontext);
+ 
+-			if (SOFT_ERROR_OCCURRED(&escontext))
++			if (escontext.error_occurred)
+ 			{
+ 				errsave(parse->escontext,
+ 						errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+ 						errmsg("malformed pg_dependencies: \"%s\"", parse->str),
+ 						errdetail("Invalid \"%s\" value.", PG_DEPENDENCIES_KEY_DEPENDENCY));
+@@ -567,11 +567,11 @@ dependencies_scalar(void *state, char *token, JsonTokenType tokentype)
+ 
+ 		case DEPS_EXPECT_DEGREE:
+ 			parse->degree = float8in_internal(token, NULL, "double",
+ 											  token, (Node *) &escontext);
+ 
+-			if (SOFT_ERROR_OCCURRED(&escontext))
++			if (escontext.error_occurred)
+ 			{
+ 				errsave(parse->escontext,
+ 						errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+ 						errmsg("malformed pg_dependencies: \"%s\"", parse->str),
+ 						errdetail("Invalid \"%s\" value.", PG_DEPENDENCIES_KEY_DEGREE));
+diff --git a/src/backend/utils/adt/pg_ndistinct.c b/src/backend/utils/adt/pg_ndistinct.c
+index 5292521b169..a2bce48fda0 100644
+--- a/src/backend/utils/adt/pg_ndistinct.c
++++ b/src/backend/utils/adt/pg_ndistinct.c
+@@ -433,11 +433,11 @@ ndistinct_scalar(void *state, char *token, JsonTokenType tokentype)
+ 	switch (parse->state)
+ 	{
+ 		case NDIST_EXPECT_ATTNUM:
+ 			attnum = pg_strtoint16_safe(token, (Node *) &escontext);
+ 
+-			if (SOFT_ERROR_OCCURRED(&escontext))
++			if (escontext.error_occurred)
+ 			{
+ 				errsave(parse->escontext,
+ 						errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+ 						errmsg("malformed pg_ndistinct: \"%s\"", parse->str),
+ 						errdetail("Invalid \"%s\" value.", PG_NDISTINCT_KEY_ATTRIBUTES));
+@@ -483,11 +483,11 @@ ndistinct_scalar(void *state, char *token, JsonTokenType tokentype)
+ 			 * precision floating point, it has always been an integer in the
+ 			 * output generated.  Therefore, we parse it as an integer here.
+ 			 */
+ 			parse->ndistinct = pg_strtoint32_safe(token, (Node *) &escontext);
+ 
+-			if (!SOFT_ERROR_OCCURRED(&escontext))
++			if (!escontext.error_occurred)
+ 			{
+ 				parse->state = NDIST_EXPECT_KEY;
+ 				return JSON_SUCCESS;
+ 			}
+ 

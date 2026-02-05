@@ -1,0 +1,65 @@
+commit e1724af42c7b0bddad2785f8f7a15c4c123862b2
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Tue Feb 27 09:44:59 2024 -0600
+
+    Fix comments for the dshash_parameters struct.
+    
+    A recent commit added a copy_function member to the
+    dshash_parameters struct, but it missed updating a couple of
+    comments that refer to the function pointer members of this struct.
+    One of those comments also refers to a tranche_name member and non-
+    arg variants of the function pointer members, all of which were
+    either removed during development or removed shortly after dshash
+    table support was committed.
+    
+    Oversights in commits 8c0d7bafad, d7694fc148, and 42a1de3013.
+    
+    Discussion: https://postgr.es/m/20240227045213.GA2329190%40nathanxps13
+
+diff --git a/src/backend/lib/dshash.c b/src/backend/lib/dshash.c
+index cc49b4ca513..ab30f29eee0 100644
+--- a/src/backend/lib/dshash.c
++++ b/src/backend/lib/dshash.c
+@@ -200,11 +200,11 @@ static inline void copy_key(dshash_table *hash_table, void *dest,
+ 
+ /*
+  * Create a new hash table backed by the given dynamic shared area, with the
+  * given parameters.  The returned object is allocated in backend-local memory
+  * using the current MemoryContext.  'arg' will be passed through to the
+- * compare and hash functions.
++ * compare, hash, and copy functions.
+  */
+ dshash_table *
+ dshash_create(dsa_area *area, const dshash_parameters *params, void *arg)
+ {
+ 	dshash_table *hash_table;
+diff --git a/src/include/lib/dshash.h b/src/include/lib/dshash.h
+index 2ff1ba6c24d..7dda269b753 100644
+--- a/src/include/lib/dshash.h
++++ b/src/include/lib/dshash.h
+@@ -41,19 +41,17 @@ typedef dshash_hash (*dshash_hash_function) (const void *v, size_t size,
+ typedef void (*dshash_copy_function) (void *dest, const void *src, size_t size,
+ 									  void *arg);
+ 
+ /*
+  * The set of parameters needed to create or attach to a hash table.  The
+- * members tranche_id and tranche_name do not need to be initialized when
+- * attaching to an existing hash table.
++ * tranche_id member does not need to be initialized when attaching to an
++ * existing hash table.
+  *
+- * Compare and hash functions must be supplied even when attaching, because we
+- * can't safely share function pointers between backends in general.  Either
+- * the arg variants or the non-arg variants should be supplied; the other
+- * function pointers should be NULL.  If the arg variants are supplied then the
+- * user data pointer supplied to the create and attach functions will be
+- * passed to the hash and compare functions.
++ * Compare, hash, and copy functions must be supplied even when attaching,
++ * because we can't safely share function pointers between backends in general.
++ * The user data pointer supplied to the create and attach functions will be
++ * passed to these functions.
+  */
+ typedef struct dshash_parameters
+ {
+ 	size_t		key_size;		/* Size of the key (initial bytes of entry) */
+ 	size_t		entry_size;		/* Total size of entry */

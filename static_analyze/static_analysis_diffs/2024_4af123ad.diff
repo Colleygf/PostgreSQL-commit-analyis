@@ -1,0 +1,135 @@
+commit 4af123ad45bd5e91221983da1152033e6153498c
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Thu Sep 5 15:19:00 2024 +0200
+
+    Fix misleading error message context
+    
+    Author: Pavel Stehule <pavel.stehule@gmail.com>
+    Reviewed-by: Stepan Neretin <sncfmgg@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/CAFj8pRAw+OkVW=FgMKHKyvY3CgtWy3cWdY7XT+S5TJaTttu=oA@mail.gmail.com
+
+diff --git a/src/backend/executor/spi.c b/src/backend/executor/spi.c
+index d6516b1bca3..90d98345764 100644
+--- a/src/backend/executor/spi.c
++++ b/src/backend/executor/spi.c
+@@ -2976,11 +2976,11 @@ _SPI_error_callback(void *arg)
+ 	{
+ 		/* Use the parse mode to decide how to describe the query */
+ 		switch (carg->mode)
+ 		{
+ 			case RAW_PARSE_PLPGSQL_EXPR:
+-				errcontext("SQL expression \"%s\"", query);
++				errcontext("PL/pgSQL expression \"%s\"", query);
+ 				break;
+ 			case RAW_PARSE_PLPGSQL_ASSIGN1:
+ 			case RAW_PARSE_PLPGSQL_ASSIGN2:
+ 			case RAW_PARSE_PLPGSQL_ASSIGN3:
+ 				errcontext("PL/pgSQL assignment \"%s\"", query);
+diff --git a/src/pl/plpgsql/src/expected/plpgsql_record.out b/src/pl/plpgsql/src/expected/plpgsql_record.out
+index a9b5b778efc..6974c8f4a44 100644
+--- a/src/pl/plpgsql/src/expected/plpgsql_record.out
++++ b/src/pl/plpgsql/src/expected/plpgsql_record.out
+@@ -270,11 +270,11 @@ begin
+ end$$;
+ NOTICE:  r1.q1 = <NULL>
+ NOTICE:  r1.q2 = <NULL>
+ NOTICE:  r1 = <NULL>
+ ERROR:  record "r1" has no field "nosuchfield"
+-CONTEXT:  SQL expression "r1.nosuchfield"
++CONTEXT:  PL/pgSQL expression "r1.nosuchfield"
+ PL/pgSQL function inline_code_block line 7 at RAISE
+ -- records, not so much
+ do $$
+ declare r1 record;
+ begin
+@@ -284,11 +284,11 @@ begin
+   raise notice 'r1 = %', r1;
+ end$$;
+ NOTICE:  r1 = <NULL>
+ ERROR:  record "r1" is not assigned yet
+ DETAIL:  The tuple structure of a not-yet-assigned record is indeterminate.
+-CONTEXT:  SQL expression "r1.f1"
++CONTEXT:  PL/pgSQL expression "r1.f1"
+ PL/pgSQL function inline_code_block line 5 at RAISE
+ -- but OK if you assign first
+ do $$
+ declare r1 record;
+ begin
+@@ -302,11 +302,11 @@ end$$;
+ NOTICE:  r1 = <NULL>
+ NOTICE:  r1.f1 = 1
+ NOTICE:  r1.f2 = 2
+ NOTICE:  r1 = (1,2)
+ ERROR:  record "r1" has no field "nosuchfield"
+-CONTEXT:  SQL expression "r1.nosuchfield"
++CONTEXT:  PL/pgSQL expression "r1.nosuchfield"
+ PL/pgSQL function inline_code_block line 9 at RAISE
+ -- check %type with block-qualified variable names
+ do $$
+ <<blk>>
+ declare
+@@ -596,11 +596,11 @@ ERROR:  record "r" has no field "f1"
+ \set SHOW_CONTEXT errors
+ create function getf3(x mutable) returns int language plpgsql as
+ $$ begin return x.f3; end $$;
+ select getf3(null::mutable);  -- doesn't work yet
+ ERROR:  record "x" has no field "f3"
+-CONTEXT:  SQL expression "x.f3"
++CONTEXT:  PL/pgSQL expression "x.f3"
+ PL/pgSQL function getf3(mutable) line 1 at RETURN
+ alter table mutable add column f3 int;
+ select getf3(null::mutable);  -- now it works
+  getf3 
+ -------
+diff --git a/src/pl/plpgsql/src/expected/plpgsql_varprops.out b/src/pl/plpgsql/src/expected/plpgsql_varprops.out
+index 25115a02bd8..958d7bca9a7 100644
+--- a/src/pl/plpgsql/src/expected/plpgsql_varprops.out
++++ b/src/pl/plpgsql/src/expected/plpgsql_varprops.out
+@@ -74,11 +74,11 @@ do $$
+ declare x int := 1/0;  -- fail
+ begin
+   raise notice 'x = %', x;
+ end$$;
+ ERROR:  division by zero
+-CONTEXT:  SQL expression "1/0"
++CONTEXT:  PL/pgSQL expression "1/0"
+ PL/pgSQL function inline_code_block line 2 during statement block local variable initialization
+ do $$
+ declare x bigint[] := array[1,3,5];
+ begin
+   raise notice 'x = %', x;
+diff --git a/src/test/regress/expected/plpgsql.out b/src/test/regress/expected/plpgsql.out
+index 074af8f33a8..0a6945581bd 100644
+--- a/src/test/regress/expected/plpgsql.out
++++ b/src/test/regress/expected/plpgsql.out
+@@ -2386,11 +2386,11 @@ declare
+ begin
+   open c1 (p2 := 77, p1 := 42/0);
+ end $$ language plpgsql;
+ select namedparmcursor_test7();
+ ERROR:  division by zero
+-CONTEXT:  SQL expression "42/0 AS p1, 77 AS p2"
++CONTEXT:  PL/pgSQL expression "42/0 AS p1, 77 AS p2"
+ PL/pgSQL function namedparmcursor_test7() line 6 at OPEN
+ -- check that line comments work correctly within the argument list
+ -- (this used to require a special hack in the code; it no longer does,
+ -- but let's keep the test anyway)
+ create function namedparmcursor_test8() returns int4 as $$
+@@ -4561,15 +4561,15 @@ begin
+   return 1/0;
+ end
+ $$;
+ select fail();
+ ERROR:  division by zero
+-CONTEXT:  SQL expression "1/0"
++CONTEXT:  PL/pgSQL expression "1/0"
+ PL/pgSQL function fail() line 3 at RETURN
+ select fail();
+ ERROR:  division by zero
+-CONTEXT:  SQL expression "1/0"
++CONTEXT:  PL/pgSQL expression "1/0"
+ PL/pgSQL function fail() line 3 at RETURN
+ drop function fail();
+ -- Test handling of string literals.
+ set standard_conforming_strings = off;
+ create or replace function strtest() returns text as $$

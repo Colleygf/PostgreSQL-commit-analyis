@@ -1,0 +1,65 @@
+commit 8c8f7b199d9095dbc2e101a4614043b5ae13bde3
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Sep 10 07:23:05 2025 +0900
+
+    Fix leak with SMgrRelations in startup process
+    
+    The startup process does not process shared invalidation messages, only
+    sending them, and never calls AtEOXact_SMgr() which clean up any
+    unpinned SMgrRelations.  Hence, it is never able to free SMgrRelations
+    on a periodic basis, bloating its hashtable over time.
+    
+    Like the checkpointer and the bgwriter, this commit takes a conservative
+    approach by freeing periodically SMgrRelations when replaying a
+    checkpoint record, either online or shutdown, so as the startup process
+    has a way to perform a periodic cleanup.
+    
+    Issue caused by 21d9c3ee4ef7, so backpatch down to v17.
+    
+    Author: Jingtang Zhang <mrdrivingduck@gmail.com>
+    Reviewed-by: Yuhang Qiu <iamqyh@gmail.com>
+    Discussion: https://postgr.es/m/28C687D4-F335-417E-B06C-6612A0BD5A10@gmail.com
+    Backpatch-through: 17
+
+diff --git a/src/backend/access/transam/xlog.c b/src/backend/access/transam/xlog.c
+index 7ffb2179151..0baf0ac6160 100644
+--- a/src/backend/access/transam/xlog.c
++++ b/src/backend/access/transam/xlog.c
+@@ -8383,10 +8383,18 @@ xlog_redo(XLogReaderState *record)
+ 			ereport(PANIC,
+ 					(errmsg("unexpected timeline ID %u (should be %u) in shutdown checkpoint record",
+ 							checkPoint.ThisTimeLineID, replayTLI)));
+ 
+ 		RecoveryRestartPoint(&checkPoint, record);
++
++		/*
++		 * After replaying a checkpoint record, free all smgr objects.
++		 * Otherwise we would never do so for dropped relations, as the
++		 * startup does not process shared invalidation messages or call
++		 * AtEOXact_SMgr().
++		 */
++		smgrdestroyall();
+ 	}
+ 	else if (info == XLOG_CHECKPOINT_ONLINE)
+ 	{
+ 		CheckPoint	checkPoint;
+ 		TimeLineID	replayTLI;
+@@ -8436,10 +8444,18 @@ xlog_redo(XLogReaderState *record)
+ 			ereport(PANIC,
+ 					(errmsg("unexpected timeline ID %u (should be %u) in online checkpoint record",
+ 							checkPoint.ThisTimeLineID, replayTLI)));
+ 
+ 		RecoveryRestartPoint(&checkPoint, record);
++
++		/*
++		 * After replaying a checkpoint record, free all smgr objects.
++		 * Otherwise we would never do so for dropped relations, as the
++		 * startup does not process shared invalidation messages or call
++		 * AtEOXact_SMgr().
++		 */
++		smgrdestroyall();
+ 	}
+ 	else if (info == XLOG_OVERWRITE_CONTRECORD)
+ 	{
+ 		/* nothing to do here, handled in xlogrecovery_redo() */
+ 	}

@@ -1,0 +1,141 @@
+commit 4cb560b53f8f9e9a94d593f9416c107ed8202110
+Author: Dean Rasheed <dean.a.rasheed@gmail.com>
+Date:   Tue Jan 14 13:50:54 2025 +0000
+
+    Consistently spell "leakproof" without a hyphen.
+    
+    The overwhelming majority of places already did this, but a small
+    handful of places had a hyphen.
+    
+    Yugo Nagata.
+    
+    Discussion: https://postgr.es/m/CAEZATCXnnuORE2BoGwHw2zbtVvsPOLhbfVmEk9GxRzK%2Bx3OW-Q%40mail.gmail.com
+
+diff --git a/doc/src/sgml/catalogs.sgml b/doc/src/sgml/catalogs.sgml
+index 238ed679190..d3036c5ba9d 100644
+--- a/doc/src/sgml/catalogs.sgml
++++ b/doc/src/sgml/catalogs.sgml
+@@ -6038,11 +6038,11 @@ SCRAM-SHA-256$<replaceable>&lt;iteration count&gt;</replaceable>:<replaceable>&l
+       </para>
+       <para>
+        The function has no side effects.  No information about the
+        arguments is conveyed except via the return value.  Any function
+        that might throw an error depending on the values of its arguments
+-       is not leak-proof.
++       is not leakproof.
+       </para></entry>
+      </row>
+ 
+      <row>
+       <entry role="catalog_table_entry"><para role="column_definition">
+diff --git a/doc/src/sgml/planstats.sgml b/doc/src/sgml/planstats.sgml
+index 4fcfdc6e621..a909a5e3134 100644
+--- a/doc/src/sgml/planstats.sgml
++++ b/doc/src/sgml/planstats.sgml
+@@ -738,11 +738,11 @@ EXPLAIN (ANALYZE, TIMING OFF, BUFFERS OFF) SELECT * FROM t WHERE a &lt;= 49 AND
+    If a user does not have the required privilege on the table or columns,
+    then in many cases the query will ultimately receive a permission-denied
+    error, in which case this mechanism is invisible in practice.  But if the
+    user is reading from a security-barrier view, then the planner might wish
+    to check the statistics of an underlying table that is otherwise
+-   inaccessible to the user.  In that case, the operator should be leak-proof
++   inaccessible to the user.  In that case, the operator should be leakproof
+    or the statistics will not be used.  There is no direct feedback about
+    that, except that the plan might be suboptimal.  If one suspects that this
+    is the case, one could try running the query as a more privileged user,
+    to see if a different plan results.
+   </para>
+diff --git a/doc/src/sgml/rules.sgml b/doc/src/sgml/rules.sgml
+index 2b14db054de..7e98f5694b4 100644
+--- a/doc/src/sgml/rules.sgml
++++ b/doc/src/sgml/rules.sgml
+@@ -2160,11 +2160,11 @@ CREATE VIEW phone_number WITH (security_barrier) AS
+     Further, functions which do not take arguments or which are not passed any
+     arguments from the security barrier view do not have to be marked as
+     <literal>LEAKPROOF</literal> to be pushed down, as they never receive data
+     from the view.  In contrast, a function that might throw an error depending
+     on the values received as arguments (such as one that throws an error in the
+-    event of overflow or division by zero) is not leak-proof, and could provide
++    event of overflow or division by zero) is not leakproof, and could provide
+     significant information about the unseen rows if applied before the security
+     view's row filters.
+ </para>
+ 
+ <para>
+diff --git a/src/backend/statistics/extended_stats.c b/src/backend/statistics/extended_stats.c
+index 34dcb535e18..a8b63ec0884 100644
+--- a/src/backend/statistics/extended_stats.c
++++ b/src/backend/statistics/extended_stats.c
+@@ -1395,11 +1395,11 @@ statext_is_compatible_clause_internal(PlannerInfo *root, Node *clause,
+ 		}
+ 
+ 		/*
+ 		 * If there are any securityQuals on the RTE from security barrier
+ 		 * views or RLS policies, then the user may not have access to all the
+-		 * table's data, and we must check that the operator is leak-proof.
++		 * table's data, and we must check that the operator is leakproof.
+ 		 *
+ 		 * If the operator is leaky, then we must ignore this clause for the
+ 		 * purposes of estimating with MCV lists, otherwise the operator might
+ 		 * reveal values from the MCV list that the user doesn't have
+ 		 * permission to see.
+@@ -1462,11 +1462,11 @@ statext_is_compatible_clause_internal(PlannerInfo *root, Node *clause,
+ 		}
+ 
+ 		/*
+ 		 * If there are any securityQuals on the RTE from security barrier
+ 		 * views or RLS policies, then the user may not have access to all the
+-		 * table's data, and we must check that the operator is leak-proof.
++		 * table's data, and we must check that the operator is leakproof.
+ 		 *
+ 		 * If the operator is leaky, then we must ignore this clause for the
+ 		 * purposes of estimating with MCV lists, otherwise the operator might
+ 		 * reveal values from the MCV list that the user doesn't have
+ 		 * permission to see.
+diff --git a/src/backend/utils/adt/selfuncs.c b/src/backend/utils/adt/selfuncs.c
+index 93e4a8906c5..d3d1e485bb2 100644
+--- a/src/backend/utils/adt/selfuncs.c
++++ b/src/backend/utils/adt/selfuncs.c
+@@ -5761,11 +5761,11 @@ examine_simple_variable(PlannerInfo *root, Var *var,
+ 
+ /*
+  * Check whether it is permitted to call func_oid passing some of the
+  * pg_statistic data in vardata.  We allow this either if the user has SELECT
+  * privileges on the table or column underlying the pg_statistic data or if
+- * the function is marked leak-proof.
++ * the function is marked leakproof.
+  */
+ bool
+ statistic_proc_security_check(VariableStatData *vardata, Oid func_oid)
+ {
+ 	if (vardata->acl_ok)
+@@ -5776,11 +5776,11 @@ statistic_proc_security_check(VariableStatData *vardata, Oid func_oid)
+ 
+ 	if (get_func_leakproof(func_oid))
+ 		return true;
+ 
+ 	ereport(DEBUG2,
+-			(errmsg_internal("not using statistics because function \"%s\" is not leak-proof",
++			(errmsg_internal("not using statistics because function \"%s\" is not leakproof",
+ 							 get_func_name(func_oid))));
+ 	return false;
+ }
+ 
+ /*
+diff --git a/src/include/catalog/pg_proc.h b/src/include/catalog/pg_proc.h
+index fdb1e280711..b34b00aa3ea 100644
+--- a/src/include/catalog/pg_proc.h
++++ b/src/include/catalog/pg_proc.h
+@@ -59,11 +59,11 @@ CATALOG(pg_proc,1255,ProcedureRelationId) BKI_BOOTSTRAP BKI_ROWTYPE_OID(81,Proce
+ 	char		prokind BKI_DEFAULT(f);
+ 
+ 	/* security definer */
+ 	bool		prosecdef BKI_DEFAULT(f);
+ 
+-	/* is it a leak-proof function? */
++	/* is it a leakproof function? */
+ 	bool		proleakproof BKI_DEFAULT(f);
+ 
+ 	/* strict with respect to NULLs? */
+ 	bool		proisstrict BKI_DEFAULT(t);
+ 

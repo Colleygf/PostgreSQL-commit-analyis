@@ -1,0 +1,95 @@
+commit 41b98ddb77bf49433f174f03383533dd09bdefec
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Thu Nov 7 15:27:32 2024 -0600
+
+    Fix __attribute__((target(...))) usage.
+    
+    The commonly supported way to specify multiple target options is to
+    surround the entire list with quotes and to use a comma (with no
+    extra spaces) as the delimiter.
+    
+    Oversight in commit f78667bd91.
+    
+    Discussion: https://postgr.es/m/Zy0jya8nF8CPpv3B%40nathan
+
+diff --git a/config/c-compiler.m4 b/config/c-compiler.m4
+index c7eb896f14a..a129edb88e1 100644
+--- a/config/c-compiler.m4
++++ b/config/c-compiler.m4
+@@ -731,11 +731,11 @@ undefine([Ac_cachevar])dnl
+ AC_DEFUN([PGAC_AVX512_POPCNT_INTRINSICS],
+ [define([Ac_cachevar], [AS_TR_SH([pgac_cv_avx512_popcnt_intrinsics])])dnl
+ AC_CACHE_CHECK([for _mm512_popcnt_epi64], [Ac_cachevar],
+ [AC_LINK_IFELSE([AC_LANG_PROGRAM([#include <immintrin.h>
+     #if defined(__has_attribute) && __has_attribute (target)
+-    __attribute__((target("avx512vpopcntdq","avx512bw")))
++    __attribute__((target("avx512vpopcntdq,avx512bw")))
+     #endif
+     static int popcount_test(void)
+     {
+       const char buf@<:@sizeof(__m512i)@:>@;
+       PG_INT64_TYPE popcnt = 0;
+diff --git a/configure b/configure
+index 3a7332f8349..4b01b682b15 100755
+--- a/configure
++++ b/configure
+@@ -17322,11 +17322,11 @@ if ${pgac_cv_avx512_popcnt_intrinsics+:} false; then :
+ else
+   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+ /* end confdefs.h.  */
+ #include <immintrin.h>
+     #if defined(__has_attribute) && __has_attribute (target)
+-    __attribute__((target("avx512vpopcntdq","avx512bw")))
++    __attribute__((target("avx512vpopcntdq,avx512bw")))
+     #endif
+     static int popcount_test(void)
+     {
+       const char buf[sizeof(__m512i)];
+       PG_INT64_TYPE popcnt = 0;
+diff --git a/meson.build b/meson.build
+index 9eddd72a27e..5b0510cef78 100644
+--- a/meson.build
++++ b/meson.build
+@@ -2182,11 +2182,11 @@ if host_cpu == 'x86_64'
+ 
+   prog = '''
+ #include <immintrin.h>
+ 
+ #if defined(__has_attribute) && __has_attribute (target)
+-__attribute__((target("avx512vpopcntdq","avx512bw")))
++__attribute__((target("avx512vpopcntdq,avx512bw")))
+ #endif
+ int main(void)
+ {
+     const char buf[sizeof(__m512i)];
+     INT64 popcnt = 0;
+diff --git a/src/port/pg_popcount_avx512.c b/src/port/pg_popcount_avx512.c
+index b598e865549..1ab2847bf2d 100644
+--- a/src/port/pg_popcount_avx512.c
++++ b/src/port/pg_popcount_avx512.c
+@@ -104,11 +104,11 @@ pg_popcount_avx512_available(void)
+ 
+ /*
+  * pg_popcount_avx512
+  *		Returns the number of 1-bits in buf
+  */
+-pg_attribute_target("avx512vpopcntdq", "avx512bw")
++pg_attribute_target("avx512vpopcntdq,avx512bw")
+ uint64
+ pg_popcount_avx512(const char *buf, int bytes)
+ {
+ 	__m512i		val,
+ 				cnt;
+@@ -160,11 +160,11 @@ pg_popcount_avx512(const char *buf, int bytes)
+ 
+ /*
+  * pg_popcount_masked_avx512
+  *		Returns the number of 1-bits in buf after applying the mask to each byte
+  */
+-pg_attribute_target("avx512vpopcntdq", "avx512bw")
++pg_attribute_target("avx512vpopcntdq,avx512bw")
+ uint64
+ pg_popcount_masked_avx512(const char *buf, int bytes, bits8 mask)
+ {
+ 	__m512i		val,
+ 				vmasked,

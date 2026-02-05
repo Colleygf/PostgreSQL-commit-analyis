@@ -1,0 +1,64 @@
+commit 692df425b6883dd3edcc15bb984415ef349fafb1
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sat Aug 6 11:50:23 2022 -0400
+
+    Fix data-corruption hazard in WAL-logged CREATE DATABASE.
+    
+    RelationCopyStorageUsingBuffer thought it could skip copying
+    empty pages, but of course that does not work at all, because
+    subsequent blocks will be out of place.
+    
+    Also fix it to acquire share lock on the source buffer.  It *might*
+    be safe to not do that, but it's not very certain, and I don't think
+    this code deserves any benefit of the doubt.
+    
+    Dilip Kumar, per complaint from me
+    
+    Discussion: https://postgr.es/m/3679800.1659654066@sss.pgh.pa.us
+
+diff --git a/src/backend/storage/buffer/bufmgr.c b/src/backend/storage/buffer/bufmgr.c
+index 6b30138ab32..8ef0436c521 100644
+--- a/src/backend/storage/buffer/bufmgr.c
++++ b/src/backend/storage/buffer/bufmgr.c
+@@ -3739,38 +3739,34 @@ RelationCopyStorageUsingBuffer(Relation src, Relation dst, ForkNumber forkNum,
+ 
+ 		/* Read block from source relation. */
+ 		srcBuf = ReadBufferWithoutRelcache(src->rd_locator, forkNum, blkno,
+ 										   RBM_NORMAL, bstrategy_src,
+ 										   permanent);
++		LockBuffer(srcBuf, BUFFER_LOCK_SHARE);
+ 		srcPage = BufferGetPage(srcBuf);
+-		if (PageIsNew(srcPage) || PageIsEmpty(srcPage))
+-		{
+-			ReleaseBuffer(srcBuf);
+-			continue;
+-		}
+ 
+ 		/* Use P_NEW to extend the destination relation. */
+ 		dstBuf = ReadBufferWithoutRelcache(dst->rd_locator, forkNum, P_NEW,
+ 										   RBM_NORMAL, bstrategy_dst,
+ 										   permanent);
+ 		LockBuffer(dstBuf, BUFFER_LOCK_EXCLUSIVE);
++		dstPage = BufferGetPage(dstBuf);
+ 
+ 		START_CRIT_SECTION();
+ 
+ 		/* Copy page data from the source to the destination. */
+-		dstPage = BufferGetPage(dstBuf);
+ 		memcpy(dstPage, srcPage, BLCKSZ);
+ 		MarkBufferDirty(dstBuf);
+ 
+ 		/* WAL-log the copied page. */
+ 		if (use_wal)
+ 			log_newpage_buffer(dstBuf, true);
+ 
+ 		END_CRIT_SECTION();
+ 
+ 		UnlockReleaseBuffer(dstBuf);
+-		ReleaseBuffer(srcBuf);
++		UnlockReleaseBuffer(srcBuf);
+ 	}
+ }
+ 
+ /* ---------------------------------------------------------------------
+  *		CreateAndCopyRelationData

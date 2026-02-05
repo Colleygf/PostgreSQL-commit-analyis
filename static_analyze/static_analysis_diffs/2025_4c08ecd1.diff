@@ -1,0 +1,81 @@
+commit 4c08ecd1618e3c5da664ba24a4aa7052772c4616
+Author: Masahiko Sawada <msawada@postgresql.org>
+Date:   Tue May 27 11:42:36 2025 -0700
+
+    Fix assertion when decrementing eager scanning success and failure counters.
+    
+    Previously, we asserted that the eager scan's success and failure
+    counters were positive before decrementing them. However, this
+    assumption was incorrect, as it's possible that some blocks have
+    already been eagerly scanned by the time eager scanning is disabled.
+    
+    This commit replaces the assertions with guards to handle this
+    scenario gracefully.
+    
+    With this change, we continue to allow read-ahead operations by the
+    read stream that exceed the success and failure caps. While there is a
+    possibility that overruns will trigger eager scans of additional
+    pages, this does not pose a practical concern as the overruns will not
+    be substantial and remain within an acceptable range.
+    
+    Reviewed-by: Melanie Plageman <melanieplageman@gmail.com>
+    Discussion: https://postgr.es/m/CAD21AoConf6tkVCv-=JhQJj56kYsDwo4jG5+WqgT+ukSkYomSQ@mail.gmail.com
+
+diff --git a/src/backend/access/heap/vacuumlazy.c b/src/backend/access/heap/vacuumlazy.c
+index f28326bad09..708674d8fcf 100644
+--- a/src/backend/access/heap/vacuumlazy.c
++++ b/src/backend/access/heap/vacuumlazy.c
+@@ -1411,36 +1411,41 @@ lazy_scan_heap(LVRelState *vacrel)
+ 			/* Aggressive vacuums do not eager scan. */
+ 			Assert(!vacrel->aggressive);
+ 
+ 			if (vm_page_frozen)
+ 			{
+-				Assert(vacrel->eager_scan_remaining_successes > 0);
+-				vacrel->eager_scan_remaining_successes--;
++				if (vacrel->eager_scan_remaining_successes > 0)
++					vacrel->eager_scan_remaining_successes--;
+ 
+ 				if (vacrel->eager_scan_remaining_successes == 0)
+ 				{
++					/*
++					 * Report only once that we disabled eager scanning. We
++					 * may eagerly read ahead blocks in excess of the success
++					 * or failure caps before attempting to freeze them, so we
++					 * could reach here even after disabling additional eager
++					 * scanning.
++					 */
++					if (vacrel->eager_scan_max_fails_per_region > 0)
++						ereport(vacrel->verbose ? INFO : DEBUG2,
++								(errmsg("disabling eager scanning after freezing %u eagerly scanned blocks of \"%s.%s.%s\"",
++										orig_eager_scan_success_limit,
++										vacrel->dbname, vacrel->relnamespace,
++										vacrel->relname)));
++
+ 					/*
+ 					 * If we hit our success cap, permanently disable eager
+ 					 * scanning by setting the other eager scan management
+ 					 * fields to their disabled values.
+ 					 */
+ 					vacrel->eager_scan_remaining_fails = 0;
+ 					vacrel->next_eager_scan_region_start = InvalidBlockNumber;
+ 					vacrel->eager_scan_max_fails_per_region = 0;
+-
+-					ereport(vacrel->verbose ? INFO : DEBUG2,
+-							(errmsg("disabling eager scanning after freezing %u eagerly scanned blocks of \"%s.%s.%s\"",
+-									orig_eager_scan_success_limit,
+-									vacrel->dbname, vacrel->relnamespace,
+-									vacrel->relname)));
+ 				}
+ 			}
+-			else
+-			{
+-				Assert(vacrel->eager_scan_remaining_fails > 0);
++			else if (vacrel->eager_scan_remaining_fails > 0)
+ 				vacrel->eager_scan_remaining_fails--;
+-			}
+ 		}
+ 
+ 		/*
+ 		 * Now drop the buffer lock and, potentially, update the FSM.
+ 		 *

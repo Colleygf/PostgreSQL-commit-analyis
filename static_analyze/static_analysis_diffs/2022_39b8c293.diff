@@ -1,0 +1,50 @@
+commit 39b8c293fcde1d845da4d7127a25d41df53faab5
+Author: David Rowley <drowley@postgresql.org>
+Date:   Fri Oct 14 14:32:00 2022 +1300
+
+    Fix incorrect comment regarding command completion tags
+    
+    The comment talked about some Asserts which did not exist and also a
+    variable name which seems to have long since disappeared.
+    
+    Rewrite the comment in a way that will hopefully stand the test of
+    time and inform people why we always write "INSERT 0 <nrows>" instead of
+    "INSERT <nrows>" in the command completion tag for INSERT.
+    
+    Reviewed-by: Mark Dilger
+    Discussion: https://postgr.es/m/CAApHDvpiUg09AvvGAVopNAKemA9z-kCmt7Fi6HKauc32bKzx4w@mail.gmail.com
+
+diff --git a/src/backend/tcop/dest.c b/src/backend/tcop/dest.c
+index c952cbea8bd..6afaa153cad 100644
+--- a/src/backend/tcop/dest.c
++++ b/src/backend/tcop/dest.c
+@@ -176,21 +176,22 @@ EndCommand(const QueryCompletion *qc, CommandDest dest, bool force_undecorated_o
+ 		case DestRemoteSimple:
+ 
+ 			/*
+ 			 * We assume the tagname is plain ASCII and therefore requires no
+ 			 * encoding conversion.
+-			 *
+-			 * We no longer display LastOid, but to preserve the wire
+-			 * protocol, we write InvalidOid where the LastOid used to be
+-			 * written.
+-			 *
+-			 * All cases where LastOid was written also write nprocessed
+-			 * count, so just Assert that rather than having an extra test.
+ 			 */
+ 			tag = qc->commandTag;
+ 			tagname = GetCommandTagName(tag);
+ 
++			/*
++			 * In PostgreSQL versions 11 and earlier, it was possible to
++			 * create a table WITH OIDS.  When inserting into such a table,
++			 * INSERT used to include the Oid of the inserted record in the
++			 * completion tag.  To maintain compatibility in the wire
++			 * protocol, we now write a "0" (for InvalidOid) in the location
++			 * where we once wrote the new record's Oid.
++			 */
+ 			if (command_tag_display_rowcount(tag) && !force_undecorated_output)
+ 				snprintf(completionTag, COMPLETION_TAG_BUFSIZE,
+ 						 tag == CMDTAG_INSERT ?
+ 						 "%s 0 " UINT64_FORMAT : "%s " UINT64_FORMAT,
+ 						 tagname, qc->nprocessed);

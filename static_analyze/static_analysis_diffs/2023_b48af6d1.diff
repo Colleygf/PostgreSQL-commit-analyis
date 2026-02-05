@@ -1,0 +1,52 @@
+commit b48af6d174bb39bd688d52795aef2b9c10dd6e8c
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Mar 22 16:37:41 2023 -0400
+
+    Fix initdb's handling of min_wal_size and max_wal_size.
+    
+    In commit 3e51b278d, I misinterpreted the coding in setup_config()
+    as setting min_wal_size and max_wal_size to compile-time-constant
+    values.  But it's not: there's a hidden dependency on --wal-segsize.
+    Therefore leaving these variables commented out is the wrong thing.
+    Per report from Andres Freund.
+    
+    Discussion: https://postgr.es/m/20230322200751.jvfvsuuhd3hgm6vv@awork3.anarazel.de
+
+diff --git a/src/bin/initdb/initdb.c b/src/bin/initdb/initdb.c
+index acc6412c139..3c0bf5c0a89 100644
+--- a/src/bin/initdb/initdb.c
++++ b/src/bin/initdb/initdb.c
+@@ -1277,26 +1277,27 @@ setup_config(void)
+ 	}
+ 
+ 	conflines = replace_guc_value(conflines, "dynamic_shared_memory_type",
+ 								  dynamic_shared_memory_type, false);
+ 
++	/* Caution: these depend on wal_segment_size_mb, they're not constants */
++	conflines = replace_guc_value(conflines, "min_wal_size",
++								  pretty_wal_size(DEFAULT_MIN_WAL_SEGS), false);
++
++	conflines = replace_guc_value(conflines, "max_wal_size",
++								  pretty_wal_size(DEFAULT_MAX_WAL_SEGS), false);
++
+ 	/*
+ 	 * Fix up various entries to match the true compile-time defaults.  Since
+ 	 * these are indeed defaults, keep the postgresql.conf lines commented.
+ 	 */
+ 	conflines = replace_guc_value(conflines, "unix_socket_directories",
+ 								  DEFAULT_PGSOCKET_DIR, true);
+ 
+ 	conflines = replace_guc_value(conflines, "port",
+ 								  DEF_PGPORT_STR, true);
+ 
+-	conflines = replace_guc_value(conflines, "min_wal_size",
+-								  pretty_wal_size(DEFAULT_MIN_WAL_SEGS), true);
+-
+-	conflines = replace_guc_value(conflines, "max_wal_size",
+-								  pretty_wal_size(DEFAULT_MAX_WAL_SEGS), true);
+-
+ #if DEFAULT_BACKEND_FLUSH_AFTER > 0
+ 	snprintf(repltok, sizeof(repltok), "%dkB",
+ 			 DEFAULT_BACKEND_FLUSH_AFTER * (BLCKSZ / 1024));
+ 	conflines = replace_guc_value(conflines, "backend_flush_after",
+ 								  repltok, true);

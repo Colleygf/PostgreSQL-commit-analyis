@@ -1,0 +1,63 @@
+commit e0a09d4e354c9636c2b775c6f02e749236c78acf
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Mar 13 16:36:20 2023 +0900
+
+    Fix inconsistent error handling for GSS encryption in PQconnectPoll()
+    
+    The error cases for TLS and GSS encryption were inconsistent.  After TLS
+    fails, the connection is marked as dead and follow-up calls of
+    PQconnectPoll() would return immediately, but GSS encryption was not
+    doing that, so the connection would still have been allowed to enter the
+    GSS handling code.  This was handled incorrectly when gssencmode was set
+    to "require".  "prefer" was working correctly, and this could not happen
+    under "disable" as GSS encryption would not be attempted.
+    
+    This commit makes the error handling of GSS encryption on par with TLS
+    portion, fixing the case of gssencmode=require.
+    
+    Reported-by: Jacob Champion
+    Author: Michael Paquier
+    Reviewed-by: Jacob Champion, Stephen Frost
+    Discussion: https://postgr.es/m/23787477-5fe1-a161-6d2a-e459f74c4713@timescale.com
+    Backpatch-through: 12
+
+diff --git a/src/interfaces/libpq/fe-connect.c b/src/interfaces/libpq/fe-connect.c
+index 97e47f05852..5638b223cb4 100644
+--- a/src/interfaces/libpq/fe-connect.c
++++ b/src/interfaces/libpq/fe-connect.c
+@@ -3146,21 +3146,26 @@ keep_going:						/* We will come back to here until there is
+ 
+ 					/* All set for startup packet */
+ 					conn->status = CONNECTION_MADE;
+ 					return PGRES_POLLING_WRITING;
+ 				}
+-				else if (pollres == PGRES_POLLING_FAILED &&
+-						 conn->gssencmode[0] == 'p')
++				else if (pollres == PGRES_POLLING_FAILED)
+ 				{
+-					/*
+-					 * We failed, but we can retry on "prefer".  Have to drop
+-					 * the current connection to do so, though.
+-					 */
+-					conn->try_gss = false;
+-					need_new_connection = true;
+-					goto keep_going;
++					if (conn->gssencmode[0] == 'p')
++					{
++						/*
++						 * We failed, but we can retry on "prefer".  Have to
++						 * drop the current connection to do so, though.
++						 */
++						conn->try_gss = false;
++						need_new_connection = true;
++						goto keep_going;
++					}
++					/* Else it's a hard failure */
++					goto error_return;
+ 				}
++				/* Else, return POLLING_READING or POLLING_WRITING status */
+ 				return pollres;
+ #else							/* !ENABLE_GSS */
+ 				/* unreachable */
+ 				goto error_return;
+ #endif							/* ENABLE_GSS */

@@ -1,0 +1,79 @@
+commit c3cc2ab87d72a1ce17a7f574756158479ef32f20
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Thu Sep 18 09:55:39 2025 -0500
+
+    Fix re-initialization of LWLock-related shared memory.
+    
+    When shared memory is re-initialized after a crash, the named
+    LWLock tranche request array that was copied to shared memory will
+    no longer be accessible.  To fix, save the pointer to the original
+    array in postmaster's local memory, and switch to it when
+    re-initializing the LWLock-related shared memory.
+    
+    Oversight in commit ed1aad15e0.  Per buildfarm member batta.
+    
+    Reported-by: Michael Paquier <michael@paquier.xyz>
+    Reported-by: Alexander Lakhin <exclusion@gmail.com>
+    Reviewed-by: Michael Paquier <michael@paquier.xyz>
+    Discussion: https://postgr.es/m/aMoejB3iTWy1SxfF%40paquier.xyz
+    Discussion: https://postgr.es/m/f8ca018f-3479-49f6-a92c-e31db9f849d7%40gmail.com
+
+diff --git a/src/backend/storage/lmgr/lwlock.c b/src/backend/storage/lmgr/lwlock.c
+index 46c82c63ca5..b017880f5e4 100644
+--- a/src/backend/storage/lmgr/lwlock.c
++++ b/src/backend/storage/lmgr/lwlock.c
+@@ -190,10 +190,13 @@ typedef struct NamedLWLockTrancheRequest
+  * processes in EXEC_BACKEND builds.
+  */
+ int			NamedLWLockTrancheRequests = 0;
+ NamedLWLockTrancheRequest *NamedLWLockTrancheRequestArray = NULL;
+ 
++/* postmaster's local copy of the request array */
++static NamedLWLockTrancheRequest *LocalNamedLWLockTrancheRequestArray = NULL;
++
+ /* shared memory counter of registered tranches */
+ int		   *LWLockCounter = NULL;
+ 
+ /* backend-local counter of registered tranches */
+ static int	LocalLWLockCounter;
+@@ -394,10 +397,19 @@ Size
+ LWLockShmemSize(void)
+ {
+ 	Size		size;
+ 	int			numLocks = NUM_FIXED_LWLOCKS;
+ 
++	/*
++	 * If re-initializing shared memory, the request array will no longer be
++	 * accessible, so switch to the copy in postmaster's local memory.  We'll
++	 * copy it back into shared memory later when CreateLWLocks() is called
++	 * again.
++	 */
++	if (LocalNamedLWLockTrancheRequestArray)
++		NamedLWLockTrancheRequestArray = LocalNamedLWLockTrancheRequestArray;
++
+ 	/* Calculate total number of locks needed in the main array. */
+ 	numLocks += NumLWLocksForNamedTranches();
+ 
+ 	/* Space for dynamic allocation counter. */
+ 	size = MAXALIGN(sizeof(int));
+@@ -455,13 +467,19 @@ CreateLWLocks(void)
+ 		 * benefit of EXEC_BACKEND builds, which otherwise wouldn't be able to
+ 		 * call GetNamedLWLockTranche() outside postmaster.
+ 		 */
+ 		if (NamedLWLockTrancheRequests > 0)
+ 		{
++			/*
++			 * Save the pointer to the request array in postmaster's local
++			 * memory.  We'll need it if we ever need to re-initialize shared
++			 * memory after a crash.
++			 */
++			LocalNamedLWLockTrancheRequestArray = NamedLWLockTrancheRequestArray;
++
+ 			memcpy(ptr, NamedLWLockTrancheRequestArray,
+ 				   NamedLWLockTrancheRequests * sizeof(NamedLWLockTrancheRequest));
+-			pfree(NamedLWLockTrancheRequestArray);
+ 			NamedLWLockTrancheRequestArray = (NamedLWLockTrancheRequest *) ptr;
+ 			ptr += NamedLWLockTrancheRequests * sizeof(NamedLWLockTrancheRequest);
+ 		}
+ 
+ 		/* Ensure desired alignment of LWLock array */

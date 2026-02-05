@@ -1,0 +1,54 @@
+commit 4fc6b6eefcf98f79211bb790ee890ebcb05c178d
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Thu Jul 28 14:13:37 2022 +1200
+
+    Fix get_dirent_type() for symlinks on MinGW/MSYS.
+    
+    On Windows with MSVC, get_dirent_type() was recently made to return
+    DT_LNK for junction points by commit 9d3444dc, which fixed some
+    defective dirent.c code.
+    
+    On Windows with Cygwin, get_dirent_type() already worked for symlinks,
+    as it does on POSIX systems, because Cygwin has its own fake symlinks
+    that behave like POSIX (on closer inspection, Cygwin's dirent has the
+    BSD d_type extension but it's probably always DT_UNKNOWN, so we fall
+    back to lstat(), which understands Cygwin symlinks with S_ISLNK()).
+    
+    On Windows with MinGW/MSYS, we need extra code, because the MinGW
+    runtime has its own readdir() without d_type, and the lstat()-based
+    fallback has no knowledge of our convention for treating junctions as
+    symlinks.
+    
+    Back-patch to 14, where get_dirent_type() landed.
+    
+    Reported-by: Andrew Dunstan <andrew@dunslane.net>
+    Discussion: https://postgr.es/m/b9ddf605-6b36-f90d-7c30-7b3e95c46276%40dunslane.net
+
+diff --git a/src/common/file_utils.c b/src/common/file_utils.c
+index 19d308ad1f9..966b987d648 100644
+--- a/src/common/file_utils.c
++++ b/src/common/file_utils.c
+@@ -463,7 +463,23 @@ get_dirent_type(const char *path,
+ 		else if (S_ISLNK(fst.st_mode))
+ 			result = PGFILETYPE_LNK;
+ #endif
+ 	}
+ 
++#if defined(WIN32) && !defined(_MSC_VER)
++
++	/*
++	 * If we're on native Windows (not Cygwin, which has its own POSIX
++	 * symlinks), but not using the MSVC compiler, then we're using a
++	 * readdir() emulation provided by the MinGW runtime that has no d_type.
++	 * Since the lstat() fallback code reports junction points as directories,
++	 * we need an extra system call to check if we should report them as
++	 * symlinks instead, following our convention.
++	 */
++	if (result == PGFILETYPE_DIR &&
++		!look_through_symlinks &&
++		pgwin32_is_junction(path))
++		result = PGFILETYPE_LNK;
++#endif
++
+ 	return result;
+ }

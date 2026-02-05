@@ -1,0 +1,214 @@
+commit 45edde037efc6ec76714e0be7309b348fe34351e
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed May 11 15:38:55 2022 +0900
+
+    Fix typos and grammar in code and test comments
+    
+    This fixes the grammar of some comments in a couple of tests (SQL and
+    TAP), and in some C files.
+    
+    Author: Justin Pryzby
+    Discussion: https://postgr.es/m/20220511020334.GH19626@telsasoft.com
+
+diff --git a/contrib/citext/expected/citext.out b/contrib/citext/expected/citext.out
+index 5afcc50920e..1c555981363 100644
+--- a/contrib/citext/expected/citext.out
++++ b/contrib/citext/expected/citext.out
+@@ -2268,11 +2268,11 @@ SELECT COUNT(*) = 8::bigint AS t FROM try;
+  t
+ (1 row)
+ 
+ INSERT INTO try
+ VALUES ( to_char(  now()::timestamp,          'HH12:MI:SS') ),
+-       ( to_char(  now() + '1 sec'::interval, 'HH12:MI:SS') ), -- timetamptz
++       ( to_char(  now() + '1 sec'::interval, 'HH12:MI:SS') ), -- timestamptz
+        ( to_char(  '15h 2m 12s'::interval,    'HH24:MI:SS') ),
+        ( to_char(  current_date,              '999') ),
+        ( to_char(  125::int,                  '999') ),
+        ( to_char(  127::int4,                 '999') ),
+        ( to_char(  126::int8,                 '999') ),
+diff --git a/contrib/citext/expected/citext_1.out b/contrib/citext/expected/citext_1.out
+index 8aa2b9e1dbc..4a979d7a0d9 100644
+--- a/contrib/citext/expected/citext_1.out
++++ b/contrib/citext/expected/citext_1.out
+@@ -2268,11 +2268,11 @@ SELECT COUNT(*) = 8::bigint AS t FROM try;
+  t
+ (1 row)
+ 
+ INSERT INTO try
+ VALUES ( to_char(  now()::timestamp,          'HH12:MI:SS') ),
+-       ( to_char(  now() + '1 sec'::interval, 'HH12:MI:SS') ), -- timetamptz
++       ( to_char(  now() + '1 sec'::interval, 'HH12:MI:SS') ), -- timestamptz
+        ( to_char(  '15h 2m 12s'::interval,    'HH24:MI:SS') ),
+        ( to_char(  current_date,              '999') ),
+        ( to_char(  125::int,                  '999') ),
+        ( to_char(  127::int4,                 '999') ),
+        ( to_char(  126::int8,                 '999') ),
+diff --git a/contrib/citext/sql/citext.sql b/contrib/citext/sql/citext.sql
+index 8c87be6b1d2..b329253d379 100644
+--- a/contrib/citext/sql/citext.sql
++++ b/contrib/citext/sql/citext.sql
+@@ -694,11 +694,11 @@ SELECT to_timestamp('05 Dec 2000',         'DD Mon YYYY'::citext)
+ 
+ -- Try assigning function results to a column.
+ SELECT COUNT(*) = 8::bigint AS t FROM try;
+ INSERT INTO try
+ VALUES ( to_char(  now()::timestamp,          'HH12:MI:SS') ),
+-       ( to_char(  now() + '1 sec'::interval, 'HH12:MI:SS') ), -- timetamptz
++       ( to_char(  now() + '1 sec'::interval, 'HH12:MI:SS') ), -- timestamptz
+        ( to_char(  '15h 2m 12s'::interval,    'HH24:MI:SS') ),
+        ( to_char(  current_date,              '999') ),
+        ( to_char(  125::int,                  '999') ),
+        ( to_char(  127::int4,                 '999') ),
+        ( to_char(  126::int8,                 '999') ),
+diff --git a/src/backend/executor/execGrouping.c b/src/backend/executor/execGrouping.c
+index 5da4b375300..0cc54a3449e 100644
+--- a/src/backend/executor/execGrouping.c
++++ b/src/backend/executor/execGrouping.c
+@@ -244,11 +244,11 @@ BuildTupleHashTableExt(PlanState *parent,
+ 
+ 	return hashtable;
+ }
+ 
+ /*
+- * BuildTupleHashTable is a backwards-compatibilty wrapper for
++ * BuildTupleHashTable is a backwards-compatibility wrapper for
+  * BuildTupleHashTableExt(), that allocates the hashtable's metadata in
+  * tablecxt. Note that hashtables created this way cannot be reset leak-free
+  * with ResetTupleHashTable().
+  */
+ TupleHashTable
+diff --git a/src/backend/parser/parse_expr.c b/src/backend/parser/parse_expr.c
+index 33eb19a33fc..c1f194cc5b0 100644
+--- a/src/backend/parser/parse_expr.c
++++ b/src/backend/parser/parse_expr.c
+@@ -4534,11 +4534,11 @@ transformJsonParseExpr(ParseState *pstate, JsonParseExpr *jsexpr)
+ 					 parser_errposition(pstate, jsexpr->location)));
+ 	}
+ 	else
+ 	{
+ 		/*
+-		 * Coerce argument to target type using CAST for compatibilty with PG
++		 * Coerce argument to target type using CAST for compatibility with PG
+ 		 * function-like CASTs.
+ 		 */
+ 		arg = transformJsonValueExprExt(pstate, jsexpr->expr, JS_FORMAT_JSON,
+ 										false, returning->typid);
+ 	}
+diff --git a/src/backend/replication/basebackup_target.c b/src/backend/replication/basebackup_target.c
+index cff65611ef6..35202576ae1 100644
+--- a/src/backend/replication/basebackup_target.c
++++ b/src/backend/replication/basebackup_target.c
+@@ -1,9 +1,9 @@
+ /*-------------------------------------------------------------------------
+  *
+  * basebackup_target.c
+- *	  Base backups can be "targetted," which means that they can be sent
++ *	  Base backups can be "targeted", which means that they can be sent
+  *	  somewhere other than to the client which requested the backup.
+  *	  Furthermore, new targets can be defined by extensions. This file
+  *	  contains code to support that functionality.
+  *
+  * Portions Copyright (c) 2010-2022, PostgreSQL Global Development Group
+diff --git a/src/bin/pg_basebackup/bbstreamer_tar.c b/src/bin/pg_basebackup/bbstreamer_tar.c
+index fcbad579df1..ef5586c488f 100644
+--- a/src/bin/pg_basebackup/bbstreamer_tar.c
++++ b/src/bin/pg_basebackup/bbstreamer_tar.c
+@@ -421,11 +421,11 @@ bbstreamer_tar_archiver_content(bbstreamer *streamer,
+ 		/* Also replace padding, if we regenerated the header. */
+ 		memset(buffer, 0, pad_bytes);
+ 		data = buffer;
+ 		len = pad_bytes;
+ 
+-		/* Don't do this agian unless we replace another header. */
++		/* Don't do this again unless we replace another header. */
+ 		mystreamer->rearchive_member = false;
+ 	}
+ 	else if (context == BBSTREAMER_ARCHIVE_TRAILER)
+ 	{
+ 		/* Trailer should always be two blocks of zero bytes. */
+diff --git a/src/bin/pg_rewind/t/007_standby_source.pl b/src/bin/pg_rewind/t/007_standby_source.pl
+index 47320ea5a67..f89a4df09d9 100644
+--- a/src/bin/pg_rewind/t/007_standby_source.pl
++++ b/src/bin/pg_rewind/t/007_standby_source.pl
+@@ -139,11 +139,11 @@ move(
+ 	"$node_c_pgdata/postgresql.conf");
+ 
+ # Restart the node.
+ $node_c->start;
+ 
+-# set RewindTest::node_primary to point to the rewinded node, so that we can
++# set RewindTest::node_primary to point to the rewound node, so that we can
+ # use check_query()
+ $node_primary = $node_c;
+ 
+ # Run some checks to verify that C has been successfully rewound,
+ # and connected back to follow B.
+diff --git a/src/bin/pg_rewind/t/009_growing_files.pl b/src/bin/pg_rewind/t/009_growing_files.pl
+index 2c81406cc07..a5a58dbe060 100644
+--- a/src/bin/pg_rewind/t/009_growing_files.pl
++++ b/src/bin/pg_rewind/t/009_growing_files.pl
+@@ -45,11 +45,11 @@ my $standby_pgdata = $node_standby->data_dir;
+ # directory data files.
+ mkdir "$standby_pgdata/tst_both_dir";
+ append_to_file "$standby_pgdata/tst_both_dir/file1", 'a';
+ 
+ # Run pg_rewind and pipe the output from the run into the extra file we want
+-# to copy. This will ensure that the file is continously growing during the
++# to copy. This will ensure that the file is continuously growing during the
+ # copy operation and the result will be an error.
+ my $ret = run_log(
+ 	[
+ 		'pg_rewind', '--debug',
+ 		'--source-pgdata', $standby_pgdata,
+diff --git a/src/test/regress/expected/psql.out b/src/test/regress/expected/psql.out
+index 1c5b5d2763d..2a38a93a3b3 100644
+--- a/src/test/regress/expected/psql.out
++++ b/src/test/regress/expected/psql.out
+@@ -5479,11 +5479,11 @@ BEGIN;
+ INSERT INTO bla VALUES ('Susie');         -- succeeds
+ -- now with combined queries
+ INSERT INTO bla VALUES ('Rosalyn') \;     -- will rollback
+ SELECT 'before error' AS show \;          -- will show nevertheless!
+   SELECT psql_error('boum!') \;           -- failure
+-  SELECT 'after error' AS noshow;         -- hidden by preceeding error
++  SELECT 'after error' AS noshow;         -- hidden by preceding error
+      show     
+ --------------
+  before error
+ (1 row)
+ 
+diff --git a/src/test/regress/sql/psql.sql b/src/test/regress/sql/psql.sql
+index 6fc0ac6bd17..1149c6a839e 100644
+--- a/src/test/regress/sql/psql.sql
++++ b/src/test/regress/sql/psql.sql
+@@ -1430,11 +1430,11 @@ BEGIN;
+ INSERT INTO bla VALUES ('Susie');         -- succeeds
+ -- now with combined queries
+ INSERT INTO bla VALUES ('Rosalyn') \;     -- will rollback
+ SELECT 'before error' AS show \;          -- will show nevertheless!
+   SELECT psql_error('boum!') \;           -- failure
+-  SELECT 'after error' AS noshow;         -- hidden by preceeding error
++  SELECT 'after error' AS noshow;         -- hidden by preceding error
+ INSERT INTO bla(s) VALUES ('Moe') \;      -- will rollback
+   SELECT psql_error('bam!');
+ INSERT INTO bla VALUES ('Miss Wormwood'); -- succeeds
+ COMMIT;
+ SELECT * FROM bla ORDER BY 1;
+diff --git a/src/test/ssl/t/SSL/Backend/OpenSSL.pm b/src/test/ssl/t/SSL/Backend/OpenSSL.pm
+index 1546b5081ba..d6d99fa636a 100644
+--- a/src/test/ssl/t/SSL/Backend/OpenSSL.pm
++++ b/src/test/ssl/t/SSL/Backend/OpenSSL.pm
+@@ -133,11 +133,11 @@ sub get_sslkey
+ =pod
+ 
+ =item $backend->set_server_cert(params)
+ 
+ Change the configuration to use given server cert, key and crl file(s). The
+-following paramters are supported:
++following parameters are supported:
+ 
+ =over
+ 
+ =item cafile => B<value>
+ 

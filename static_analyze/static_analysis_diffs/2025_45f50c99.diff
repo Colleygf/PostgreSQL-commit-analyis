@@ -1,0 +1,51 @@
+commit 45f50c995fb658bee11bf26b8c6f4983eaa223c0
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Thu Sep 18 11:09:15 2025 +0900
+
+    pg_restore: Fix security label handling with --no-publications/subscriptions.
+    
+    Previously, pg_restore did not skip security labels on publications or
+    subscriptions even when --no-publications or --no-subscriptions was specified.
+    As a result, it could issue SECURITY LABEL commands for objects that were
+    never created, causing those commands to fail.
+    
+    This commit fixes the issue by ensuring that security labels on publications
+    and subscriptions are also skipped when the corresponding options are used.
+    
+    Backpatch to all supported versions.
+    
+    Author: Jian He <jian.universality@gmail.com>
+    Reviewed-by: Fujii Masao <masao.fujii@gmail.com>
+    Discussion: https://postgr.es/m/CACJufxHCt00pR9h51AVu6+yPD5J7JQn=7dQXxqacj0XyDhc-fA@mail.gmail.com
+    Backpatch-through: 13
+
+diff --git a/src/bin/pg_dump/pg_backup_archiver.c b/src/bin/pg_dump/pg_backup_archiver.c
+index 93814152a5f..59eaecb4ed7 100644
+--- a/src/bin/pg_dump/pg_backup_archiver.c
++++ b/src/bin/pg_dump/pg_backup_archiver.c
+@@ -3079,10 +3079,25 @@ _tocEntryRequired(TocEntry *te, teSection curSection, ArchiveHandle *AH)
+ 
+ 	/* If it's a security label, maybe ignore it */
+ 	if (ropt->no_security_labels && strcmp(te->desc, "SECURITY LABEL") == 0)
+ 		return 0;
+ 
++	/*
++	 * If it's a security label on a publication or a subscription, maybe
++	 * ignore it.
++	 */
++	if (strcmp(te->desc, "SECURITY LABEL") == 0)
++	{
++		if (ropt->no_publications &&
++			strncmp(te->tag, "PUBLICATION", strlen("PUBLICATION")) == 0)
++			return 0;
++
++		if (ropt->no_subscriptions &&
++			strncmp(te->tag, "SUBSCRIPTION", strlen("SUBSCRIPTION")) == 0)
++			return 0;
++	}
++
+ 	/* If it's a subscription, maybe ignore it */
+ 	if (ropt->no_subscriptions && strcmp(te->desc, "SUBSCRIPTION") == 0)
+ 		return 0;
+ 
+ 	/* Ignore it if section is not to be dumped/restored */

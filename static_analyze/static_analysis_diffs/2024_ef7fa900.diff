@@ -1,0 +1,116 @@
+commit ef7fa900fb587cbaac9f3e943f789155b97aa02b
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Fri Jul 26 15:12:23 2024 +0300
+
+    Add tests for errors during SSL or GSSAPI handshake
+    
+    These test that libpq correctly falls back to a plaintext connection
+    on handshake error, in the "prefer" modes.
+    
+    Reviewed-by: Michael Paquier
+    Discussion: https://www.postgresql.org/message-id/CAOYmi%2Bnwvu21mJ4DYKUa98HdfM_KZJi7B1MhyXtnsyOO-PB6Ww%40mail.gmail.com
+
+diff --git a/src/backend/libpq/be-secure-gssapi.c b/src/backend/libpq/be-secure-gssapi.c
+index bc04e78abba..483636503c1 100644
+--- a/src/backend/libpq/be-secure-gssapi.c
++++ b/src/backend/libpq/be-secure-gssapi.c
+@@ -19,10 +19,11 @@
+ #include "libpq/be-gssapi-common.h"
+ #include "libpq/libpq.h"
+ #include "libpq/pqformat.h"
+ #include "miscadmin.h"
+ #include "pgstat.h"
++#include "utils/injection_point.h"
+ #include "utils/memutils.h"
+ 
+ 
+ /*
+  * Handle the encryption/decryption of data using GSSAPI.
+@@ -497,10 +498,12 @@ secure_open_gssapi(Port *port)
+ 	bool		complete_next = false;
+ 	OM_uint32	major,
+ 				minor;
+ 	gss_cred_id_t delegated_creds;
+ 
++	INJECTION_POINT("backend-gssapi-startup");
++
+ 	/*
+ 	 * Allocate subsidiary Port data for GSSAPI operations.
+ 	 */
+ 	port->gss = (pg_gssinfo *)
+ 		MemoryContextAllocZero(TopMemoryContext, sizeof(pg_gssinfo));
+diff --git a/src/backend/libpq/be-secure.c b/src/backend/libpq/be-secure.c
+index 1663f36b6b8..ef20ea755b7 100644
+--- a/src/backend/libpq/be-secure.c
++++ b/src/backend/libpq/be-secure.c
+@@ -28,10 +28,11 @@
+ #include <arpa/inet.h>
+ 
+ #include "libpq/libpq.h"
+ #include "miscadmin.h"
+ #include "tcop/tcopprot.h"
++#include "utils/injection_point.h"
+ #include "utils/wait_event.h"
+ 
+ char	   *ssl_library;
+ char	   *ssl_cert_file;
+ char	   *ssl_key_file;
+@@ -127,10 +128,12 @@ secure_open_server(Port *port)
+ 		port->raw_buf_remaining = len;
+ 		port->raw_buf_consumed = 0;
+ 	}
+ 	Assert(pq_buffer_remaining_data() == 0);
+ 
++	INJECTION_POINT("backend-ssl-startup");
++
+ 	r = be_tls_open_server(port);
+ 
+ 	if (port->raw_buf_remaining > 0)
+ 	{
+ 		/*
+diff --git a/src/interfaces/libpq/t/005_negotiate_encryption.pl b/src/interfaces/libpq/t/005_negotiate_encryption.pl
+index 5fbab969008..157f23b8e83 100644
+--- a/src/interfaces/libpq/t/005_negotiate_encryption.pl
++++ b/src/interfaces/libpq/t/005_negotiate_encryption.pl
+@@ -337,10 +337,20 @@ nossluser   .            disable      postgres       connect, authok
+ 		connect_test(
+ 			$node,
+ 			"user=testuser sslmode=prefer",
+ 			'connect, v2error -> fail');
+ 		$node->restart;
++
++		$node->safe_psql(
++			'postgres',
++			"SELECT injection_points_attach('backend-ssl-startup', 'error');",
++			connstr => "user=localuser host=$unixdir");
++		connect_test(
++			$node,
++			"user=testuser sslmode=prefer",
++			'connect, sslaccept, backenderror, reconnect, authok -> plain');
++		$node->restart;
+ 	}
+ 
+ 	# Disable SSL again
+ 	$node->adjust_conf('postgresql.conf', 'ssl', 'off');
+ 	$node->reload;
+@@ -442,10 +452,20 @@ nogssuser   disable      disable      postgres       connect, authok
+ 		connect_test(
+ 			$node,
+ 			"user=testuser gssencmode=prefer sslmode=disable",
+ 			'connect, v2error -> fail');
+ 		$node->restart;
++
++		$node->safe_psql(
++			'postgres',
++			"SELECT injection_points_attach('backend-gssapi-startup', 'error');",
++			connstr => "user=localuser host=$unixdir");
++		connect_test(
++			$node,
++			"user=testuser gssencmode=prefer sslmode=disable",
++			'connect, gssaccept, backenderror, reconnect, authok -> plain');
++		$node->restart;
+ 	}
+ }
+ 
+ ###
+ ### Tests with both GSS and SSL enabled in the server

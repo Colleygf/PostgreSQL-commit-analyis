@@ -1,0 +1,73 @@
+commit 4c2eda67f55a8a263820d12aaeaa7e1dfe7406ee
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Fri Mar 15 14:31:25 2024 +0200
+
+    Fix race condition in transaction timeout TAP tests
+    
+    The interruption handler within the injection point can get stuck in an
+    infinite loop while handling transaction timeout. To avoid this situation
+    we reset the timeout flag before invoking the injection point.
+    
+    Author: Alexander Korotkov
+    Reviewed-by: Andrey Borodin
+    Discussion: https://postgr.es/m/ZfPchPC6oNN71X2J%40paquier.xyz
+
+diff --git a/src/backend/tcop/postgres.c b/src/backend/tcop/postgres.c
+index 7ac623019bc..fd4199a0983 100644
+--- a/src/backend/tcop/postgres.c
++++ b/src/backend/tcop/postgres.c
+@@ -3407,49 +3407,47 @@ ProcessInterrupts(void)
+ 	if (IdleInTransactionSessionTimeoutPending)
+ 	{
+ 		/*
+ 		 * If the GUC has been reset to zero, ignore the signal.  This is
+ 		 * important because the GUC update itself won't disable any pending
+-		 * interrupt.
++		 * interrupt.  We need to unset the flag before the injection point,
++		 * otherwise we could loop in interrupts checking.
+ 		 */
++		IdleInTransactionSessionTimeoutPending = false;
+ 		if (IdleInTransactionSessionTimeout > 0)
+ 		{
+ 			INJECTION_POINT("idle-in-transaction-session-timeout");
+ 			ereport(FATAL,
+ 					(errcode(ERRCODE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT),
+ 					 errmsg("terminating connection due to idle-in-transaction timeout")));
+ 		}
+-		else
+-			IdleInTransactionSessionTimeoutPending = false;
+ 	}
+ 
+ 	if (TransactionTimeoutPending)
+ 	{
+ 		/* As above, ignore the signal if the GUC has been reset to zero. */
++		TransactionTimeoutPending = false;
+ 		if (TransactionTimeout > 0)
+ 		{
+ 			INJECTION_POINT("transaction-timeout");
+ 			ereport(FATAL,
+ 					(errcode(ERRCODE_TRANSACTION_TIMEOUT),
+ 					 errmsg("terminating connection due to transaction timeout")));
+ 		}
+-		else
+-			TransactionTimeoutPending = false;
+ 	}
+ 
+ 	if (IdleSessionTimeoutPending)
+ 	{
+ 		/* As above, ignore the signal if the GUC has been reset to zero. */
++		IdleSessionTimeoutPending = false;
+ 		if (IdleSessionTimeout > 0)
+ 		{
+ 			INJECTION_POINT("idle-session-timeout");
+ 			ereport(FATAL,
+ 					(errcode(ERRCODE_IDLE_SESSION_TIMEOUT),
+ 					 errmsg("terminating connection due to idle-session timeout")));
+ 		}
+-		else
+-			IdleSessionTimeoutPending = false;
+ 	}
+ 
+ 	/*
+ 	 * If there are pending stats updates and we currently are truly idle
+ 	 * (matching the conditions in PostgresMain(), report stats now.

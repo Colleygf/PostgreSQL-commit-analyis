@@ -1,0 +1,60 @@
+commit eb706fde8302c32267518663032905556db21f57
+Author: David Rowley <drowley@postgresql.org>
+Date:   Thu Dec 22 09:57:49 2022 +1300
+
+    Fix newly introduced bug in slab.c
+    
+    d21ded75f changed the way slab.c works but introduced a bug that meant we
+    could end up with the slab's curBlocklistIndex pointing to the wrong list.
+    The condition which was checking for this was failing to account for two
+    things:
+    
+    1. The curBlocklistIndex could be 0 as we've currently got no non-full
+    blocks to put chunks on.  In this case, the dlist_is_empty() check cannot
+    be performed as there can be any number of completely full blocks at that
+    index.
+    
+    2. The curBlocklistIndex may be greater than the index we just moved the
+    block onto.  Since we need to ensure we fill up fuller blocks first, we
+    must reset curBlocklistIndex when changing any blocklist element that's
+    less than the curBlocklistIndex too.
+    
+    Reported-by: Takamichi Osumi
+    Discussion: https://postgr.es/m/TYCPR01MB8373329C6329768D7E093D68EDEB9@TYCPR01MB8373.jpnprd01.prod.outlook.com
+
+diff --git a/src/backend/utils/mmgr/slab.c b/src/backend/utils/mmgr/slab.c
+index c366febdcc0..784fe2b0fc4 100644
+--- a/src/backend/utils/mmgr/slab.c
++++ b/src/backend/utils/mmgr/slab.c
+@@ -689,20 +689,24 @@ SlabFree(void *pointer)
+ 		/* do the move */
+ 		dlist_delete_from(&slab->blocklist[curBlocklistIdx], &block->node);
+ 		dlist_push_head(&slab->blocklist[newBlocklistIdx], &block->node);
+ 
+ 		/*
+-		 * It's possible that we've no blocks in the blocklist at the
+-		 * curBlocklistIndex position.  When this happens we must find the
+-		 * next blocklist index which contains blocks.  We can be certain
+-		 * we'll find a block as at least one must exist for the chunk we're
+-		 * currently freeing.
++		 * The blocklist[curBlocklistIdx] may now be empty or we may now be
++		 * able to use a lower-element blocklist.  We'll need to redetermine
++		 * what the slab->curBlocklistIndex is if the current blocklist was
++		 * changed or if a lower element one was changed.  We must ensure we
++		 * use the list with the fullest block(s).
+ 		 */
+-		if (slab->curBlocklistIndex == curBlocklistIdx &&
+-			dlist_is_empty(&slab->blocklist[curBlocklistIdx]))
++		if (slab->curBlocklistIndex >= curBlocklistIdx)
+ 		{
+ 			slab->curBlocklistIndex = SlabFindNextBlockListIndex(slab);
++
++			/*
++			 * We know there must be a block with at least 1 unused chunk as
++			 * we just pfree'd one.  Ensure curBlocklistIndex reflects this.
++			 */
+ 			Assert(slab->curBlocklistIndex > 0);
+ 		}
+ 	}
+ 
+ 	/* Handle when a block becomes completely empty */

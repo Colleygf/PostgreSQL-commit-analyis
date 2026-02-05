@@ -1,0 +1,81 @@
+commit 6f38c43eb135f5d6b873924180562d8334d6e31d
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Fri Mar 8 13:01:12 2024 +0200
+
+    Avoid stack overflow in ShowTransactionStateRec()
+    
+    The function recurses, but didn't perform stack-depth checks. It's
+    just a debugging aid, so instead of the usual check_stack_depth()
+    call, stop the printing if we'd risk stack overflow.
+    
+    Here's an example of how to test this:
+    
+        (n=1000000; printf "BEGIN;"; for ((i=1;i<=$n;i++)); do printf "SAVEPOINT s$i;"; done; printf "SET log_min_messages = 'DEBUG5'; SAVEPOINT sp;") | psql >/dev/null
+    
+    In the passing, swap building the list of child XIDs and recursing to
+    parent. That saves memory while recursing, reducing the risk of out of
+    memory errors with lots of subtransactions. The saving is not very
+    significant in practice, but this order seems more logical anyway.
+    
+    Report by Egor Chindyaskin and Alexander Lakhin.
+    
+    Discussion: https://www.postgresql.org/message-id/1672760457.940462079%40f306.i.mail.ru
+    Author: Heikki Linnakangas
+    Reviewed-by: Robert Haas, Andres Freund, Alexander Korotkov
+
+diff --git a/src/backend/access/transam/xact.c b/src/backend/access/transam/xact.c
+index 1bd507230fd..1d930752c57 100644
+--- a/src/backend/access/transam/xact.c
++++ b/src/backend/access/transam/xact.c
+@@ -5581,24 +5581,34 @@ ShowTransactionState(const char *str)
+ static void
+ ShowTransactionStateRec(const char *str, TransactionState s)
+ {
+ 	StringInfoData buf;
+ 
+-	initStringInfo(&buf);
++	if (s->parent)
++	{
++		/*
++		 * Since this function recurses, it could be driven to stack overflow.
++		 * This is just a debugging aid, so we can leave out some details
++		 * instead of erroring out with check_stack_depth().
++		 */
++		if (stack_is_too_deep())
++			ereport(DEBUG5,
++					(errmsg_internal("%s(%d): parent omitted to avoid stack overflow",
++									 str, s->nestingLevel)));
++		else
++			ShowTransactionStateRec(str, s->parent);
++	}
+ 
++	initStringInfo(&buf);
+ 	if (s->nChildXids > 0)
+ 	{
+ 		int			i;
+ 
+ 		appendStringInfo(&buf, ", children: %u", s->childXids[0]);
+ 		for (i = 1; i < s->nChildXids; i++)
+ 			appendStringInfo(&buf, " %u", s->childXids[i]);
+ 	}
+-
+-	if (s->parent)
+-		ShowTransactionStateRec(str, s->parent);
+-
+ 	ereport(DEBUG5,
+ 			(errmsg_internal("%s(%d) name: %s; blockState: %s; state: %s, xid/subid/cid: %u/%u/%u%s%s",
+ 							 str, s->nestingLevel,
+ 							 PointerIsValid(s->name) ? s->name : "unnamed",
+ 							 BlockStateAsString(s->blockState),
+@@ -5606,11 +5616,10 @@ ShowTransactionStateRec(const char *str, TransactionState s)
+ 							 (unsigned int) XidFromFullTransactionId(s->fullTransactionId),
+ 							 (unsigned int) s->subTransactionId,
+ 							 (unsigned int) currentCommandId,
+ 							 currentCommandIdUsed ? " (used)" : "",
+ 							 buf.data)));
+-
+ 	pfree(buf.data);
+ }
+ 
+ /*
+  * BlockStateAsString

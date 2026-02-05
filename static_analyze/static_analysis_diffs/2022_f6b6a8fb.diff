@@ -1,0 +1,63 @@
+commit f6b6a8fb94f115c5197fbba0c004a262dc710134
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sun May 29 13:25:21 2022 -0400
+
+    Doc: fix missing/bogus documentation of range_intersect_agg().
+    
+    The form taking anymultirange had not been documented.  This was
+    fixed in HEAD in b21c4cf95, but that should have been back-patched
+    to v14 since the function was added there.  Do so now.
+    
+    Also, the form taking anyrange was incorrectly documented as
+    returning anymultirange, when it returns anyrange.
+    
+    Remove b21c4cf95 from the v15 release notes, since it no longer
+    qualifies as new-in-v15.
+    
+    Noted by Shay Rojansky.
+    
+    Discussion: https://postgr.es/m/CADT4RqAktzP7t6SFf0Xqm9YhahzvsmxFbzXe-gFOd=+_CHm0JA@mail.gmail.com
+
+diff --git a/doc/src/sgml/func.sgml b/doc/src/sgml/func.sgml
+index e52e2d953b6..db3147d1c46 100644
+--- a/doc/src/sgml/func.sgml
++++ b/doc/src/sgml/func.sgml
+@@ -21065,11 +21065,11 @@ SELECT NULLIF(value, '(none)') ...
+         <indexterm>
+          <primary>range_intersect_agg</primary>
+         </indexterm>
+         <function>range_intersect_agg</function> ( <parameter>value</parameter>
+          <type>anyrange</type> )
+-        <returnvalue>anymultirange</returnvalue>
++        <returnvalue>anyrange</returnvalue>
+        </para>
+        <para role="func_signature">
+         <function>range_intersect_agg</function> ( <parameter>value</parameter>
+          <type>anymultirange</type> )
+         <returnvalue>anymultirange</returnvalue>
+diff --git a/doc/src/sgml/release-15.sgml b/doc/src/sgml/release-15.sgml
+index 8390578a9a6..b9aba1df763 100644
+--- a/doc/src/sgml/release-15.sgml
++++ b/doc/src/sgml/release-15.sgml
+@@ -2487,21 +2487,10 @@ Author: Fujii Masao <fujii@postgresql.org>
+ <para>
+ Add documentation for pg_encoding_to_char() and pg_char_to_encoding() (Ian Lawrence Barwick)
+ </para>
+ </listitem>
+ 
+-<!--
+-Author: Peter Eisentraut <peter@eisentraut.org>
+-2022-03-30 [b21c4cf95] doc: Document range_intersect_agg(anymultirange)
+--->
+-
+-<listitem>
+-<para>
+-Add documentation for range_intersect_agg(anymultirange) (Paul Jungwirth)
+-</para>
+-</listitem>
+-
+ <!--
+ Author: Tom Lane <tgl@sss.pgh.pa.us>
+ 2021-10-09 [2ae5d72f0] Doc: improve documentation for ^@ starts-with operator.
+ -->
+ 

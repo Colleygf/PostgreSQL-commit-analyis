@@ -1,0 +1,59 @@
+commit d3c0cc4447307a2ffbcff8274573b544294e583c
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Dec 26 08:00:55 2022 +0900
+
+    Switch query fixing aclitems in ~15 from O(N^2) to O(N) in upgrade_adapt.sql
+    
+    f4f2f2b was doing a sequential scan of pg_class before checking if a
+    relation had attributes dependent on aclitem as data typewhen building
+    the set of ALTER TABLE queries, but it would be costly on a regression
+    database.
+    
+    While on it, make the query style more consistent with the rest.
+    
+    Reported-by: Justin Pryzby
+    Discussion: https://postgr.es/m/20221223032724.GQ1153@telsasoft.com
+
+diff --git a/src/bin/pg_upgrade/upgrade_adapt.sql b/src/bin/pg_upgrade/upgrade_adapt.sql
+index 54920f54f51..a368a51ff5e 100644
+--- a/src/bin/pg_upgrade/upgrade_adapt.sql
++++ b/src/bin/pg_upgrade/upgrade_adapt.sql
+@@ -93,27 +93,23 @@ DROP OPERATOR public.#@%# (pg_catalog.int8, NONE);
+ 
+ -- Objects last appearing in 15.
+ -- The internal format of "aclitem" has changed in 16, so replace it with
+ -- text type in tables.
+ \if :oldpgversion_le15
+-DO $$
++DO $stmt$
+   DECLARE
+-    rec text;
+-	col text;
++    rec record;
+   BEGIN
+   FOR rec in
+-    SELECT oid::regclass::text
+-    FROM pg_class
+-    WHERE relname !~ '^pg_'
+-      AND relkind IN ('r')
++    SELECT oid::regclass::text as rel, attname as col
++    FROM pg_class c, pg_attribute a
++    WHERE c.relname !~ '^pg_'
++      AND c.relkind IN ('r')
++      AND a.attrelid = c.oid
++      AND a.atttypid = 'aclitem'::regtype
+     ORDER BY 1
+   LOOP
+-    FOR col in SELECT attname FROM pg_attribute
+-      WHERE attrelid::regclass::text = rec
+-      AND atttypid = 'aclitem'::regtype
+-    LOOP
+-      EXECUTE 'ALTER TABLE ' || quote_ident(rec) || ' ALTER COLUMN ' ||
+-        quote_ident(col) || ' SET DATA TYPE text';
+-    END LOOP;
++    EXECUTE 'ALTER TABLE ' || quote_ident(rec.rel) || ' ALTER COLUMN ' ||
++      quote_ident(rec.col) || ' SET DATA TYPE text';
+   END LOOP;
+-  END; $$;
++  END; $stmt$;
+ \endif

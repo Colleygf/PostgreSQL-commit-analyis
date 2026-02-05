@@ -1,0 +1,130 @@
+commit 7e74aafc4335e743199c6c68ca9dd539053db9e5
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Wed Mar 16 11:41:18 2022 +0300
+
+    Fix default signature length for gist_ltree_ops
+    
+    911e702077 implemented operator class parameters including the signature length
+    in ltree.  Previously, the signature length for gist_ltree_ops was 8.  Because
+    of bug 911e702077 the default signature length for gist_ltree_ops became 28 for
+    ltree 1.1 (where options method is NOT provided) and 8 for ltree 1.2 (where
+    options method is provided).  This commit changes the default signature length
+    for ltree 1.1 to 8.
+    
+    Existing gist_ltree_ops indexes might be corrupted in various scenarios.
+    Thus, we have to recommend reindexing all the gist_ltree_ops indexes after
+    the upgrade.
+    
+    Reported-by: Victor Yegorov
+    Reviewed-by: Tomas Vondra, Tom Lane, Andres Freund, Nikita Glukhov
+    Reviewed-by: Andrew Dunstan
+    Author: Tomas Vondra, Alexander Korotkov
+    Discussion: https://postgr.es/m/17406-71e02820ae79bb40%40postgresql.org
+    Discussion: https://postgr.es/m/d80e0a55-6c3e-5b26-53e3-3c4f973f737c%40enterprisedb.com
+
+diff --git a/contrib/ltree/ltree.h b/contrib/ltree/ltree.h
+index 5b4be5e680a..10341d60212 100644
+--- a/contrib/ltree/ltree.h
++++ b/contrib/ltree/ltree.h
+@@ -227,15 +227,17 @@ int			ltree_strncasecmp(const char *a, const char *b, size_t s);
+ #define PG_GETARG_LTXTQUERY_P(n)		DatumGetLtxtqueryP(PG_GETARG_DATUM(n))
+ #define PG_GETARG_LTXTQUERY_P_COPY(n)	DatumGetLtxtqueryPCopy(PG_GETARG_DATUM(n))
+ 
+ /* GiST support for ltree */
+ 
+-#define SIGLEN_MAX		GISTMaxIndexKeySize
+-#define SIGLEN_DEFAULT	(2 * sizeof(int32))
+ #define BITBYTE 8
+-#define SIGLEN	(sizeof(int32) * SIGLENINT)
+ #define SIGLENBIT(siglen) ((siglen) * BITBYTE)
++#define LTREE_SIGLEN_DEFAULT	(2 * sizeof(int32))
++#define LTREE_SIGLEN_MAX		GISTMaxIndexKeySize
++#define LTREE_GET_SIGLEN()		(PG_HAS_OPCLASS_OPTIONS() ? \
++								 ((LtreeGistOptions *) PG_GET_OPCLASS_OPTIONS())->siglen : \
++								 LTREE_SIGLEN_DEFAULT)
+ 
+ typedef unsigned char *BITVECP;
+ 
+ #define LOOPBYTE(siglen) \
+ 			for(i = 0; i < (siglen); i++)
+diff --git a/contrib/ltree/ltree_gist.c b/contrib/ltree/ltree_gist.c
+index 7c39ed4298e..36874e9c726 100644
+--- a/contrib/ltree/ltree_gist.c
++++ b/contrib/ltree/ltree_gist.c
+@@ -128,11 +128,11 @@ Datum
+ ltree_same(PG_FUNCTION_ARGS)
+ {
+ 	ltree_gist *a = (ltree_gist *) PG_GETARG_POINTER(0);
+ 	ltree_gist *b = (ltree_gist *) PG_GETARG_POINTER(1);
+ 	bool	   *result = (bool *) PG_GETARG_POINTER(2);
+-	int			siglen = LTREE_GET_ASIGLEN();
++	int			siglen = LTREE_GET_SIGLEN();
+ 
+ 	*result = false;
+ 	if (LTG_ISONENODE(a) != LTG_ISONENODE(b))
+ 		PG_RETURN_POINTER(result);
+ 
+@@ -188,11 +188,11 @@ hashing(BITVECP sign, ltree *t, int siglen)
+ Datum
+ ltree_union(PG_FUNCTION_ARGS)
+ {
+ 	GistEntryVector *entryvec = (GistEntryVector *) PG_GETARG_POINTER(0);
+ 	int		   *size = (int *) PG_GETARG_POINTER(1);
+-	int			siglen = LTREE_GET_ASIGLEN();
++	int			siglen = LTREE_GET_SIGLEN();
+ 	BITVECP		base = palloc0(siglen);
+ 	int32		i,
+ 				j;
+ 	ltree_gist *result,
+ 			   *cur;
+@@ -258,11 +258,11 @@ Datum
+ ltree_penalty(PG_FUNCTION_ARGS)
+ {
+ 	ltree_gist *origval = (ltree_gist *) DatumGetPointer(((GISTENTRY *) PG_GETARG_POINTER(0))->key);
+ 	ltree_gist *newval = (ltree_gist *) DatumGetPointer(((GISTENTRY *) PG_GETARG_POINTER(1))->key);
+ 	float	   *penalty = (float *) PG_GETARG_POINTER(2);
+-	int			siglen = LTREE_GET_ASIGLEN();
++	int			siglen = LTREE_GET_SIGLEN();
+ 	int32		cmpr,
+ 				cmpl;
+ 
+ 	cmpl = ltree_compare(LTG_GETLNODE(origval, siglen), LTG_GETLNODE(newval, siglen));
+ 	cmpr = ltree_compare(LTG_GETRNODE(newval, siglen), LTG_GETRNODE(origval, siglen));
+@@ -290,11 +290,11 @@ treekey_cmp(const void *a, const void *b)
+ Datum
+ ltree_picksplit(PG_FUNCTION_ARGS)
+ {
+ 	GistEntryVector *entryvec = (GistEntryVector *) PG_GETARG_POINTER(0);
+ 	GIST_SPLITVEC *v = (GIST_SPLITVEC *) PG_GETARG_POINTER(1);
+-	int			siglen = LTREE_GET_ASIGLEN();
++	int			siglen = LTREE_GET_SIGLEN();
+ 	OffsetNumber j;
+ 	int32		i;
+ 	RIX		   *array;
+ 	OffsetNumber maxoff;
+ 	int			nbytes;
+@@ -616,11 +616,11 @@ ltree_consistent(PG_FUNCTION_ARGS)
+ 	GISTENTRY  *entry = (GISTENTRY *) PG_GETARG_POINTER(0);
+ 	StrategyNumber strategy = (StrategyNumber) PG_GETARG_UINT16(2);
+ 
+ 	/* Oid		subtype = PG_GETARG_OID(3); */
+ 	bool	   *recheck = (bool *) PG_GETARG_POINTER(4);
+-	int			siglen = LTREE_GET_ASIGLEN();
++	int			siglen = LTREE_GET_SIGLEN();
+ 	ltree_gist *key = (ltree_gist *) DatumGetPointer(entry->key);
+ 	void	   *query = NULL;
+ 	bool		res = false;
+ 
+ 	/* All cases served by this function are exact */
+@@ -722,10 +722,10 @@ ltree_gist_options(PG_FUNCTION_ARGS)
+ 	local_relopts *relopts = (local_relopts *) PG_GETARG_POINTER(0);
+ 
+ 	init_local_reloptions(relopts, sizeof(LtreeGistOptions));
+ 	add_local_int_reloption(relopts, "siglen",
+ 							"signature length in bytes",
+-							SIGLEN_DEFAULT, 1, SIGLEN_MAX,
++							LTREE_SIGLEN_DEFAULT, 1, LTREE_SIGLEN_MAX,
+ 							offsetof(LtreeGistOptions, siglen));
+ 
+ 	PG_RETURN_VOID();
+ }

@@ -1,0 +1,71 @@
+commit 93759c665d482b5bf76ca22c9cac91e713e9386e
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Sat May 14 11:58:10 2022 +1200
+
+    Fix slow animal timeouts in 032_relfilenode_reuse.pl.
+    
+    Per BF animal chipmunk:  CREATE DATABASE could apparently fail due to an
+    AV process being in the template database and not quitting fast enough
+    for the 5 second timeout in CountOtherDBBackends().  The test script had
+    autovacuum_naptime=1s to encourage more activity and opening of fds, but
+    that wasn't strictly necessary for this test.  Take it out.
+    
+    Per BF animal skink:  there was a 300s timeout for all tests in the
+    script, but apparently that was not enough under valgrind.  Let's use
+    the standard timeout $PostgreSQL::Test::Utils::timeout_default, but
+    restart it for each query we run.
+    
+    Reviewed-by: Robert Haas <robertmhaas@gmail.com>
+    Discussion: https://postgr.es/m/CA%2BhUKGKa8HNJaA24gqiiFoGy0ysndeVoJsHvX_q1-DVLFaGAmw%40mail.gmail.com
+
+diff --git a/src/test/recovery/t/032_relfilenode_reuse.pl b/src/test/recovery/t/032_relfilenode_reuse.pl
+index ae7e32763fb..92ec510037a 100644
+--- a/src/test/recovery/t/032_relfilenode_reuse.pl
++++ b/src/test/recovery/t/032_relfilenode_reuse.pl
+@@ -13,11 +13,10 @@ $node_primary->append_conf(
+ allow_in_place_tablespaces = true
+ log_connections=on
+ # to avoid "repairing" corruption
+ full_page_writes=off
+ log_min_messages=debug2
+-autovacuum_naptime=1s
+ shared_buffers=1MB
+ ]);
+ $node_primary->start;
+ 
+ 
+@@ -27,15 +26,12 @@ $node_primary->backup($backup_name);
+ my $node_standby = PostgreSQL::Test::Cluster->new('standby');
+ $node_standby->init_from_backup($node_primary, $backup_name,
+ 	has_streaming => 1);
+ $node_standby->start;
+ 
+-# To avoid hanging while expecting some specific input from a psql
+-# instance being driven by us, add a timeout high enough that it
+-# should never trigger even on very slow machines, unless something
+-# is really wrong.
+-my $psql_timeout = IPC::Run::timer(300);
++# We'll reset this timeout for each individual query we run.
++my $psql_timeout = IPC::Run::timer($PostgreSQL::Test::Utils::timeout_default);
+ 
+ my %psql_primary = (stdin => '', stdout => '', stderr => '');
+ $psql_primary{run} = IPC::Run::start(
+ 	[ 'psql', '-XA', '-f', '-', '-d', $node_primary->connstr('postgres') ],
+ 	'<',
+@@ -206,10 +202,16 @@ sub cause_eviction
+ sub send_query_and_wait
+ {
+ 	my ($psql, $query, $untl) = @_;
+ 	my $ret;
+ 
++	# For each query we run, we'll restart the timeout.  Otherwise the timeout
++	# would apply to the whole test script, and would need to be set very high
++	# to survive when running under Valgrind.
++	$psql_timeout->reset();
++	$psql_timeout->start();
++
+ 	# send query
+ 	$$psql{stdin} .= $query;
+ 	$$psql{stdin} .= "\n";
+ 
+ 	# wait for query results

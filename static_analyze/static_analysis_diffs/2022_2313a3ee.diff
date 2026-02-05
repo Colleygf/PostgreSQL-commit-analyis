@@ -1,0 +1,59 @@
+commit 2313a3ee22eb3c63a987b496df64c67443763a5a
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Wed Feb 23 10:54:03 2022 +0100
+
+    Fix statenames in mergejoin comments
+    
+    The names in the comments were on a few states not consistent with
+    the documented state.
+    
+    Author: Zhihong Yu <zyu@yugabyte.com>
+    Discussion: https://postgr.es/m/CALNJ-vQVthfQXVqmrHR8BKHtC4fMGbhM1xbvJNJAPexTq_dH=w@mail.gmail.com
+
+diff --git a/src/backend/executor/nodeMergejoin.c b/src/backend/executor/nodeMergejoin.c
+index a049bc4ae05..edb8972c5bf 100644
+--- a/src/backend/executor/nodeMergejoin.c
++++ b/src/backend/executor/nodeMergejoin.c
+@@ -1141,11 +1141,11 @@ ExecMergeJoin(PlanState *pstate)
+ 				else			/* compareResult < 0 should not happen */
+ 					elog(ERROR, "mergejoin input data is out of order");
+ 				break;
+ 
+ 				/*----------------------------------------------------------
+-				 * EXEC_MJ_SKIP means compare tuples and if they do not
++				 * EXEC_MJ_SKIP_TEST means compare tuples and if they do not
+ 				 * match, skip whichever is lesser.
+ 				 *
+ 				 * For example:
+ 				 *
+ 				 *				outer inner
+@@ -1197,12 +1197,12 @@ ExecMergeJoin(PlanState *pstate)
+ 					/* compareResult > 0 */
+ 					node->mj_JoinState = EXEC_MJ_SKIPINNER_ADVANCE;
+ 				break;
+ 
+ 				/*
+-				 * SKIPOUTER_ADVANCE: advance over an outer tuple that is
+-				 * known not to join to any inner tuple.
++				 * EXEC_MJ_SKIPOUTER_ADVANCE: advance over an outer tuple that
++				 * is known not to join to any inner tuple.
+ 				 *
+ 				 * Before advancing, we check to see if we must emit an
+ 				 * outer-join fill tuple for this outer tuple.
+ 				 */
+ 			case EXEC_MJ_SKIPOUTER_ADVANCE:
+@@ -1259,12 +1259,12 @@ ExecMergeJoin(PlanState *pstate)
+ 						return NULL;
+ 				}
+ 				break;
+ 
+ 				/*
+-				 * SKIPINNER_ADVANCE: advance over an inner tuple that is
+-				 * known not to join to any outer tuple.
++				 * EXEC_MJ_SKIPINNER_ADVANCE: advance over an inner tuple that
++				 * is known not to join to any outer tuple.
+ 				 *
+ 				 * Before advancing, we check to see if we must emit an
+ 				 * outer-join fill tuple for this inner tuple.
+ 				 */
+ 			case EXEC_MJ_SKIPINNER_ADVANCE:

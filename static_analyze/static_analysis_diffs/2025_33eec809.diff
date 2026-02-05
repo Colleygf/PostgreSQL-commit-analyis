@@ -1,0 +1,157 @@
+commit 33eec809402bfbf3eb0d01ad5b023d3d05fcb3bc
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Wed Sep 10 11:49:53 2025 +0200
+
+    Fix CREATE TABLE LIKE with not-valid check constraint
+    
+    In CREATE TABLE ... LIKE, any check constraints copied from the source
+    table should be set to valid if they are ENFORCED (the default).
+    
+    Bug introduced in commit ca87c415e2f.
+    
+    Author: jian he <jian.universality@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/CACJufxH%3D%2Bod8Wy0P4L3_GpapNwLUP3oAes5UFRJ7yTxrM_M5kg%40mail.gmail.com
+
+diff --git a/src/backend/parser/parse_utilcmd.c b/src/backend/parser/parse_utilcmd.c
+index afcf54169c3..e96b38a59d5 100644
+--- a/src/backend/parser/parse_utilcmd.c
++++ b/src/backend/parser/parse_utilcmd.c
+@@ -1459,11 +1459,10 @@ expandTableLikeClause(RangeVar *heapRel, TableLikeClause *table_like_clause)
+ 		for (ccnum = 0; ccnum < constr->num_check; ccnum++)
+ 		{
+ 			char	   *ccname = constr->check[ccnum].ccname;
+ 			char	   *ccbin = constr->check[ccnum].ccbin;
+ 			bool		ccenforced = constr->check[ccnum].ccenforced;
+-			bool		ccvalid = constr->check[ccnum].ccvalid;
+ 			bool		ccnoinherit = constr->check[ccnum].ccnoinherit;
+ 			Node	   *ccbin_node;
+ 			bool		found_whole_row;
+ 			Constraint *n;
+ 			AlterTableCmd *atsubcmd;
+@@ -1490,11 +1489,11 @@ expandTableLikeClause(RangeVar *heapRel, TableLikeClause *table_like_clause)
+ 			n = makeNode(Constraint);
+ 			n->contype = CONSTR_CHECK;
+ 			n->conname = pstrdup(ccname);
+ 			n->location = -1;
+ 			n->is_enforced = ccenforced;
+-			n->initially_valid = ccvalid;
++			n->initially_valid = ccenforced;	/* sic */
+ 			n->is_no_inherit = ccnoinherit;
+ 			n->raw_expr = NULL;
+ 			n->cooked_expr = nodeToString(ccbin_node);
+ 
+ 			/* We can skip validation, since the new table should be empty. */
+diff --git a/src/test/regress/expected/create_table_like.out b/src/test/regress/expected/create_table_like.out
+index 29a779c2e90..d3c35c14847 100644
+--- a/src/test/regress/expected/create_table_like.out
++++ b/src/test/regress/expected/create_table_like.out
+@@ -318,10 +318,11 @@ Referenced by:
+ 
+ DROP TABLE inhz;
+ -- including storage and comments
+ CREATE TABLE ctlt1 (a text CHECK (length(a) > 2) ENFORCED PRIMARY KEY,
+ 	b text CHECK (length(b) > 100) NOT ENFORCED);
++ALTER TABLE ctlt1 ADD CONSTRAINT cc CHECK (length(b) > 100) NOT VALID;
+ CREATE INDEX ctlt1_b_key ON ctlt1 (b);
+ CREATE INDEX ctlt1_fnidx ON ctlt1 ((a || b));
+ CREATE STATISTICS ctlt1_a_b_stat ON a,b FROM ctlt1;
+ CREATE STATISTICS ctlt1_expr_stat ON (a || b) FROM ctlt1;
+ COMMENT ON STATISTICS ctlt1_a_b_stat IS 'ab stats';
+@@ -376,19 +377,21 @@ SELECT conname, description FROM pg_description, pg_constraint c WHERE classoid
+ (1 row)
+ 
+ CREATE TABLE ctlt1_inh (LIKE ctlt1 INCLUDING CONSTRAINTS INCLUDING COMMENTS) INHERITS (ctlt1);
+ NOTICE:  merging column "a" with inherited definition
+ NOTICE:  merging column "b" with inherited definition
++NOTICE:  merging constraint "cc" with inherited definition
+ NOTICE:  merging constraint "ctlt1_a_check" with inherited definition
+ NOTICE:  merging constraint "ctlt1_b_check" with inherited definition
+ \d+ ctlt1_inh
+                                 Table "public.ctlt1_inh"
+  Column | Type | Collation | Nullable | Default | Storage  | Stats target | Description 
+ --------+------+-----------+----------+---------+----------+--------------+-------------
+  a      | text |           | not null |         | main     |              | A
+  b      | text |           |          |         | extended |              | B
+ Check constraints:
++    "cc" CHECK (length(b) > 100)
+     "ctlt1_a_check" CHECK (length(a) > 2)
+     "ctlt1_b_check" CHECK (length(b) > 100) NOT ENFORCED
+ Not-null constraints:
+     "ctlt1_a_not_null" NOT NULL "a" (local, inherited)
+ Inherits: ctlt1
+@@ -407,10 +410,11 @@ NOTICE:  merging multiple inherited definitions of column "a"
+ --------+------+-----------+----------+---------+----------+--------------+-------------
+  a      | text |           | not null |         | main     |              | 
+  b      | text |           |          |         | extended |              | 
+  c      | text |           |          |         | external |              | 
+ Check constraints:
++    "cc" CHECK (length(b) > 100)
+     "ctlt1_a_check" CHECK (length(a) > 2)
+     "ctlt1_b_check" CHECK (length(b) > 100) NOT ENFORCED
+     "ctlt3_a_check" CHECK (length(a) < 5)
+     "ctlt3_c_check" CHECK (length(c) < 7)
+ Not-null constraints:
+@@ -428,10 +432,11 @@ NOTICE:  merging column "a" with inherited definition
+  b      | text |           |          |         | extended |              | 
+  c      | text |           |          |         | external |              | C
+ Indexes:
+     "ctlt13_like_expr_idx" btree ((a || c))
+ Check constraints:
++    "cc" CHECK (length(b) > 100)
+     "ctlt1_a_check" CHECK (length(a) > 2)
+     "ctlt1_b_check" CHECK (length(b) > 100) NOT ENFORCED
+     "ctlt3_a_check" CHECK (length(a) < 5)
+     "ctlt3_c_check" CHECK (length(c) < 7)
+ Not-null constraints:
+@@ -454,10 +459,11 @@ CREATE TABLE ctlt_all (LIKE ctlt1 INCLUDING ALL);
+ Indexes:
+     "ctlt_all_pkey" PRIMARY KEY, btree (a)
+     "ctlt_all_b_idx" btree (b)
+     "ctlt_all_expr_idx" btree ((a || b))
+ Check constraints:
++    "cc" CHECK (length(b) > 100)
+     "ctlt1_a_check" CHECK (length(a) > 2)
+     "ctlt1_b_check" CHECK (length(b) > 100) NOT ENFORCED
+ Statistics objects:
+     "public.ctlt_all_a_b_stat" ON a, b FROM ctlt_all
+     "public.ctlt_all_expr_stat" ON (a || b) FROM ctlt_all
+@@ -497,10 +503,11 @@ CREATE TABLE pg_attrdef (LIKE ctlt1 INCLUDING ALL);
+ Indexes:
+     "pg_attrdef_pkey" PRIMARY KEY, btree (a)
+     "pg_attrdef_b_idx" btree (b)
+     "pg_attrdef_expr_idx" btree ((a || b))
+ Check constraints:
++    "cc" CHECK (length(b) > 100)
+     "ctlt1_a_check" CHECK (length(a) > 2)
+     "ctlt1_b_check" CHECK (length(b) > 100) NOT ENFORCED
+ Statistics objects:
+     "public.pg_attrdef_a_b_stat" ON a, b FROM public.pg_attrdef
+     "public.pg_attrdef_expr_stat" ON (a || b) FROM public.pg_attrdef
+@@ -522,10 +529,11 @@ CREATE TABLE ctlt1 (LIKE ctlt1 INCLUDING ALL);
+ Indexes:
+     "ctlt1_pkey" PRIMARY KEY, btree (a)
+     "ctlt1_b_idx" btree (b)
+     "ctlt1_expr_idx" btree ((a || b))
+ Check constraints:
++    "cc" CHECK (length(b) > 100)
+     "ctlt1_a_check" CHECK (length(a) > 2)
+     "ctlt1_b_check" CHECK (length(b) > 100) NOT ENFORCED
+ Statistics objects:
+     "ctl_schema.ctlt1_a_b_stat" ON a, b FROM ctlt1
+     "ctl_schema.ctlt1_expr_stat" ON (a || b) FROM ctlt1
+diff --git a/src/test/regress/sql/create_table_like.sql b/src/test/regress/sql/create_table_like.sql
+index bf8702116a7..93389b57dbf 100644
+--- a/src/test/regress/sql/create_table_like.sql
++++ b/src/test/regress/sql/create_table_like.sql
+@@ -128,10 +128,11 @@ CREATE TABLE inhz (x text REFERENCES inhz, LIKE inhx INCLUDING INDEXES);
+ DROP TABLE inhz;
+ 
+ -- including storage and comments
+ CREATE TABLE ctlt1 (a text CHECK (length(a) > 2) ENFORCED PRIMARY KEY,
+ 	b text CHECK (length(b) > 100) NOT ENFORCED);
++ALTER TABLE ctlt1 ADD CONSTRAINT cc CHECK (length(b) > 100) NOT VALID;
+ CREATE INDEX ctlt1_b_key ON ctlt1 (b);
+ CREATE INDEX ctlt1_fnidx ON ctlt1 ((a || b));
+ CREATE STATISTICS ctlt1_a_b_stat ON a,b FROM ctlt1;
+ CREATE STATISTICS ctlt1_expr_stat ON (a || b) FROM ctlt1;
+ COMMENT ON STATISTICS ctlt1_a_b_stat IS 'ab stats';

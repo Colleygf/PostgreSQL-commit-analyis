@@ -1,0 +1,49 @@
+commit ce21a36cf837083cb41521aff035d9c1310f0f66
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Thu May 26 12:54:33 2022 -0400
+
+    In CREATE FOREIGN TABLE syntax synopsis, fix partitioning stuff.
+    
+    Foreign tables can be partitioned, but previous documentation commits
+    left the syntax synopsis both incomplete and incorrect.
+    
+    Justin Pryzby and Amit Langote
+    
+    Discussion: http://postgr.es/m/20220521130922.GX19626@telsasoft.com
+
+diff --git a/doc/src/sgml/ref/create_foreign_table.sgml b/doc/src/sgml/ref/create_foreign_table.sgml
+index b374d8645db..6b208c4848c 100644
+--- a/doc/src/sgml/ref/create_foreign_table.sgml
++++ b/doc/src/sgml/ref/create_foreign_table.sgml
+@@ -33,11 +33,12 @@ CREATE FOREIGN TABLE [ IF NOT EXISTS ] <replaceable class="parameter">table_name
+ CREATE FOREIGN TABLE [ IF NOT EXISTS ] <replaceable class="parameter">table_name</replaceable>
+   PARTITION OF <replaceable class="parameter">parent_table</replaceable> [ (
+   { <replaceable class="parameter">column_name</replaceable> [ WITH OPTIONS ] [ <replaceable class="parameter">column_constraint</replaceable> [ ... ] ]
+     | <replaceable>table_constraint</replaceable> }
+     [, ... ]
+-) ] <replaceable class="parameter">partition_bound_spec</replaceable>
++) ]
++{ FOR VALUES <replaceable class="parameter">partition_bound_spec</replaceable> | DEFAULT }
+   SERVER <replaceable class="parameter">server_name</replaceable>
+ [ OPTIONS ( <replaceable class="parameter">option</replaceable> '<replaceable class="parameter">value</replaceable>' [, ... ] ) ]
+ 
+ <phrase>where <replaceable class="parameter">column_constraint</replaceable> is:</phrase>
+ 
+@@ -50,10 +51,17 @@ CREATE FOREIGN TABLE [ IF NOT EXISTS ] <replaceable class="parameter">table_name
+ 
+ <phrase>and <replaceable class="parameter">table_constraint</replaceable> is:</phrase>
+ 
+ [ CONSTRAINT <replaceable class="parameter">constraint_name</replaceable> ]
+ CHECK ( <replaceable class="parameter">expression</replaceable> ) [ NO INHERIT ]
++
++<phrase>and <replaceable class="parameter">partition_bound_spec</replaceable> is:</phrase>
++
++IN ( <replaceable class="parameter">partition_bound_expr</replaceable> [, ...] ) |
++FROM ( { <replaceable class="parameter">partition_bound_expr</replaceable> | MINVALUE | MAXVALUE } [, ...] )
++  TO ( { <replaceable class="parameter">partition_bound_expr</replaceable> | MINVALUE | MAXVALUE } [, ...] ) |
++WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REMAINDER <replaceable class="parameter">numeric_literal</replaceable> )
+ </synopsis>
+  </refsynopsisdiv>
+ 
+  <refsect1 id="sql-createforeigntable-description">
+   <title>Description</title>

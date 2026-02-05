@@ -1,0 +1,74 @@
+commit dea83493800563d9f78b68bf9717988dd272c7c9
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu Nov 3 12:01:57 2022 -0400
+
+    Avoid crash after function syntax error in a replication worker.
+    
+    If a syntax error occurred in a SQL-language or PL/pgSQL-language
+    CREATE FUNCTION or DO command executed in a logical replication worker,
+    we'd suffer a null pointer dereference or assertion failure.  That
+    seems like a rather contrived case, but nonetheless worth fixing.
+    
+    The cause is that function_parse_error_transpose assumes it must be
+    executing within the context of a Portal, but logical/worker.c
+    doesn't create a Portal since it's not running the standard executor.
+    We can just back off the hard Assert check and make it fail gracefully
+    if there's not an ActivePortal.  (I have a feeling that the aggressive
+    check here was my fault originally, probably because I wasn't sure if
+    the case would always hold and wanted to find out.  Well, now we know.)
+    
+    The hazard seems to exist in all branches that have logical replication,
+    so back-patch to v10.
+    
+    Maxim Orlov, Anton Melnikov, Masahiko Sawada, Tom Lane
+    
+    Discussion: https://postgr.es/m/b570c367-ba38-95f3-f62d-5f59b9808226@inbox.ru
+    Discussion: https://postgr.es/m/adf0452f-8c6b-7def-d35e-ab516c80088e@inbox.ru
+
+diff --git a/src/backend/catalog/pg_proc.c b/src/backend/catalog/pg_proc.c
+index a9fe45e3471..e03b98bcd2a 100644
+--- a/src/backend/catalog/pg_proc.c
++++ b/src/backend/catalog/pg_proc.c
+@@ -1015,11 +1015,10 @@ sql_function_parse_error_callback(void *arg)
+ bool
+ function_parse_error_transpose(const char *prosrc)
+ {
+ 	int			origerrposition;
+ 	int			newerrposition;
+-	const char *queryText;
+ 
+ 	/*
+ 	 * Nothing to do unless we are dealing with a syntax error that has a
+ 	 * cursor position.
+ 	 *
+@@ -1033,15 +1032,26 @@ function_parse_error_transpose(const char *prosrc)
+ 		if (origerrposition <= 0)
+ 			return false;
+ 	}
+ 
+ 	/* We can get the original query text from the active portal (hack...) */
+-	Assert(ActivePortal && ActivePortal->status == PORTAL_ACTIVE);
+-	queryText = ActivePortal->sourceText;
++	if (ActivePortal && ActivePortal->status == PORTAL_ACTIVE)
++	{
++		const char *queryText = ActivePortal->sourceText;
+ 
+-	/* Try to locate the prosrc in the original text */
+-	newerrposition = match_prosrc_to_query(prosrc, queryText, origerrposition);
++		/* Try to locate the prosrc in the original text */
++		newerrposition = match_prosrc_to_query(prosrc, queryText,
++											   origerrposition);
++	}
++	else
++	{
++		/*
++		 * Quietly give up if no ActivePortal.  This is an unusual situation
++		 * but it can happen in, e.g., logical replication workers.
++		 */
++		newerrposition = -1;
++	}
+ 
+ 	if (newerrposition > 0)
+ 	{
+ 		/* Successful, so fix error position to reference original query */
+ 		errposition(newerrposition);

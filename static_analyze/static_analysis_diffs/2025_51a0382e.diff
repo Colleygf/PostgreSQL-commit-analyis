@@ -1,0 +1,76 @@
+commit 51a0382e8d8793b5cc89b69285e5ecdffe03c2bf
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Fri Mar 28 20:19:17 2025 +0200
+
+    Fix crash if LockErrorCleanup() is called twice
+    
+    The refactoring in commit 3c0fd64fec removed the clearing of
+    awaitedLock from LockErrorCleanup(). It's still needed, otherwise
+    LockErrorCleanup() during abort processing will try to update the
+    LOCALLOCK struct even after the lock has already been released. Put it
+    back.
+    
+    Reported-by: Richard Guo <guofenglinux@gmail.com>
+    Reported-by: Robins Tharakan <tharakan@gmail.com>
+    Reported-by: Alexander Lakhin <exclusion@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/CAMbWs4_dNX1SzBmvFdoY-LxJh_4W_BjtVd5i008ihfU-wFF=eg@mail.gmail.com
+    Discussion: https://www.postgresql.org/message-id/18832-38e5575b1bbd7277@postgresql.org
+    Discussion: https://www.postgresql.org/message-id/e11a30e5-c0d8-491d-8546-3a1b50c10ad4@gmail.com
+
+diff --git a/src/backend/storage/lmgr/lock.c b/src/backend/storage/lmgr/lock.c
+index 38a5d75bbe1..002303664aa 100644
+--- a/src/backend/storage/lmgr/lock.c
++++ b/src/backend/storage/lmgr/lock.c
+@@ -1894,10 +1894,19 @@ LOCALLOCK *
+ GetAwaitedLock(void)
+ {
+ 	return awaitedLock;
+ }
+ 
++/*
++ * ResetAwaitedLock -- Forget that we are waiting on a lock.
++ */
++void
++ResetAwaitedLock(void)
++{
++	awaitedLock = NULL;
++}
++
+ /*
+  * MarkLockClear -- mark an acquired lock as "clear"
+  *
+  * This means that we know we have absorbed all sinval messages that other
+  * sessions generated before we acquired this lock, and so we can confidently
+diff --git a/src/backend/storage/lmgr/proc.c b/src/backend/storage/lmgr/proc.c
+index e4ca861a8e6..066319afe2b 100644
+--- a/src/backend/storage/lmgr/proc.c
++++ b/src/backend/storage/lmgr/proc.c
+@@ -812,10 +812,12 @@ LockErrorCleanup(void)
+ 		 */
+ 		if (MyProc->waitStatus == PROC_WAIT_STATUS_OK)
+ 			GrantAwaitedLock();
+ 	}
+ 
++	ResetAwaitedLock();
++
+ 	LWLockRelease(partitionLock);
+ 
+ 	RESUME_INTERRUPTS();
+ }
+ 
+diff --git a/src/include/storage/lock.h b/src/include/storage/lock.h
+index ad4e40badbe..6f2108a44e8 100644
+--- a/src/include/storage/lock.h
++++ b/src/include/storage/lock.h
+@@ -586,10 +586,11 @@ extern bool LockCheckConflicts(LockMethod lockMethodTable,
+ 							   LOCKMODE lockmode,
+ 							   LOCK *lock, PROCLOCK *proclock);
+ extern void GrantLock(LOCK *lock, PROCLOCK *proclock, LOCKMODE lockmode);
+ extern void GrantAwaitedLock(void);
+ extern LOCALLOCK *GetAwaitedLock(void);
++extern void ResetAwaitedLock(void);
+ 
+ extern void RemoveFromWaitQueue(PGPROC *proc, uint32 hashcode);
+ extern LockData *GetLockStatusData(void);
+ extern BlockedProcsData *GetBlockerStatusData(int blocked_pid);
+ 

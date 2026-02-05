@@ -1,0 +1,209 @@
+commit 9d49837d7144e27ad8ea8918acb28f9872cb1585
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri Dec 29 23:54:40 2023 +0100
+
+    Follow-up fixes for "Make all Perl warnings fatal"
+    
+    Mostly, we need to check whether $ENV{PG_TEST_EXTRA} is set before
+    doing regular expression matches against it.
+
+diff --git a/src/interfaces/libpq/t/004_load_balance_dns.pl b/src/interfaces/libpq/t/004_load_balance_dns.pl
+index 81cf628ac7c..49f1f5f331d 100644
+--- a/src/interfaces/libpq/t/004_load_balance_dns.pl
++++ b/src/interfaces/libpq/t/004_load_balance_dns.pl
+@@ -4,11 +4,11 @@ use warnings FATAL => 'all';
+ use Config;
+ use PostgreSQL::Test::Utils;
+ use PostgreSQL::Test::Cluster;
+ use Test::More;
+ 
+-if ($ENV{PG_TEST_EXTRA} !~ /\bload_balance\b/)
++if (!$ENV{PG_TEST_EXTRA} || $ENV{PG_TEST_EXTRA} !~ /\bload_balance\b/)
+ {
+ 	plan skip_all =>
+ 	  'Potentially unsafe test load_balance not enabled in PG_TEST_EXTRA';
+ }
+ 
+diff --git a/src/test/kerberos/t/001_auth.pl b/src/test/kerberos/t/001_auth.pl
+index e9ceb712f5b..5c7f7543968 100644
+--- a/src/test/kerberos/t/001_auth.pl
++++ b/src/test/kerberos/t/001_auth.pl
+@@ -26,11 +26,11 @@ use Time::HiRes qw(usleep);
+ 
+ if ($ENV{with_gssapi} ne 'yes')
+ {
+ 	plan skip_all => 'GSSAPI/Kerberos not supported by this build';
+ }
+-elsif ($ENV{PG_TEST_EXTRA} !~ /\bkerberos\b/)
++elsif (!$ENV{PG_TEST_EXTRA} || $ENV{PG_TEST_EXTRA} !~ /\bkerberos\b/)
+ {
+ 	plan skip_all =>
+ 	  'Potentially unsafe test GSSAPI/Kerberos not enabled in PG_TEST_EXTRA';
+ }
+ 
+@@ -201,11 +201,11 @@ system_or_bail $kadmin_local, '-q', "ktadd -k $keytab $service_principal";
+ 
+ system_or_bail $krb5kdc, '-P', $kdc_pidfile;
+ 
+ END
+ {
+-	kill 'INT', `cat $kdc_pidfile` if -f $kdc_pidfile;
++	kill 'INT', `cat $kdc_pidfile` if defined($kdc_pidfile) && -f $kdc_pidfile;
+ }
+ 
+ note "setting up PostgreSQL instance";
+ 
+ my $node = PostgreSQL::Test::Cluster->new('node');
+diff --git a/src/test/ldap/t/001_auth.pl b/src/test/ldap/t/001_auth.pl
+index 5e569c4db96..2648ccf2215 100644
+--- a/src/test/ldap/t/001_auth.pl
++++ b/src/test/ldap/t/001_auth.pl
+@@ -16,11 +16,11 @@ use Test::More;
+ 
+ if ($ENV{with_ldap} ne 'yes')
+ {
+ 	plan skip_all => 'LDAP not supported by this build';
+ }
+-elsif ($ENV{PG_TEST_EXTRA} !~ /\bldap\b/)
++elsif (!$ENV{PG_TEST_EXTRA} || $ENV{PG_TEST_EXTRA} !~ /\bldap\b/)
+ {
+ 	plan skip_all =>
+ 	  'Potentially unsafe test LDAP not enabled in PG_TEST_EXTRA';
+ }
+ elsif (!$LdapServer::setup)
+diff --git a/src/test/ldap/t/002_bindpasswd.pl b/src/test/ldap/t/002_bindpasswd.pl
+index 204ed390590..47d59b01ab7 100644
+--- a/src/test/ldap/t/002_bindpasswd.pl
++++ b/src/test/ldap/t/002_bindpasswd.pl
+@@ -16,11 +16,11 @@ use Test::More;
+ 
+ if ($ENV{with_ldap} ne 'yes')
+ {
+ 	plan skip_all => 'LDAP not supported by this build';
+ }
+-elsif ($ENV{PG_TEST_EXTRA} !~ /\bldap\b/)
++elsif (!$ENV{PG_TEST_EXTRA} || $ENV{PG_TEST_EXTRA} !~ /\bldap\b/)
+ {
+ 	plan skip_all =>
+ 	  'Potentially unsafe test LDAP not enabled in PG_TEST_EXTRA';
+ }
+ elsif (!$LdapServer::setup)
+diff --git a/src/test/modules/ldap_password_func/t/001_mutated_bindpasswd.pl b/src/test/modules/ldap_password_func/t/001_mutated_bindpasswd.pl
+index b7ac65091ac..42c9aa8ae2f 100644
+--- a/src/test/modules/ldap_password_func/t/001_mutated_bindpasswd.pl
++++ b/src/test/modules/ldap_password_func/t/001_mutated_bindpasswd.pl
+@@ -18,11 +18,11 @@ $ldap_bin_dir = undef;    # usually in PATH
+ 
+ if ($ENV{with_ldap} ne 'yes')
+ {
+ 	plan skip_all => 'LDAP not supported by this build';
+ }
+-elsif ($ENV{PG_TEST_EXTRA} !~ /\bldap\b/)
++elsif (!$ENV{PG_TEST_EXTRA} || $ENV{PG_TEST_EXTRA} !~ /\bldap\b/)
+ {
+ 	plan skip_all =>
+ 	  'Potentially unsafe test LDAP not enabled in PG_TEST_EXTRA';
+ }
+ elsif (!$LdapServer::setup)
+diff --git a/src/test/modules/xid_wraparound/t/001_emergency_vacuum.pl b/src/test/modules/xid_wraparound/t/001_emergency_vacuum.pl
+index 4121154a53c..245f3e27d6b 100644
+--- a/src/test/modules/xid_wraparound/t/001_emergency_vacuum.pl
++++ b/src/test/modules/xid_wraparound/t/001_emergency_vacuum.pl
+@@ -5,11 +5,11 @@ use strict;
+ use warnings FATAL => 'all';
+ use PostgreSQL::Test::Cluster;
+ use PostgreSQL::Test::Utils;
+ use Test::More;
+ 
+-if ($ENV{PG_TEST_EXTRA} !~ /\bxid_wraparound\b/)
++if (!$ENV{PG_TEST_EXTRA} || $ENV{PG_TEST_EXTRA} !~ /\bxid_wraparound\b/)
+ {
+ 	plan skip_all => "test xid_wraparound not enabled in PG_TEST_EXTRA";
+ }
+ 
+ # Initialize node
+diff --git a/src/test/modules/xid_wraparound/t/002_limits.pl b/src/test/modules/xid_wraparound/t/002_limits.pl
+index 7750473bc58..d97917c25f4 100644
+--- a/src/test/modules/xid_wraparound/t/002_limits.pl
++++ b/src/test/modules/xid_wraparound/t/002_limits.pl
+@@ -12,11 +12,11 @@ use warnings FATAL => 'all';
+ use PostgreSQL::Test::Cluster;
+ use PostgreSQL::Test::Utils;
+ use Test::More;
+ use Time::HiRes qw(usleep);
+ 
+-if ($ENV{PG_TEST_EXTRA} !~ /\bxid_wraparound\b/)
++if (!$ENV{PG_TEST_EXTRA} || $ENV{PG_TEST_EXTRA} !~ /\bxid_wraparound\b/)
+ {
+ 	plan skip_all => "test xid_wraparound not enabled in PG_TEST_EXTRA";
+ }
+ 
+ my $ret;
+diff --git a/src/test/modules/xid_wraparound/t/003_wraparounds.pl b/src/test/modules/xid_wraparound/t/003_wraparounds.pl
+index 283d1532c2a..974cf90d304 100644
+--- a/src/test/modules/xid_wraparound/t/003_wraparounds.pl
++++ b/src/test/modules/xid_wraparound/t/003_wraparounds.pl
+@@ -8,11 +8,11 @@ use warnings FATAL => 'all';
+ use PostgreSQL::Test::Cluster;
+ use PostgreSQL::Test::Utils;
+ use Test::More;
+ use Time::HiRes qw(usleep);
+ 
+-if ($ENV{PG_TEST_EXTRA} !~ /\bxid_wraparound\b/)
++if (!$ENV{PG_TEST_EXTRA} || $ENV{PG_TEST_EXTRA} !~ /\bxid_wraparound\b/)
+ {
+ 	plan skip_all => "test xid_wraparound not enabled in PG_TEST_EXTRA";
+ }
+ 
+ # Initialize node
+diff --git a/src/test/ssl/t/001_ssltests.pl b/src/test/ssl/t/001_ssltests.pl
+index 4f2864da935..885f39cd8ad 100644
+--- a/src/test/ssl/t/001_ssltests.pl
++++ b/src/test/ssl/t/001_ssltests.pl
+@@ -15,11 +15,11 @@ use SSL::Server;
+ 
+ if ($ENV{with_ssl} ne 'openssl')
+ {
+ 	plan skip_all => 'OpenSSL not supported by this build';
+ }
+-elsif ($ENV{PG_TEST_EXTRA} !~ /\bssl\b/)
++elsif (!$ENV{PG_TEST_EXTRA} || $ENV{PG_TEST_EXTRA} !~ /\bssl\b/)
+ {
+ 	plan skip_all =>
+ 	  'Potentially unsafe test SSL not enabled in PG_TEST_EXTRA';
+ }
+ 
+diff --git a/src/test/ssl/t/002_scram.pl b/src/test/ssl/t/002_scram.pl
+index 807b211f984..ecd5c67c80c 100644
+--- a/src/test/ssl/t/002_scram.pl
++++ b/src/test/ssl/t/002_scram.pl
+@@ -18,11 +18,11 @@ use SSL::Server;
+ 
+ if ($ENV{with_ssl} ne 'openssl')
+ {
+ 	plan skip_all => 'OpenSSL not supported by this build';
+ }
+-elsif ($ENV{PG_TEST_EXTRA} !~ /\bssl\b/)
++elsif (!$ENV{PG_TEST_EXTRA} || $ENV{PG_TEST_EXTRA} !~ /\bssl\b/)
+ {
+ 	plan skip_all =>
+ 	  'Potentially unsafe test SSL not enabled in PG_TEST_EXTRA';
+ }
+ 
+diff --git a/src/test/ssl/t/003_sslinfo.pl b/src/test/ssl/t/003_sslinfo.pl
+index 866fe5ad2c4..5c7442aa2b8 100644
+--- a/src/test/ssl/t/003_sslinfo.pl
++++ b/src/test/ssl/t/003_sslinfo.pl
+@@ -16,11 +16,11 @@ use SSL::Server;
+ 
+ if ($ENV{with_ssl} ne 'openssl')
+ {
+ 	plan skip_all => 'OpenSSL not supported by this build';
+ }
+-elsif ($ENV{PG_TEST_EXTRA} !~ /\bssl\b/)
++elsif (!$ENV{PG_TEST_EXTRA} || $ENV{PG_TEST_EXTRA} !~ /\bssl\b/)
+ {
+ 	plan skip_all =>
+ 	  'Potentially unsafe test SSL not enabled in PG_TEST_EXTRA';
+ }
+ 

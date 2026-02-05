@@ -1,0 +1,82 @@
+commit 5e26aa641e8a4fbd0a56f79119b0d8f62dbd4ddc
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sat Feb 5 11:59:29 2022 -0500
+
+    Test, don't just Assert, that mergejoin's inputs are in order.
+    
+    There are two Asserts in nodeMergejoin.c that are reachable if
+    the input data is not in the expected order.  This seems way too
+    fragile.  Alexander Lakhin reported a case where the assertions
+    could be triggered with misconfigured foreign-table partitions,
+    and bitter experience with unstable operating system collation
+    definitions suggests another easy route to hitting them.  Neither
+    Assert is in a place where we can't afford one more test-and-branch,
+    so replace 'em with plain test-and-elog logic.
+    
+    Per bug #17395.  While the reported symptom is relatively recent,
+    collation changes could happen anytime, so back-patch to all
+    supported branches.
+    
+    Discussion: https://postgr.es/m/17395-8c326292078d1a57@postgresql.org
+
+diff --git a/src/backend/executor/nodeMergejoin.c b/src/backend/executor/nodeMergejoin.c
+index 6988a6c6429..a049bc4ae05 100644
+--- a/src/backend/executor/nodeMergejoin.c
++++ b/src/backend/executor/nodeMergejoin.c
+@@ -891,15 +891,14 @@ ExecMergeJoin(PlanState *pstate)
+ 						compareResult = MJCompare(node);
+ 						MJ_DEBUG_COMPARE(compareResult);
+ 
+ 						if (compareResult == 0)
+ 							node->mj_JoinState = EXEC_MJ_JOINTUPLES;
+-						else
+-						{
+-							Assert(compareResult < 0);
++						else if (compareResult < 0)
+ 							node->mj_JoinState = EXEC_MJ_NEXTOUTER;
+-						}
++						else	/* compareResult > 0 should not happen */
++							elog(ERROR, "mergejoin input data is out of order");
+ 						break;
+ 					case MJEVAL_NONMATCHABLE:
+ 
+ 						/*
+ 						 * It contains a NULL and hence can't match any outer
+@@ -1085,11 +1084,11 @@ ExecMergeJoin(PlanState *pstate)
+ 						/* we need not do MJEvalInnerValues again */
+ 					}
+ 
+ 					node->mj_JoinState = EXEC_MJ_JOINTUPLES;
+ 				}
+-				else
++				else if (compareResult > 0)
+ 				{
+ 					/* ----------------
+ 					 *	if the new outer tuple didn't match the marked inner
+ 					 *	tuple then we have a case like:
+ 					 *
+@@ -1104,11 +1103,10 @@ ExecMergeJoin(PlanState *pstate)
+ 					 *	revisit any of the marked tuples but can proceed to
+ 					 *	look for a match to the current inner.  If there's
+ 					 *	no more inners, no more matches are possible.
+ 					 * ----------------
+ 					 */
+-					Assert(compareResult > 0);
+ 					innerTupleSlot = node->mj_InnerTupleSlot;
+ 
+ 					/* reload comparison data for current inner */
+ 					switch (MJEvalInnerValues(node, innerTupleSlot))
+ 					{
+@@ -1138,10 +1136,12 @@ ExecMergeJoin(PlanState *pstate)
+ 							}
+ 							/* Otherwise we're done. */
+ 							return NULL;
+ 					}
+ 				}
++				else			/* compareResult < 0 should not happen */
++					elog(ERROR, "mergejoin input data is out of order");
+ 				break;
+ 
+ 				/*----------------------------------------------------------
+ 				 * EXEC_MJ_SKIP means compare tuples and if they do not
+ 				 * match, skip whichever is lesser.

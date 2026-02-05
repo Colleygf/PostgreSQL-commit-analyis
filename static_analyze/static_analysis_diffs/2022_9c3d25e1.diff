@@ -1,0 +1,81 @@
+commit 9c3d25e17894f35045a2d57dfb834e25c9dc4c21
+Author: Andrew Dunstan <andrew@dunslane.net>
+Date:   Thu Apr 28 15:28:20 2022 -0400
+
+    Fix JSON_OBJECTAGG uniquefying bug
+    
+    Commit f4fb45d15c contained a bug in removing items with null values when
+    unique keys are required, where the leading items that are sorted
+    contained such values. Fix that and add a test for it.
+    
+    Discussion: https://postgr.es/m/CAJA4AWQ_XbSmsNbW226UqNyRLJ+wb=iQkQMj77cQyoNkqtf=2Q@mail.gmail.com
+
+diff --git a/src/backend/utils/adt/jsonb_util.c b/src/backend/utils/adt/jsonb_util.c
+index aa151a53d61..21d874c098a 100644
+--- a/src/backend/utils/adt/jsonb_util.c
++++ b/src/backend/utils/adt/jsonb_util.c
+@@ -1957,12 +1957,22 @@ uniqueifyJsonbObject(JsonbValue *object, bool unique_keys, bool skip_nulls)
+ 				(errcode(ERRCODE_DUPLICATE_JSON_OBJECT_KEY_VALUE),
+ 				 errmsg("duplicate JSON object key value")));
+ 
+ 	if (hasNonUniq || skip_nulls)
+ 	{
+-		JsonbPair  *ptr = object->val.object.pairs + 1,
+-				   *res = object->val.object.pairs;
++		JsonbPair  *ptr, *res;
++
++		while (skip_nulls && object->val.object.nPairs > 0 &&
++			   object->val.object.pairs->value.type == jbvNull)
++		{
++			/* If skip_nulls is true, remove leading items with null */
++			object->val.object.pairs++;
++			object->val.object.nPairs--;
++		}
++
++		ptr = object->val.object.pairs + 1;
++		res = object->val.object.pairs;
+ 
+ 		while (ptr - object->val.object.pairs < object->val.object.nPairs)
+ 		{
+ 			/* Avoid copying over duplicate or null */
+ 			if (lengthCompareJsonbStringValue(ptr, res) != 0 &&
+diff --git a/src/test/regress/expected/sqljson.out b/src/test/regress/expected/sqljson.out
+index 97a72be970c..0883261535d 100644
+--- a/src/test/regress/expected/sqljson.out
++++ b/src/test/regress/expected/sqljson.out
+@@ -942,10 +942,17 @@ SELECT JSON_OBJECTAGG(k: v WITH UNIQUE KEYS RETURNING jsonb)
+ FROM (VALUES (1, 1), (1, NULL), (2, 2)) foo(k, v);
+ ERROR:  duplicate JSON object key value
+ SELECT JSON_OBJECTAGG(k: v ABSENT ON NULL WITH UNIQUE KEYS RETURNING jsonb)
+ FROM (VALUES (1, 1), (1, NULL), (2, 2)) foo(k, v);
+ ERROR:  duplicate JSON object key value
++SELECT JSON_OBJECTAGG(k: v ABSENT ON NULL WITH UNIQUE KEYS RETURNING jsonb)
++FROM (VALUES (1, 1), (0, NULL),(4, null), (5, null),(6, null),(2, 2)) foo(k, v);
++  json_objectagg  
++------------------
++ {"1": 1, "2": 2}
++(1 row)
++
+ -- Test JSON_OBJECT deparsing
+ EXPLAIN (VERBOSE, COSTS OFF)
+ SELECT JSON_OBJECT('foo' : '1' FORMAT JSON, 'bar' : 'baz' RETURNING json);
+                                   QUERY PLAN                                  
+ ------------------------------------------------------------------------------
+diff --git a/src/test/regress/sql/sqljson.sql b/src/test/regress/sql/sqljson.sql
+index b422ded9780..3db81a7ba86 100644
+--- a/src/test/regress/sql/sqljson.sql
++++ b/src/test/regress/sql/sqljson.sql
+@@ -279,10 +279,13 @@ SELECT JSON_OBJECTAGG(k: v WITH UNIQUE KEYS RETURNING jsonb)
+ FROM (VALUES (1, 1), (1, NULL), (2, 2)) foo(k, v);
+ 
+ SELECT JSON_OBJECTAGG(k: v ABSENT ON NULL WITH UNIQUE KEYS RETURNING jsonb)
+ FROM (VALUES (1, 1), (1, NULL), (2, 2)) foo(k, v);
+ 
++SELECT JSON_OBJECTAGG(k: v ABSENT ON NULL WITH UNIQUE KEYS RETURNING jsonb)
++FROM (VALUES (1, 1), (0, NULL),(4, null), (5, null),(6, null),(2, 2)) foo(k, v);
++
+ -- Test JSON_OBJECT deparsing
+ EXPLAIN (VERBOSE, COSTS OFF)
+ SELECT JSON_OBJECT('foo' : '1' FORMAT JSON, 'bar' : 'baz' RETURNING json);
+ 
+ CREATE VIEW json_object_view AS

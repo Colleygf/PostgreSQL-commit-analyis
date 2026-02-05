@@ -1,0 +1,108 @@
+commit b9e5249c29354186576d8fc00609fe7eaf7c8d25
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Fri Jul 26 14:55:04 2024 +0300
+
+    Fix using injection points at backend startup in EXEC_BACKEND mode
+    
+    Commit 86db52a506 changed the locking of injection points to use only
+    atomic ops and spinlocks, to make it possible to define injection
+    points in processes that don't have a PGPROC entry (yet). However, it
+    didn't work in EXEC_BACKEND mode, because the pointer to shared memory
+    area was not initialized until the process "attaches" to all the
+    shared memory structs. To fix, pass the pointer to the child process
+    along with other global variables that need to be set up early.
+    
+    Backpatch-through: 17
+
+diff --git a/src/backend/postmaster/launch_backend.c b/src/backend/postmaster/launch_backend.c
+index e9fc9827878..fafe5feecc2 100644
+--- a/src/backend/postmaster/launch_backend.c
++++ b/src/backend/postmaster/launch_backend.c
+@@ -61,10 +61,11 @@
+ #include "tcop/backend_startup.h"
+ #include "tcop/tcopprot.h"
+ #include "utils/builtins.h"
+ #include "utils/datetime.h"
+ #include "utils/guc.h"
++#include "utils/injection_point.h"
+ #include "utils/memutils.h"
+ #include "utils/timestamp.h"
+ 
+ #ifdef EXEC_BACKEND
+ #include "nodes/queryjumble.h"
+@@ -102,10 +103,13 @@ typedef struct
+ 	HANDLE		UsedShmemSegID;
+ #endif
+ 	void	   *UsedShmemSegAddr;
+ 	slock_t    *ShmemLock;
+ 	struct bkend *ShmemBackendArray;
++#ifdef USE_INJECTION_POINTS
++	struct InjectionPointsCtl *ActiveInjectionPoints;
++#endif
+ #ifndef HAVE_SPINLOCKS
+ 	PGSemaphore *SpinlockSemaArray;
+ #endif
+ 	int			NamedLWLockTrancheRequests;
+ 	NamedLWLockTranche *NamedLWLockTrancheArray;
+@@ -708,10 +712,14 @@ save_backend_variables(BackendParameters *param, ClientSocket *client_sock,
+ 	param->UsedShmemSegAddr = UsedShmemSegAddr;
+ 
+ 	param->ShmemLock = ShmemLock;
+ 	param->ShmemBackendArray = ShmemBackendArray;
+ 
++#ifdef USE_INJECTION_POINTS
++	param->ActiveInjectionPoints = ActiveInjectionPoints;
++#endif
++
+ #ifndef HAVE_SPINLOCKS
+ 	param->SpinlockSemaArray = SpinlockSemaArray;
+ #endif
+ 	param->NamedLWLockTrancheRequests = NamedLWLockTrancheRequests;
+ 	param->NamedLWLockTrancheArray = NamedLWLockTrancheArray;
+@@ -967,10 +975,14 @@ restore_backend_variables(BackendParameters *param)
+ 	UsedShmemSegAddr = param->UsedShmemSegAddr;
+ 
+ 	ShmemLock = param->ShmemLock;
+ 	ShmemBackendArray = param->ShmemBackendArray;
+ 
++#ifdef USE_INJECTION_POINTS
++	ActiveInjectionPoints = param->ActiveInjectionPoints;
++#endif
++
+ #ifndef HAVE_SPINLOCKS
+ 	SpinlockSemaArray = param->SpinlockSemaArray;
+ #endif
+ 	NamedLWLockTrancheRequests = param->NamedLWLockTrancheRequests;
+ 	NamedLWLockTrancheArray = param->NamedLWLockTrancheArray;
+diff --git a/src/backend/utils/misc/injection_point.c b/src/backend/utils/misc/injection_point.c
+index 8ad0c27bc8a..8ab5bc63276 100644
+--- a/src/backend/utils/misc/injection_point.c
++++ b/src/backend/utils/misc/injection_point.c
+@@ -83,11 +83,11 @@ typedef struct InjectionPointsCtl
+ {
+ 	pg_atomic_uint32 max_inuse;
+ 	InjectionPointEntry entries[MAX_INJECTION_POINTS];
+ } InjectionPointsCtl;
+ 
+-static InjectionPointsCtl *ActiveInjectionPoints;
++NON_EXEC_STATIC InjectionPointsCtl *ActiveInjectionPoints;
+ 
+ /*
+  * Backend local cache of injection callbacks already loaded, stored in
+  * TopMemoryContext.
+  */
+diff --git a/src/include/utils/injection_point.h b/src/include/utils/injection_point.h
+index a385e3df649..a5b4a1f0f9f 100644
+--- a/src/include/utils/injection_point.h
++++ b/src/include/utils/injection_point.h
+@@ -41,6 +41,10 @@ extern void InjectionPointAttach(const char *name,
+ extern void InjectionPointLoad(const char *name);
+ extern void InjectionPointRun(const char *name);
+ extern void InjectionPointCached(const char *name);
+ extern bool InjectionPointDetach(const char *name);
+ 
++#ifdef EXEC_BACKEND
++extern PGDLLIMPORT struct InjectionPointsCtl *ActiveInjectionPoints;
++#endif
++
+ #endif							/* INJECTION_POINT_H */

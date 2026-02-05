@@ -1,0 +1,131 @@
+commit e468ec0fddcd93e282da6685b75d5687c2a87f2a
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri Nov 15 08:42:59 2024 +0100
+
+    Add an assertion in get_object_address()
+    
+    Some places declared a Relation before calling get_object_address()
+    only to assert that the relation is NULL after the call.
+    
+    The new assertion allows passing NULL as the relation argument at
+    those places making the code cleaner and easier to understand.
+    
+    Author: Bertrand Drouvot <bertranddrouvot.pg@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/ZzG34eNrT83W/Orz@ip-10-97-1-34.eu-west-3.compute.internal
+
+diff --git a/src/backend/catalog/objectaddress.c b/src/backend/catalog/objectaddress.c
+index 85a7b7e641a..7520a982151 100644
+--- a/src/backend/catalog/objectaddress.c
++++ b/src/backend/catalog/objectaddress.c
+@@ -894,11 +894,12 @@ static void getRelationIdentity(StringInfo buffer, Oid relid, List **object,
+  * The returned object will be locked using the specified lockmode.  If a
+  * sub-object is looked up, the parent object will be locked instead.
+  *
+  * If the object is a relation or a child object of a relation (e.g. an
+  * attribute or constraint), the relation is also opened and *relp receives
+- * the open relcache entry pointer; otherwise, *relp is set to NULL.  This
++ * the open relcache entry pointer; otherwise, *relp is set to NULL.
++ * (relp can be NULL if the caller never passes a relation-related object.)  This
+  * is a bit grotty but it makes life simpler, since the caller will
+  * typically need the relcache entry too.  Caller must close the relcache
+  * entry when done with it.  The relation is locked with the specified lockmode
+  * if the target object is the relation itself or an attribute, but for other
+  * child objects, only AccessShareLock is acquired on the relation.
+@@ -1202,12 +1203,16 @@ get_object_address(ObjectType objtype, Node *object,
+ 		if (inval_count == SharedInvalidMessageCounter || relation != NULL)
+ 			break;
+ 		old_address = address;
+ 	}
+ 
++	/* relp must be given if it's a relation */
++	Assert(!relation || relp);
++
+ 	/* Return the object address and the relation. */
+-	*relp = relation;
++	if (relp)
++		*relp = relation;
+ 	return address;
+ }
+ 
+ /*
+  * Return an ObjectAddress based on a RangeVar and an object name. The
+diff --git a/src/backend/commands/alter.c b/src/backend/commands/alter.c
+index 4f99ebb4470..a45f3bb6b83 100644
+--- a/src/backend/commands/alter.c
++++ b/src/backend/commands/alter.c
+@@ -419,17 +419,15 @@ ExecRenameStmt(RenameStmt *stmt)
+ 		case OBJECT_PUBLICATION:
+ 		case OBJECT_SUBSCRIPTION:
+ 			{
+ 				ObjectAddress address;
+ 				Relation	catalog;
+-				Relation	relation;
+ 
+ 				address = get_object_address(stmt->renameType,
+ 											 stmt->object,
+-											 &relation,
++											 NULL,
+ 											 AccessExclusiveLock, false);
+-				Assert(relation == NULL);
+ 
+ 				catalog = table_open(address.classId, RowExclusiveLock);
+ 				AlterObjectRename_internal(catalog,
+ 										   address.objectId,
+ 										   stmt->newname);
+@@ -480,12 +478,11 @@ ExecAlterObjectDependsStmt(AlterObjectDependsStmt *stmt, ObjectAddress *refAddre
+ 	 */
+ 	if (rel)
+ 		table_close(rel, NoLock);
+ 
+ 	refAddr = get_object_address(OBJECT_EXTENSION, (Node *) stmt->extname,
+-								 &rel, AccessExclusiveLock, false);
+-	Assert(rel == NULL);
++								 NULL, AccessExclusiveLock, false);
+ 	if (refAddress)
+ 		*refAddress = refAddr;
+ 
+ 	if (stmt->remove)
+ 	{
+@@ -561,20 +558,18 @@ ExecAlterObjectSchemaStmt(AlterObjectSchemaStmt *stmt,
+ 		case OBJECT_TSDICTIONARY:
+ 		case OBJECT_TSPARSER:
+ 		case OBJECT_TSTEMPLATE:
+ 			{
+ 				Relation	catalog;
+-				Relation	relation;
+ 				Oid			classId;
+ 				Oid			nspOid;
+ 
+ 				address = get_object_address(stmt->objectType,
+ 											 stmt->object,
+-											 &relation,
++											 NULL,
+ 											 AccessExclusiveLock,
+ 											 false);
+-				Assert(relation == NULL);
+ 				classId = address.classId;
+ 				catalog = table_open(classId, RowExclusiveLock);
+ 				nspOid = LookupCreationNamespace(stmt->newschema);
+ 
+ 				oldNspOid = AlterObjectNamespace_internal(catalog, address.objectId,
+@@ -874,19 +869,17 @@ ExecAlterOwnerStmt(AlterOwnerStmt *stmt)
+ 		case OBJECT_STATISTIC_EXT:
+ 		case OBJECT_TABLESPACE:
+ 		case OBJECT_TSDICTIONARY:
+ 		case OBJECT_TSCONFIGURATION:
+ 			{
+-				Relation	relation;
+ 				ObjectAddress address;
+ 
+ 				address = get_object_address(stmt->objectType,
+ 											 stmt->object,
+-											 &relation,
++											 NULL,
+ 											 AccessExclusiveLock,
+ 											 false);
+-				Assert(relation == NULL);
+ 
+ 				AlterObjectOwner_internal(address.classId, address.objectId,
+ 										  newowner);
+ 
+ 				return address;

@@ -1,0 +1,80 @@
+commit bda97e47afaeaab6236f37993ce45bb369add3e5
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sat Jul 22 10:32:52 2023 -0400
+
+    Avoid compiler warning in non-assert builds.
+    
+    After 3c90dcd03, try_partitionwise_join's child_joinrelids
+    variable is read only in an Assert, provoking a compiler
+    warning in non-assert builds.  Rearrange code to avoid the
+    warning and eliminate unnecessary work in the non-assert case.
+    
+    Per CI testing (via Jeff Davis and Bharath Rupireddy)
+    
+    Discussion: https://postgr.es/m/ef0de9713e605451f1b60b30648c5ee900b2394c.camel@j-davis.com
+
+diff --git a/src/backend/optimizer/path/joinrels.c b/src/backend/optimizer/path/joinrels.c
+index a3f94be1d64..015a0b3cbe0 100644
+--- a/src/backend/optimizer/path/joinrels.c
++++ b/src/backend/optimizer/path/joinrels.c
+@@ -1541,11 +1541,10 @@ try_partitionwise_join(PlannerInfo *root, RelOptInfo *rel1, RelOptInfo *rel2,
+ 		bool		rel1_empty;
+ 		bool		rel2_empty;
+ 		SpecialJoinInfo *child_sjinfo;
+ 		List	   *child_restrictlist;
+ 		RelOptInfo *child_joinrel;
+-		Relids		child_joinrelids;
+ 		AppendRelInfo **appinfos;
+ 		int			nappinfos;
+ 
+ 		if (joinrel->partbounds_merged)
+ 		{
+@@ -1644,24 +1643,20 @@ try_partitionwise_join(PlannerInfo *root, RelOptInfo *rel1, RelOptInfo *rel2,
+ 		appinfos = find_appinfos_by_relids(root,
+ 										   bms_union(child_rel1->relids,
+ 													 child_rel2->relids),
+ 										   &nappinfos);
+ 
+-		/* Build correct join relids for child join */
+-		child_joinrelids = adjust_child_relids(joinrel->relids,
+-											   nappinfos, appinfos);
+-
+ 		/*
+ 		 * Construct restrictions applicable to the child join from those
+ 		 * applicable to the parent join.
+ 		 */
+ 		child_restrictlist =
+ 			(List *) adjust_appendrel_attrs(root,
+ 											(Node *) parent_restrictlist,
+ 											nappinfos, appinfos);
+-		pfree(appinfos);
+ 
++		/* Find or construct the child join's RelOptInfo */
+ 		child_joinrel = joinrel->part_rels[cnt_parts];
+ 		if (!child_joinrel)
+ 		{
+ 			child_joinrel = build_child_join_rel(root, child_rel1, child_rel2,
+ 												 joinrel, child_restrictlist,
+@@ -1670,15 +1665,21 @@ try_partitionwise_join(PlannerInfo *root, RelOptInfo *rel1, RelOptInfo *rel2,
+ 			joinrel->live_parts = bms_add_member(joinrel->live_parts, cnt_parts);
+ 			joinrel->all_partrels = bms_add_members(joinrel->all_partrels,
+ 													child_joinrel->relids);
+ 		}
+ 
+-		Assert(bms_equal(child_joinrel->relids, child_joinrelids));
++		/* Assert we got the right one */
++		Assert(bms_equal(child_joinrel->relids,
++						 adjust_child_relids(joinrel->relids,
++											 nappinfos, appinfos)));
+ 
++		/* And make paths for the child join */
+ 		populate_joinrel_with_paths(root, child_rel1, child_rel2,
+ 									child_joinrel, child_sjinfo,
+ 									child_restrictlist);
++
++		pfree(appinfos);
+ 	}
+ }
+ 
+ /*
+  * Construct the SpecialJoinInfo for a child-join by translating

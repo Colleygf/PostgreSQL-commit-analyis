@@ -1,0 +1,51 @@
+commit 06be01eb266bdb24efd931ad10ee6a1de26271b4
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Mon Oct 30 01:23:53 2023 +0300
+
+    Fix instable 006_login_trigger.pl test
+    
+    Handling of login trigger FATAL error could cause a timing-dependant panic of
+    IPC::Run.  This commit excludes checks which involves handling of such errors.
+    
+    Reported-by: Tom Lane
+    Discussion: https://postgr.es/m/2268825.1698618066%40sss.pgh.pa.us
+
+diff --git a/src/test/authentication/t/006_login_trigger.pl b/src/test/authentication/t/006_login_trigger.pl
+index 24beb0a0b2d..3f1a8a7c457 100644
+--- a/src/test/authentication/t/006_login_trigger.pl
++++ b/src/test/authentication/t/006_login_trigger.pl
+@@ -141,31 +141,20 @@ psql_command(
+ psql_command(
+ 	$node, 'SELECT COUNT(*) FROM user_logins;', 0, 'select count',
+ 	log_exact => '2',
+ 	err_like => [qr/You are welcome/]);
+ 
+-# Try to log as allowed Alice and disallowed Mallory (two times)
++# Try to login as allowed Alice.  We don't check the Mallroy login, because
++# FATAL error could cause a timing-dependant panic of IPC::Run.
+ psql_command(
+ 	$node, 'SELECT 1;', 0, 'try regress_alice',
+ 	connstr => 'user=regress_alice',
+ 	log_exact => '1',
+ 	err_like => [qr/You are welcome/],
+ 	err_unlike => [qr/You are NOT welcome/]);
+-psql_command(
+-	$node, 'SELECT 1;', 2, 'try regress_mallory',
+-	connstr => 'user=regress_mallory',
+-	log_exact => '',
+-	err_like => [qr/You are NOT welcome/],
+-	err_unlike => [qr/You are welcome/]);
+-psql_command(
+-	$node, 'SELECT 1;', 2, 'try regress_mallory',
+-	connstr => 'user=regress_mallory',
+-	log_exact => '',
+-	err_like => [qr/You are NOT welcome/],
+-	err_unlike => [qr/You are welcome/]);
+ 
+-# Check that Alice's login record is here, while the Mallory's one is not
++# Check that Alice's login record is here
+ psql_command(
+ 	$node, 'SELECT * FROM user_logins;', 0, 'select *',
+ 	log_like => [qr/3\|regress_alice/],
+ 	log_unlike => [qr/regress_mallory/],
+ 	err_like => [qr/You are welcome/]);

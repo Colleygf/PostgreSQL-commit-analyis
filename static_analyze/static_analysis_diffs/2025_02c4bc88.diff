@@ -1,0 +1,87 @@
+commit 02c4bc88302a750a2aed20e6f17885bda872d228
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu Sep 25 17:02:15 2025 -0400
+
+    Try to avoid floating-point roundoff error in pg_sleep().
+    
+    I noticed the surprising behavior that pg_sleep(0.001) will sleep
+    for 2ms not the expected 1ms.  Apparently the float8 calculation of
+    time-to-sleep is managing to produce something a hair over 1, which
+    ceil() rounds up to 2, and then WaitLatch() faithfully waits 2ms.
+    It could be that this works as-expected for some ranges of current
+    timestamp but not others, which would account for not having seen
+    it before.  In any case, let's try to avoid it by removing the
+    float arithmetic in the delay calculation.  We're stuck with the
+    declared input type being float8, but we can convert that to integer
+    microseconds right away, and then work strictly with integral values.
+    There might still be roundoff surprises for certain input values,
+    but at least the behavior won't be time-varying.
+    
+    Author: Tom Lane <tgl@sss.pgh.pa.us>
+    Reviewed-by: Robert Haas <robertmhaas@gmail.com>
+    Reviewed-by: Nathan Bossart <nathandbossart@gmail.com>
+    Discussion: https://postgr.es/m/3879137.1758825752@sss.pgh.pa.us
+
+diff --git a/src/backend/utils/adt/misc.c b/src/backend/utils/adt/misc.c
+index 6c5e3438447..2c5a7ee9ddc 100644
+--- a/src/backend/utils/adt/misc.c
++++ b/src/backend/utils/adt/misc.c
+@@ -367,11 +367,24 @@ pg_tablespace_location(PG_FUNCTION_ARGS)
+  */
+ Datum
+ pg_sleep(PG_FUNCTION_ARGS)
+ {
+ 	float8		secs = PG_GETARG_FLOAT8(0);
+-	float8		endtime;
++	int64		usecs;
++	TimestampTz endtime;
++
++	/*
++	 * Convert the delay to int64 microseconds, rounding up any fraction, and
++	 * silently limiting it to PG_INT64_MAX/2 microseconds (about 150K years)
++	 * to ensure the computation of endtime won't overflow.  Historically
++	 * we've treated NaN as "no wait", not an error, so keep that behavior.
++	 */
++	if (isnan(secs) || secs <= 0.0)
++		PG_RETURN_VOID();
++	secs *= USECS_PER_SEC;		/* we assume overflow will produce +Inf */
++	secs = ceil(secs);			/* round up any fractional microsecond */
++	usecs = (int64) Min(secs, (float8) (PG_INT64_MAX / 2));
+ 
+ 	/*
+ 	 * We sleep using WaitLatch, to ensure that we'll wake up promptly if an
+ 	 * important signal (such as SIGALRM or SIGINT) arrives.  Because
+ 	 * WaitLatch's upper limit of delay is INT_MAX milliseconds, and the user
+@@ -381,26 +394,24 @@ pg_sleep(PG_FUNCTION_ARGS)
+ 	 * By computing the intended stop time initially, we avoid accumulation of
+ 	 * extra delay across multiple sleeps.  This also ensures we won't delay
+ 	 * less than the specified time when WaitLatch is terminated early by a
+ 	 * non-query-canceling signal such as SIGHUP.
+ 	 */
+-#define GetNowFloat()	((float8) GetCurrentTimestamp() / 1000000.0)
+-
+-	endtime = GetNowFloat() + secs;
++	endtime = GetCurrentTimestamp() + usecs;
+ 
+ 	for (;;)
+ 	{
+-		float8		delay;
++		TimestampTz delay;
+ 		long		delay_ms;
+ 
+ 		CHECK_FOR_INTERRUPTS();
+ 
+-		delay = endtime - GetNowFloat();
+-		if (delay >= 600.0)
++		delay = endtime - GetCurrentTimestamp();
++		if (delay >= 600 * USECS_PER_SEC)
+ 			delay_ms = 600000;
+-		else if (delay > 0.0)
+-			delay_ms = (long) ceil(delay * 1000.0);
++		else if (delay > 0)
++			delay_ms = (long) ((delay + 999) / 1000);
+ 		else
+ 			break;
+ 
+ 		(void) WaitLatch(MyLatch,
+ 						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,

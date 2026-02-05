@@ -1,0 +1,69 @@
+commit 8285b484a47d829a29fbe0ebe65cdc9f9dfb179d
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Sun May 26 20:58:27 2024 +0900
+
+    Fix potential NULL pointer dereference in getIdentitySequence()
+    
+    The function invokes SearchSysCacheAttNum() and SearchSysCacheAttName().
+    They may respectively return 0 for the attribute number or NULL for
+    the attribute name if the attribute does not exist, without any kind of
+    error handling.  The common practice is to check that the data retrieved
+    from the syscache is valid.  There is no risk of NULL pointer
+    dereferences currently, but let's stick to the practice of making sure
+    that this data is always valid, to catch future inconsistency mistakes.
+    The code is switched to use get_attnum() and get_attname(), and adds
+    some error handling.
+    
+    Oversight in 509199587df7.
+    
+    Reported-by: Ranier Vilela
+    Author: Ashutosh Bapat
+    Discussion: https://postgr.es/m/CAEudQAqh_RZqoFcYKso5d9VhF-Vd64_ZodfQ_2zSusszkEmyRg@mail.gmail.com
+
+diff --git a/src/backend/catalog/pg_depend.c b/src/backend/catalog/pg_depend.c
+index 5366f7820c1..cfd7ef51dfa 100644
+--- a/src/backend/catalog/pg_depend.c
++++ b/src/backend/catalog/pg_depend.c
+@@ -943,35 +943,29 @@ getOwnedSequences(Oid relid)
+  * Get owned identity sequence, error if not exactly one.
+  */
+ Oid
+ getIdentitySequence(Relation rel, AttrNumber attnum, bool missing_ok)
+ {
+-	Oid			relid;
++	Oid			relid = RelationGetRelid(rel);
+ 	List	   *seqlist;
+ 
+ 	/*
+ 	 * The identity sequence is associated with the topmost partitioned table,
+ 	 * which might have column order different than the given partition.
+ 	 */
+ 	if (RelationGetForm(rel)->relispartition)
+ 	{
+-		List	   *ancestors =
+-			get_partition_ancestors(RelationGetRelid(rel));
+-		HeapTuple	ctup = SearchSysCacheAttNum(RelationGetRelid(rel), attnum);
+-		const char *attname = NameStr(((Form_pg_attribute) GETSTRUCT(ctup))->attname);
+-		HeapTuple	ptup;
++		List	   *ancestors = get_partition_ancestors(relid);
++		const char *attname = get_attname(relid, attnum, false);
+ 
+ 		relid = llast_oid(ancestors);
+-		ptup = SearchSysCacheAttName(relid, attname);
+-		attnum = ((Form_pg_attribute) GETSTRUCT(ptup))->attnum;
+-
+-		ReleaseSysCache(ctup);
+-		ReleaseSysCache(ptup);
++		attnum = get_attnum(relid, attname);
++		if (attnum == InvalidAttrNumber)
++			elog(ERROR, "cache lookup failed for attribute \"%s\" of relation %u",
++				 attname, relid);
+ 		list_free(ancestors);
+ 	}
+-	else
+-		relid = RelationGetRelid(rel);
+ 
+ 	seqlist = getOwnedSequences_internal(relid, attnum, DEPENDENCY_INTERNAL);
+ 	if (list_length(seqlist) > 1)
+ 		elog(ERROR, "more than one owned sequence found");
+ 	else if (seqlist == NIL)

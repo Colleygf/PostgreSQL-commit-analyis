@@ -1,0 +1,51 @@
+commit 945ec4c4bca1e1c4347cd3f93135e96770ac1b4c
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Sun May 26 07:14:12 2024 +0300
+
+    amcheck: Fixes for right page check during unique constraint check
+    
+     * Don't forget to pfree() the right page when it's to be ignored.
+     * Report error on unexpected non-leaf right page even if this page is not
+       to be ignored.  This restores the logic which was unintendedly changed
+       in 97e5b0026f.
+    
+    Reported-by: Pavel Borisov
+
+diff --git a/contrib/amcheck/verify_nbtree.c b/contrib/amcheck/verify_nbtree.c
+index 4347f9594c9..34990c5cea3 100644
+--- a/contrib/amcheck/verify_nbtree.c
++++ b/contrib/amcheck/verify_nbtree.c
+@@ -1899,21 +1899,23 @@ bt_target_page_check(BtreeCheckState *state)
+ 												  rightblock_number);
+ 					topaque = BTPageGetOpaque(rightpage);
+ 
+ 					if (P_IGNORE(topaque))
+ 					{
+-						if (unlikely(!P_ISLEAF(topaque)))
+-							ereport(ERROR,
+-									(errcode(ERRCODE_INDEX_CORRUPTED),
+-									 errmsg("right block of leaf block is non-leaf for index \"%s\"",
+-											RelationGetRelationName(state->rel)),
+-									 errdetail_internal("Block=%u page lsn=%X/%X.",
+-														state->targetblock,
+-														LSN_FORMAT_ARGS(state->targetlsn))));
+-						else
+-							break;
++						pfree(rightpage);
++						break;
+ 					}
++
++					if (unlikely(!P_ISLEAF(topaque)))
++						ereport(ERROR,
++								(errcode(ERRCODE_INDEX_CORRUPTED),
++								 errmsg("right block of leaf block is non-leaf for index \"%s\"",
++										RelationGetRelationName(state->rel)),
++								 errdetail_internal("Block=%u page lsn=%X/%X.",
++													state->targetblock,
++													LSN_FORMAT_ARGS(state->targetlsn))));
++
+ 					itemid = PageGetItemIdCareful(state, rightblock_number,
+ 												  rightpage,
+ 												  rightfirstoffset);
+ 					itup = (IndexTuple) PageGetItem(rightpage, itemid);
+ 

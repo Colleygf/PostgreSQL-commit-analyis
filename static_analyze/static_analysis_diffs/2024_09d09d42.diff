@@ -1,0 +1,77 @@
+commit 09d09d4297b9acbc2848ec35e8bf030d6c1fae18
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Wed Nov 27 13:50:27 2024 +0100
+
+    Fix pg_get_constraintdef for NOT NULL constraints on domains
+    
+    We added pg_constraint rows for all not-null constraints, first for
+    tables and later for domains; but while the ones for tables were
+    reverted, the ones for domains were not.  However, we did accidentally
+    revert ruleutils.c support for the ones on domains in 6f8bb7c1e961,
+    which breaks running pg_get_constraintdef() on them.  Put that back.
+    
+    This is only needed in branch 17, because we've reinstated this code in
+    branch master with commit 14e87ffa5c54.  Add some new tests in both
+    branches.
+    
+    I couldn't find anything else that needs de-reverting.
+    
+    Reported-by: Erki Eessaar <erki.eessaar@taltech.ee>
+    Reviewed-by: Magnus Hagander <magnus@hagander.net>
+    Discussion: https://postgr.es/m/AS8PR01MB75110350415AAB8BBABBA1ECFE222@AS8PR01MB7511.eurprd01.prod.exchangelabs.com
+
+diff --git a/src/test/regress/expected/domain.out b/src/test/regress/expected/domain.out
+index f65b66345ab..42b6559f9c8 100644
+--- a/src/test/regress/expected/domain.out
++++ b/src/test/regress/expected/domain.out
+@@ -741,10 +741,24 @@ update domnotnull set col2 = 6;
+ alter domain dnotnulltest set not null;
+ update domnotnull set col1 = null; -- fails
+ ERROR:  domain dnotnulltest does not allow null values
+ alter domain dnotnulltest drop not null;
+ update domnotnull set col1 = null;
++update domnotnull set col1 = 5;
++-- these constraints can also be added and removed by name
++alter domain dnotnulltest add constraint dnotnulltest_notnull not null;
++update domnotnull set col1 = null;		-- fails
++ERROR:  domain dnotnulltest does not allow null values
++select conname, pg_get_constraintdef(oid) from pg_constraint
++ where contypid = 'dnotnulltest'::regtype;
++       conname        | pg_get_constraintdef 
++----------------------+----------------------
++ dnotnulltest_notnull | NOT NULL
++(1 row)
++
++alter domain dnotnulltest drop constraint dnotnulltest_notnull;
++update domnotnull set col1 = null;
+ drop domain dnotnulltest cascade;
+ NOTICE:  drop cascades to 2 other objects
+ DETAIL:  drop cascades to column col2 of table domnotnull
+ drop cascades to column col1 of table domnotnull
+ -- Test ALTER DOMAIN .. DEFAULT ..
+diff --git a/src/test/regress/sql/domain.sql b/src/test/regress/sql/domain.sql
+index b5a70ee8be7..ee07b03174e 100644
+--- a/src/test/regress/sql/domain.sql
++++ b/src/test/regress/sql/domain.sql
+@@ -427,10 +427,21 @@ update domnotnull set col1 = null; -- fails
+ 
+ alter domain dnotnulltest drop not null;
+ 
+ update domnotnull set col1 = null;
+ 
++update domnotnull set col1 = 5;
++
++-- these constraints can also be added and removed by name
++alter domain dnotnulltest add constraint dnotnulltest_notnull not null;
++update domnotnull set col1 = null;		-- fails
++select conname, pg_get_constraintdef(oid) from pg_constraint
++ where contypid = 'dnotnulltest'::regtype;
++
++alter domain dnotnulltest drop constraint dnotnulltest_notnull;
++update domnotnull set col1 = null;
++
+ drop domain dnotnulltest cascade;
+ 
+ -- Test ALTER DOMAIN .. DEFAULT ..
+ create table domdeftest (col1 ddef1);
+ 

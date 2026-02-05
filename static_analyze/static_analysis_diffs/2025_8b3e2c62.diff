@@ -1,0 +1,128 @@
+commit 8b3e2c622a85208b94808c54d9b40b10b030d304
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri Nov 28 07:53:12 2025 +0100
+
+    Fix pg_isblank()
+    
+    There was a pg_isblank() function that claimed to be a replacement for
+    the standard isblank() function, which was thought to be "not very
+    portable yet".  We can now assume that it's portable (it's in C99).
+    
+    But pg_isblank() actually diverged from the standard isblank() by also
+    accepting '\r', while the standard one only accepts space and tab.
+    This was added to support parsing pg_hba.conf under Windows.  But the
+    hba parsing code now works completely differently and already handles
+    line endings before we get to pg_isblank().  The other user of
+    pg_isblank() is for ident protocol message parsing, which also handles
+    '\r' separately.  So this behavior is now obsolete and confusing.
+    
+    To improve clarity, I separated those concerns.  The ident parsing now
+    gets its own function that hardcodes the whitespace characters
+    mentioned by the relevant RFC.  pg_isblank() is now static in hba.c
+    and is a wrapper around the standard isblank(), with some extra logic
+    to ensure robust treatment of non-ASCII characters.
+    
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://www.postgresql.org/message-id/flat/170308e6-a7a3-4484-87b2-f960bb564afa%40eisentraut.org
+
+diff --git a/src/backend/libpq/auth.c b/src/backend/libpq/auth.c
+index ec4dbacf015..5854a2433bb 100644
+--- a/src/backend/libpq/auth.c
++++ b/src/backend/libpq/auth.c
+@@ -1578,10 +1578,19 @@ pg_SSPI_make_upn(char *accountname,
+ /*----------------------------------------------------------------
+  * Ident authentication system
+  *----------------------------------------------------------------
+  */
+ 
++/*
++ * Per RFC 1413, space and tab are whitespace in ident messages.
++ */
++static bool
++is_ident_whitespace(const char c)
++{
++	return c == ' ' || c == '\t';
++}
++
+ /*
+  *	Parse the string "*ident_response" as a response from a query to an Ident
+  *	server.  If it's a normal response indicating a user name, return true
+  *	and store the user name at *ident_user. If it's anything else,
+  *	return false.
+@@ -1611,18 +1620,18 @@ interpret_ident_response(const char *ident_response,
+ 			/* We're positioned to colon before response type field */
+ 			char		response_type[80];
+ 			int			i;		/* Index into *response_type */
+ 
+ 			cursor++;			/* Go over colon */
+-			while (pg_isblank(*cursor))
++			while (is_ident_whitespace(*cursor))
+ 				cursor++;		/* skip blanks */
+ 			i = 0;
+-			while (*cursor != ':' && *cursor != '\r' && !pg_isblank(*cursor) &&
++			while (*cursor != ':' && *cursor != '\r' && !is_ident_whitespace(*cursor) &&
+ 				   i < (int) (sizeof(response_type) - 1))
+ 				response_type[i++] = *cursor++;
+ 			response_type[i] = '\0';
+-			while (pg_isblank(*cursor))
++			while (is_ident_whitespace(*cursor))
+ 				cursor++;		/* skip blanks */
+ 			if (strcmp(response_type, "USERID") != 0)
+ 				return false;
+ 			else
+ 			{
+@@ -1641,11 +1650,11 @@ interpret_ident_response(const char *ident_response,
+ 					if (*cursor != ':')
+ 						return false;
+ 					else
+ 					{
+ 						cursor++;	/* Go over colon */
+-						while (pg_isblank(*cursor))
++						while (is_ident_whitespace(*cursor))
+ 							cursor++;	/* skip blanks */
+ 						/* Rest of line is user name.  Copy it over. */
+ 						i = 0;
+ 						while (*cursor != '\r' && i < IDENT_USERNAME_MAX)
+ 							ident_user[i++] = *cursor++;
+diff --git a/src/backend/libpq/hba.c b/src/backend/libpq/hba.c
+index 97a3586000b..6cb25399c26 100644
+--- a/src/backend/libpq/hba.c
++++ b/src/backend/libpq/hba.c
+@@ -136,18 +136,15 @@ static int	regcomp_auth_token(AuthToken *token, char *filename, int line_num,
+ static int	regexec_auth_token(const char *match, AuthToken *token,
+ 							   size_t nmatch, regmatch_t pmatch[]);
+ static void tokenize_error_callback(void *arg);
+ 
+ 
+-/*
+- * isblank() exists in the ISO C99 spec, but it's not very portable yet,
+- * so provide our own version.
+- */
+-bool
++static bool
+ pg_isblank(const char c)
+ {
+-	return c == ' ' || c == '\t' || c == '\r';
++	/* don't accept non-ASCII data */
++	return (!IS_HIGHBIT_SET(c) && isblank(c));
+ }
+ 
+ 
+ /*
+  * Grab one token out of the string pointed to by *lineptr.
+diff --git a/src/include/libpq/hba.h b/src/include/libpq/hba.h
+index e3748d3c8c9..7b93ba4a709 100644
+--- a/src/include/libpq/hba.h
++++ b/src/include/libpq/hba.h
+@@ -179,11 +179,10 @@ extern void hba_getauthmethod(Port *port);
+ extern int	check_usermap(const char *usermap_name,
+ 						  const char *pg_user, const char *system_user,
+ 						  bool case_insensitive);
+ extern HbaLine *parse_hba_line(TokenizedAuthLine *tok_line, int elevel);
+ extern IdentLine *parse_ident_line(TokenizedAuthLine *tok_line, int elevel);
+-extern bool pg_isblank(const char c);
+ extern FILE *open_auth_file(const char *filename, int elevel, int depth,
+ 							char **err_msg);
+ extern void free_auth_file(FILE *file, int depth);
+ extern void tokenize_auth_file(const char *filename, FILE *file,
+ 							   List **tok_lines, int elevel, int depth);

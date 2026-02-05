@@ -1,0 +1,105 @@
+commit 91cbb4b492cbea889e8392a85e246c1778ca2a45
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Mon Apr 1 13:47:27 2024 -0400
+
+    Fix assorted resource leaks in new pg_createsubscriber code.
+    
+    Various error paths did not release resources before returning.
+    While it's likely that the program would just exit shortly later,
+    none of the functions in question have summary exit(1) calls,
+    so they should not be assuming that.
+    
+    Ranier Vilela and Tom Lane, per reports from Coverity
+    
+    Discussion: https://postgr.es/m/CAEudQAr2_SZFxB4kXJiL4+2UaNZxUk5UBJtj0oXyJYMGZu-03g@mail.gmail.com
+
+diff --git a/src/bin/pg_basebackup/pg_createsubscriber.c b/src/bin/pg_basebackup/pg_createsubscriber.c
+index a6e09866705..90cc580811d 100644
+--- a/src/bin/pg_basebackup/pg_createsubscriber.c
++++ b/src/bin/pg_basebackup/pg_createsubscriber.c
+@@ -249,24 +249,26 @@ usage(void)
+  * dbname.
+  */
+ static char *
+ get_base_conninfo(const char *conninfo, char **dbname)
+ {
+-	PQExpBuffer buf = createPQExpBuffer();
+-	PQconninfoOption *conn_opts = NULL;
++	PQExpBuffer buf;
++	PQconninfoOption *conn_opts;
+ 	PQconninfoOption *conn_opt;
+ 	char	   *errmsg = NULL;
+ 	char	   *ret;
+ 	int			i;
+ 
+ 	conn_opts = PQconninfoParse(conninfo, &errmsg);
+ 	if (conn_opts == NULL)
+ 	{
+ 		pg_log_error("could not parse connection string: %s", errmsg);
++		PQfreemem(errmsg);
+ 		return NULL;
+ 	}
+ 
++	buf = createPQExpBuffer();
+ 	i = 0;
+ 	for (conn_opt = conn_opts; conn_opt->keyword != NULL; conn_opt++)
+ 	{
+ 		if (strcmp(conn_opt->keyword, "dbname") == 0 && conn_opt->val != NULL)
+ 		{
+@@ -495,25 +497,28 @@ connect_database(const char *conninfo, bool exit_on_error)
+ 	conn = PQconnectdb(conninfo);
+ 	if (PQstatus(conn) != CONNECTION_OK)
+ 	{
+ 		pg_log_error("connection to database failed: %s",
+ 					 PQerrorMessage(conn));
++		PQfinish(conn);
++
+ 		if (exit_on_error)
+ 			exit(1);
+-
+ 		return NULL;
+ 	}
+ 
+ 	/* Secure search_path */
+ 	res = PQexec(conn, ALWAYS_SECURE_SEARCH_PATH_SQL);
+ 	if (PQresultStatus(res) != PGRES_TUPLES_OK)
+ 	{
+ 		pg_log_error("could not clear search_path: %s",
+ 					 PQresultErrorMessage(res));
++		PQclear(res);
++		PQfinish(conn);
++
+ 		if (exit_on_error)
+ 			exit(1);
+-
+ 		return NULL;
+ 	}
+ 	PQclear(res);
+ 
+ 	return conn;
+@@ -939,10 +944,12 @@ check_publisher(const struct LogicalRepInfo *dbinfo)
+ 		pg_log_error_hint("Consider increasing max_wal_senders to at least %d.",
+ 						  cur_walsenders + num_dbs);
+ 		failed = true;
+ 	}
+ 
++	pg_free(wal_level);
++
+ 	if (failed)
+ 		exit(1);
+ }
+ 
+ /*
+@@ -1207,10 +1214,12 @@ create_logical_replication_slot(PGconn *conn, struct LogicalRepInfo *dbinfo)
+ 		if (PQresultStatus(res) != PGRES_TUPLES_OK)
+ 		{
+ 			pg_log_error("could not create replication slot \"%s\" on database \"%s\": %s",
+ 						 slot_name, dbinfo->dbname,
+ 						 PQresultErrorMessage(res));
++			PQclear(res);
++			destroyPQExpBuffer(str);
+ 			return NULL;
+ 		}
+ 
+ 		lsn = pg_strdup(PQgetvalue(res, 0, 0));
+ 		PQclear(res);

@@ -1,0 +1,100 @@
+commit fe093994db4dc5dcc239f8839b094c0b75de00cf
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Mon Jan 15 17:45:16 2024 +0200
+
+    Fix 'negative bitmapset member' error
+    
+    When removing a useless join, we'd remove PHVs that are not used at join
+    partner rels or above the join.  A PHV that references the join's relid
+    in ph_eval_at is logically "above" the join and thus should not be
+    removed.  We have the following check for that:
+    
+        !bms_is_member(ojrelid, phinfo->ph_eval_at)
+    
+    However, in the case of SJE removing a useless inner join, 'ojrelid' is
+    set to -1, which would trigger the "negative bitmapset member not
+    allowed" error in bms_is_member().
+    
+    Fix it by skipping examining ojrelid for inner joins in this check.
+    
+    Reported-by: Zuming Jiang
+    Bug: #18260
+    Discussion: https://postgr.es/m/18260-1b6a0c4ae311b837%40postgresql.org
+    Author: Richard Guo
+    Reviewed-by: Andrei Lepikhov
+
+diff --git a/src/backend/optimizer/plan/analyzejoins.c b/src/backend/optimizer/plan/analyzejoins.c
+index 8a2ccbb6047..7dcb74572ad 100644
+--- a/src/backend/optimizer/plan/analyzejoins.c
++++ b/src/backend/optimizer/plan/analyzejoins.c
+@@ -454,11 +454,11 @@ remove_rel_from_query(PlannerInfo *root, RelOptInfo *rel,
+ 		PlaceHolderInfo *phinfo = (PlaceHolderInfo *) lfirst(l);
+ 
+ 		Assert(sjinfo == NULL || !bms_is_member(relid, phinfo->ph_lateral));
+ 		if (bms_is_subset(phinfo->ph_needed, joinrelids) &&
+ 			bms_is_member(relid, phinfo->ph_eval_at) &&
+-			!bms_is_member(ojrelid, phinfo->ph_eval_at))
++			(sjinfo == NULL || !bms_is_member(ojrelid, phinfo->ph_eval_at)))
+ 		{
+ 			root->placeholder_list = foreach_delete_current(root->placeholder_list,
+ 															l);
+ 			root->placeholder_array[phinfo->phid] = NULL;
+ 		}
+diff --git a/src/test/regress/expected/join.out b/src/test/regress/expected/join.out
+index e0418a3ae75..a2fad81d7af 100644
+--- a/src/test/regress/expected/join.out
++++ b/src/test/regress/expected/join.out
+@@ -6819,10 +6819,30 @@ on true;
+                ->  Materialize
+                      ->  Seq Scan on emp1 t4
+                            Filter: (id IS NOT NULL)
+ (8 rows)
+ 
++-- Check that SJE removes the whole PHVs correctly
++explain (verbose, costs off)
++select 1 from emp1 t1 left join
++    ((select 1 as x, * from emp1 t2) s1 inner join
++        (select * from emp1 t3) s2 on s1.id = s2.id)
++    on true
++where s1.x = 1;
++                       QUERY PLAN                        
++---------------------------------------------------------
++ Nested Loop
++   Output: 1
++   ->  Seq Scan on public.emp1 t1
++         Output: t1.id, t1.code
++   ->  Materialize
++         Output: t3.id
++         ->  Seq Scan on public.emp1 t3
++               Output: t3.id
++               Filter: ((t3.id IS NOT NULL) AND (1 = 1))
++(9 rows)
++
+ -- Check that PHVs do not impose any constraints on removing self joins
+ explain (verbose, costs off)
+ select * from emp1 t1 join emp1 t2 on t1.id = t2.id left join
+     lateral (select t1.id as t1id, * from generate_series(1,1) t3) s on true;
+                         QUERY PLAN                        
+diff --git a/src/test/regress/sql/join.sql b/src/test/regress/sql/join.sql
+index e272ff5c14c..e1db2025db6 100644
+--- a/src/test/regress/sql/join.sql
++++ b/src/test/regress/sql/join.sql
+@@ -2598,10 +2598,18 @@ select * from emp1 t1 left join
+     (select coalesce(t3.code, 1) from emp1 t2
+         left join (emp1 t3 join emp1 t4 on t3.id = t4.id)
+         on true)
+ on true;
+ 
++-- Check that SJE removes the whole PHVs correctly
++explain (verbose, costs off)
++select 1 from emp1 t1 left join
++    ((select 1 as x, * from emp1 t2) s1 inner join
++        (select * from emp1 t3) s2 on s1.id = s2.id)
++    on true
++where s1.x = 1;
++
+ -- Check that PHVs do not impose any constraints on removing self joins
+ explain (verbose, costs off)
+ select * from emp1 t1 join emp1 t2 on t1.id = t2.id left join
+     lateral (select t1.id as t1id, * from generate_series(1,1) t3) s on true;
+ 

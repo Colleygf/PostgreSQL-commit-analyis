@@ -1,0 +1,111 @@
+commit afb529e6772b4e2b065644a2204697eeaf6c9a96
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Mon Apr 4 10:36:23 2022 -0400
+
+    pg_basebackup: Fix code that thinks about LZ4 buffer size.
+    
+    Before this patch, there was some code that tried to make sure that the
+    buffer was always big enough at the start, and then asserted that it
+    didn't need to be enlarged later. However, the code to make sure it was
+    big enough at the start doesn't actually work, and therefore it was
+    possible to fail an assertion and crash later.
+    
+    Remove the code that tries to make sure the buffer is always big enough
+    at the start in favor of enlarging the buffer as we go along whenever
+    that is necessary.
+    
+    The mistake probably happened because, on the server side, we do
+    actually need to guarantee that the buffer is big enough at the start
+    to avoid subsequent resizings. However, in that case, the calling
+    code makes promises about how much data it will provide at once, but
+    here, that's not the case.
+    
+    Report by Justin Pryzby. Analysis by me. Patch by Dipesh Pandit.
+    
+    Discussion: http://postgr.es/m/20220330143536.GG28503@telsasoft.com
+
+diff --git a/src/bin/pg_basebackup/bbstreamer_lz4.c b/src/bin/pg_basebackup/bbstreamer_lz4.c
+index 67f841d96a9..2ffe2241b41 100644
+--- a/src/bin/pg_basebackup/bbstreamer_lz4.c
++++ b/src/bin/pg_basebackup/bbstreamer_lz4.c
+@@ -71,11 +71,10 @@ bbstreamer_lz4_compressor_new(bbstreamer *next, bc_specification *compress)
+ {
+ #ifdef USE_LZ4
+ 	bbstreamer_lz4_frame   *streamer;
+ 	LZ4F_errorCode_t		ctxError;
+ 	LZ4F_preferences_t	   *prefs;
+-	size_t					compressed_bound;
+ 
+ 	Assert(next != NULL);
+ 
+ 	streamer = palloc0(sizeof(bbstreamer_lz4_frame));
+ 	*((const bbstreamer_ops **) &streamer->base.bbs_ops) =
+@@ -90,21 +89,10 @@ bbstreamer_lz4_compressor_new(bbstreamer *next, bc_specification *compress)
+ 	memset(prefs, 0, sizeof(LZ4F_preferences_t));
+ 	prefs->frameInfo.blockSizeID = LZ4F_max256KB;
+ 	if ((compress->options & BACKUP_COMPRESSION_OPTION_LEVEL) != 0)
+ 		prefs->compressionLevel = compress->level;
+ 
+-	/*
+-	 * Find out the compression bound, it specifies the minimum destination
+-	 * capacity required in worst case for the success of compression operation
+-	 * (LZ4F_compressUpdate) based on a given source size and preferences.
+-	 */
+-	compressed_bound = LZ4F_compressBound(streamer->base.bbs_buffer.maxlen, prefs);
+-
+-	/* Enlarge buffer if it falls short of compression bound. */
+-	if (streamer->base.bbs_buffer.maxlen < compressed_bound)
+-		enlargeStringInfo(&streamer->base.bbs_buffer, compressed_bound);
+-
+ 	ctxError = LZ4F_createCompressionContext(&streamer->cctx, LZ4F_VERSION);
+ 	if (LZ4F_isError(ctxError))
+ 			pg_log_error("could not create lz4 compression context: %s",
+ 						 LZ4F_getErrorName(ctxError));
+ 
+@@ -168,18 +156,21 @@ bbstreamer_lz4_compressor_content(bbstreamer *streamer,
+ 	 * Find out the compression bound and make sure that output buffer has the
+ 	 * required capacity for the success of LZ4F_compressUpdate. If needed
+ 	 * forward the content to next streamer and empty the buffer.
+ 	 */
+ 	out_bound = LZ4F_compressBound(len, &mystreamer->prefs);
+-	Assert(mystreamer->base.bbs_buffer.maxlen >= out_bound);
+ 	if (avail_out < out_bound)
+ 	{
+ 			bbstreamer_content(mystreamer->base.bbs_next, member,
+ 							   mystreamer->base.bbs_buffer.data,
+ 							   mystreamer->bytes_written,
+ 							   context);
+ 
++			/* Enlarge buffer if it falls short of out bound. */
++			if (mystreamer->base.bbs_buffer.maxlen < out_bound)
++				enlargeStringInfo(&mystreamer->base.bbs_buffer, out_bound);
++
+ 			avail_out = mystreamer->base.bbs_buffer.maxlen;
+ 			mystreamer->bytes_written = 0;
+ 			next_out = (uint8 *) mystreamer->base.bbs_buffer.data;
+ 	}
+ 
+@@ -216,19 +207,22 @@ bbstreamer_lz4_compressor_finalize(bbstreamer *streamer)
+ 
+ 	mystreamer = (bbstreamer_lz4_frame *) streamer;
+ 
+ 	/* Find out the footer bound and update the output buffer. */
+ 	footer_bound = LZ4F_compressBound(0, &mystreamer->prefs);
+-	Assert(mystreamer->base.bbs_buffer.maxlen >= footer_bound);
+ 	if ((mystreamer->base.bbs_buffer.maxlen - mystreamer->bytes_written) <
+ 		footer_bound)
+ 	{
+ 			bbstreamer_content(mystreamer->base.bbs_next, NULL,
+ 							   mystreamer->base.bbs_buffer.data,
+ 							   mystreamer->bytes_written,
+ 							   BBSTREAMER_UNKNOWN);
+ 
++			/* Enlarge buffer if it falls short of footer bound. */
++			if (mystreamer->base.bbs_buffer.maxlen < footer_bound)
++				enlargeStringInfo(&mystreamer->base.bbs_buffer, footer_bound);
++
+ 			avail_out = mystreamer->base.bbs_buffer.maxlen;
+ 			mystreamer->bytes_written = 0;
+ 			next_out = (uint8 *) mystreamer->base.bbs_buffer.data;
+ 	}
+ 	else

@@ -1,0 +1,71 @@
+commit dc26ff2f228174efed9bf285ee8f8065ea295799
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Tue Aug 27 16:15:28 2024 +0200
+
+    Fix misplaced translator comments
+    
+    They did not immediately precede the code they were applying to.
+
+diff --git a/src/backend/replication/logical/slotsync.c b/src/backend/replication/logical/slotsync.c
+index 2d1914ce085..76de017635f 100644
+--- a/src/backend/replication/logical/slotsync.c
++++ b/src/backend/replication/logical/slotsync.c
+@@ -1019,15 +1019,12 @@ CheckAndGetDbnameFromConninfo(void)
+ 	 * work.
+ 	 */
+ 	dbname = walrcv_get_dbname_from_conninfo(PrimaryConnInfo);
+ 	if (dbname == NULL)
+ 		ereport(ERROR,
+-
+-		/*
+-		 * translator: dbname is a specific option; %s is a GUC variable name
+-		 */
+ 				errcode(ERRCODE_INVALID_PARAMETER_VALUE),
++		/* translator: dbname is a specific option; %s is a GUC variable name */
+ 				errmsg("slot synchronization requires dbname to be specified in %s",
+ 					   "primary_conninfo"));
+ 	return dbname;
+ }
+ 
+@@ -1056,12 +1053,12 @@ ValidateSlotSyncParams(int elevel)
+ 	 * be invalidated.
+ 	 */
+ 	if (PrimarySlotName == NULL || *PrimarySlotName == '\0')
+ 	{
+ 		ereport(elevel,
+-		/* translator: %s is a GUC variable name */
+ 				errcode(ERRCODE_INVALID_PARAMETER_VALUE),
++		/* translator: %s is a GUC variable name */
+ 				errmsg("slot synchronization requires %s to be defined", "primary_slot_name"));
+ 		return false;
+ 	}
+ 
+ 	/*
+@@ -1070,12 +1067,12 @@ ValidateSlotSyncParams(int elevel)
+ 	 * catalog_xmin values on the standby.
+ 	 */
+ 	if (!hot_standby_feedback)
+ 	{
+ 		ereport(elevel,
+-		/* translator: %s is a GUC variable name */
+ 				errcode(ERRCODE_INVALID_PARAMETER_VALUE),
++		/* translator: %s is a GUC variable name */
+ 				errmsg("slot synchronization requires %s to be enabled",
+ 					   "hot_standby_feedback"));
+ 		return false;
+ 	}
+ 
+@@ -1084,12 +1081,12 @@ ValidateSlotSyncParams(int elevel)
+ 	 * getting slots information.
+ 	 */
+ 	if (PrimaryConnInfo == NULL || *PrimaryConnInfo == '\0')
+ 	{
+ 		ereport(elevel,
+-		/* translator: %s is a GUC variable name */
+ 				errcode(ERRCODE_INVALID_PARAMETER_VALUE),
++		/* translator: %s is a GUC variable name */
+ 				errmsg("slot synchronization requires %s to be defined",
+ 					   "primary_conninfo"));
+ 		return false;
+ 	}
+ 

@@ -1,0 +1,90 @@
+commit ac8be0cb957811d04d7564f4d710ceb3e5f2fb9f
+Author: David Rowley <drowley@postgresql.org>
+Date:   Thu Apr 14 09:16:05 2022 +1200
+
+    Docs: fix some spelling mistakes and also do some wordsmithing
+    
+    All except one of these are new to v15.  Only one of the wordsmithing
+    changes appears in older versions. The wordsmithing improvement does not
+    seem significant enough to warrant backpatching.
+    
+    Author: Justin Pryzby
+    Discussion: https://postgr.es/m/20220411020336.GB26620@telsasoft.com
+
+diff --git a/doc/src/sgml/charset.sgml b/doc/src/sgml/charset.sgml
+index d60d3207fd4..b95303fb893 100644
+--- a/doc/src/sgml/charset.sgml
++++ b/doc/src/sgml/charset.sgml
+@@ -312,11 +312,11 @@ initdb --locale=sv_SE
+     <listitem>
+      <para>
+       A locale can be selected separately for each database.  The SQL command
+       <command>CREATE DATABASE</command> and its command-line equivalent
+       <command>createdb</command> have options for that.  Use this for example
+-      if a database cluster houses databases for multiple tennants with
++      if a database cluster houses databases for multiple tenants with
+       different requirements.
+      </para>
+     </listitem>
+ 
+     <listitem>
+@@ -344,11 +344,11 @@ initdb --locale=sv_SE
+    <para>
+     <productname>PostgreSQL</productname> supports multiple <firstterm>locale
+     providers</firstterm>.  This specifies which library supplies the locale
+     data.  One standard provider name is <literal>libc</literal>, which uses
+     the locales provided by the operating system C library.  These are the
+-    locales that most tools provided by the operating system use.  Another
++    locales used by most tools provided by the operating system.  Another
+     provider is <literal>icu</literal>, which uses the external
+     ICU<indexterm><primary>ICU</primary></indexterm> library.  ICU locales can
+     only be used if support for ICU was configured when PostgreSQL was built.
+    </para>
+ 
+@@ -359,12 +359,12 @@ initdb --locale=sv_SE
+     default.  Here is an example to initialize a database cluster using the
+     ICU provider:
+ <programlisting>
+ initdb --locale-provider=icu --icu-locale=en
+ </programlisting>
+-    See the description of the respective commands and programs for the
+-    respective details.  Note that you can mix locale providers on different
++    See the description of the respective commands and programs for
++    details.  Note that you can mix locale providers at different
+     granularities, for example use <literal>libc</literal> by default for the
+     cluster but have one database that uses the <literal>icu</literal>
+     provider, and then have collation objects using either provider within
+     those databases.
+    </para>
+@@ -608,12 +608,12 @@ SELECT * FROM test1 ORDER BY a || b COLLATE "fr_FR";
+     A collation is an SQL schema object that maps an SQL name to locales
+     provided by libraries installed in the operating system.  A collation
+     definition has a <firstterm>provider</firstterm> that specifies which
+     library supplies the locale data.  One standard provider name
+     is <literal>libc</literal>, which uses the locales provided by the
+-    operating system C library.  These are the locales that most tools
+-    provided by the operating system use.  Another provider
++    operating system C library.  These are the locales used by most tools
++    provided by the operating system.  Another provider
+     is <literal>icu</literal>, which uses the external
+     ICU<indexterm><primary>ICU</primary></indexterm> library.  ICU locales can only be
+     used if support for ICU was configured when PostgreSQL was built.
+    </para>
+ 
+diff --git a/doc/src/sgml/ref/initdb.sgml b/doc/src/sgml/ref/initdb.sgml
+index f5d633b0afa..c9ffaaecfb9 100644
+--- a/doc/src/sgml/ref/initdb.sgml
++++ b/doc/src/sgml/ref/initdb.sgml
+@@ -106,11 +106,11 @@ PostgreSQL documentation
+ 
+   <para>
+    Alternatively, the ICU library can be used to provide locale services.
+    (Again, this only sets the default for subsequently created databases.)  To
+    select this option, specify <literal>--locale-provider=icu</literal>.
+-   To chose the specific ICU locale ID to apply, use the option
++   To choose the specific ICU locale ID to apply, use the option
+    <option>--icu-locale</option>.  Note that
+    for implementation reasons and to support legacy code,
+    <command>initdb</command> will still select and initialize libc locale
+    settings when the ICU locale provider is used.
+   </para>

@@ -1,0 +1,39 @@
+commit 3a661580685964dd2ca192306a202934f268fc5c
+Author: David Rowley <drowley@postgresql.org>
+Date:   Wed Oct 1 18:50:28 2025 +1300
+
+    Minor fixups of test_bitmapset.c
+    
+    The macro's comment had become outdated from a prior version and there's
+    now no longer a need for the do/while loop (or my misplaced semi-colon).
+    
+    Author: David Rowley <dgrowleyml@gmail.com>
+    Discussion: https://postgr.es/m/CAApHDvr+P454SP_LDvB=bViPAbDQhV1Jmg5M55GEKz0d3z25NA@mail.gmail.com
+
+diff --git a/src/test/modules/test_bitmapset/test_bitmapset.c b/src/test/modules/test_bitmapset/test_bitmapset.c
+index 6cf8a257187..0d6c2e7aa1b 100644
+--- a/src/test/modules/test_bitmapset/test_bitmapset.c
++++ b/src/test/modules/test_bitmapset/test_bitmapset.c
+@@ -93,19 +93,15 @@ PG_FUNCTION_INFO_V1(test_random_operations);
+  */
+ #define PG_ARG_GETBITMAPSET(n) \
+ 	(PG_ARGISNULL(n) ? NULL : TEXT_TO_BITMAPSET(PG_GETARG_TEXT_PP(n)))
+ 
+ /*
+- * Helper macro to handle converting sets back to text, freeing the set and
+- * returning the resulting text representation of the set.  Beware of double
+- * evaluation hazard of 'bms'.
++ * Helper macro to handle converting sets back to text, returning the
++ * resulting text representation of the set.
+  */
+ #define PG_RETURN_BITMAPSET_AS_TEXT(bms) \
+-	do { \
+-		text	   *result = BITMAPSET_TO_TEXT(bms); \
+-		PG_RETURN_TEXT_P(result); \
+-	} while (0);
++	PG_RETURN_TEXT_P(BITMAPSET_TO_TEXT(bms))
+ 
+ /*
+  * Individual test functions for each bitmapset API function
+  *
+  * Primarily, we aim to keep these as close to simple wrapper functions as

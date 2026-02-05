@@ -1,0 +1,57 @@
+commit 61f352ece9e7eb89c7154da178d0c3bc69fc72c9
+Author: Jeff Davis <jdavis@postgresql.org>
+Date:   Mon Mar 18 09:15:47 2024 -0700
+
+    Fix unreachable code warning from commit 2d819a08a1.
+    
+    Found by Coverity.
+    
+    Discussion: https://postgr.es/m/3422201.1710711993@sss.pgh.pa.us
+    Reported-by: Tom Lane
+
+diff --git a/src/backend/utils/adt/pg_locale.c b/src/backend/utils/adt/pg_locale.c
+index 39390fbe4eb..364716bcec8 100644
+--- a/src/backend/utils/adt/pg_locale.c
++++ b/src/backend/utils/adt/pg_locale.c
+@@ -2499,32 +2499,27 @@ pg_strnxfrm_prefix(char *dest, size_t destsize, const char *src,
+ 		PGLOCALE_SUPPORT_ERROR(locale->provider);
+ 
+ 	return result;
+ }
+ 
++/*
++ * Validate the locale and encoding combination, and return the canonical form
++ * of the locale name.
++ *
++ * The only supported locale for the builtin provider is "C", and it's
++ * available for any encoding.
++ */
+ const char *
+ builtin_validate_locale(int encoding, const char *locale)
+ {
+-	const char *canonical_name = NULL;
+-	int			required_encoding = -1;
+-
+-	if (strcmp(locale, "C") == 0)
+-		canonical_name = "C";
+-
+-	if (!canonical_name)
++	if (strcmp(locale, "C") != 0)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+ 				 errmsg("invalid locale name \"%s\" for builtin provider",
+ 						locale)));
+ 
+-	if (required_encoding >= 0 && encoding != required_encoding)
+-		ereport(ERROR,
+-				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+-				 errmsg("encoding \"%s\" does not match locale \"%s\"",
+-						pg_encoding_to_char(encoding), locale)));
+-
+-	return canonical_name;
++	return "C";
+ }
+ 
+ 
+ #ifdef USE_ICU
+ 

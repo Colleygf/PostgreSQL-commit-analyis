@@ -1,0 +1,53 @@
+commit 686db12de3a01222de6bce56f40f4fb9259f7b37
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Thu Jan 18 08:46:42 2024 +0100
+
+    Fix an issue in PostgreSQL::Test::Cluster:psql()
+    
+    Due to the commit c5385929 which made all Perl warnings to fatal, use
+    of PostgreSQL::Test::Cluster:psql() and safe_psql() with timeout
+    started to fail with the following error:
+    
+    Use of uninitialized value $ret in bitwise and (&) at
+    ..src/test/perl/PostgreSQL/Test/Cluster.pm line 2015.
+    
+    Fix that by placing $ret conversion code in psql() in an if (defined
+    $ret) block.
+    
+    With this change, the behavior of psql() becomes same as before, that
+    is, the whole function returns undef on timeout, which is usefully
+    different from returning 0.
+    
+    Author: Bharath Rupireddy <bharath.rupireddyforpostgres@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/06f899fd-1826-05ab-42d6-adeb1fd5e200%40eisentraut.org
+
+diff --git a/src/test/perl/PostgreSQL/Test/Cluster.pm b/src/test/perl/PostgreSQL/Test/Cluster.pm
+index 406c405015b..e2e70d0dbf9 100644
+--- a/src/test/perl/PostgreSQL/Test/Cluster.pm
++++ b/src/test/perl/PostgreSQL/Test/Cluster.pm
+@@ -2010,16 +2010,19 @@ sub psql
+ 
+ 	# See http://perldoc.perl.org/perlvar.html#%24CHILD_ERROR
+ 	# We don't use IPC::Run::Simple to limit dependencies.
+ 	#
+ 	# We always die on signal.
+-	my $core = $ret & 128 ? " (core dumped)" : "";
+-	die "psql exited with signal "
+-	  . ($ret & 127)
+-	  . "$core: '$$stderr' while running '@psql_params'"
+-	  if $ret & 127;
+-	$ret = $ret >> 8;
++	if (defined $ret)
++	{
++		my $core = $ret & 128 ? " (core dumped)" : "";
++		die "psql exited with signal "
++		  . ($ret & 127)
++		  . "$core: '$$stderr' while running '@psql_params'"
++		  if $ret & 127;
++		$ret = $ret >> 8;
++	}
+ 
+ 	if ($ret && $params{on_error_die})
+ 	{
+ 		die "psql error: stderr: '$$stderr'\nwhile running '@psql_params'"
+ 		  if $ret == 1;

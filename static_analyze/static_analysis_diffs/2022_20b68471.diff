@@ -1,0 +1,82 @@
+commit 20b6847176976da9cae6103475b967e6c2971898
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Tue Sep 6 18:00:32 2022 -0400
+
+    Fix new pg_publication_tables query.
+    
+    The addition of published column names forgot to filter on attisdropped,
+    leading to cases where you could see "........pg.dropped.1........"
+    or the like as a reportedly-published column.
+    
+    While we're here, rewrite the new subquery to get a more efficient plan
+    for it.
+    
+    Hou Zhijie, per report from Jaime Casanova.  Back-patch to v15 where
+    the bug was introduced.  (Sadly, this means we need a post-beta4
+    catversion bump before beta4 has even hit the streets.  I see no
+    good alternative though.)
+    
+    Discussion: https://postgr.es/m/Yxa1SU4nH2HfN3/i@ahch-to
+
+diff --git a/src/backend/catalog/system_views.sql b/src/backend/catalog/system_views.sql
+index 5a844b63a1c..55f7ec79e05 100644
+--- a/src/backend/catalog/system_views.sql
++++ b/src/backend/catalog/system_views.sql
+@@ -368,15 +368,14 @@ CREATE VIEW pg_publication_tables AS
+     SELECT
+         P.pubname AS pubname,
+         N.nspname AS schemaname,
+         C.relname AS tablename,
+         ( SELECT array_agg(a.attname ORDER BY a.attnum)
+-          FROM unnest(CASE WHEN GPT.attrs IS NOT NULL THEN GPT.attrs
+-                      ELSE (SELECT array_agg(g) FROM generate_series(1, C.relnatts) g)
+-                      END) k
+-               JOIN pg_attribute a
+-                    ON (a.attrelid = GPT.relid AND a.attnum = k)
++          FROM pg_attribute a
++          WHERE a.attrelid = GPT.relid AND a.attnum > 0 AND
++                NOT a.attisdropped AND
++                (a.attnum = ANY(GPT.attrs) OR GPT.attrs IS NULL)
+         ) AS attnames,
+         pg_get_expr(GPT.qual, GPT.relid) AS rowfilter
+     FROM pg_publication P,
+          LATERAL pg_get_publication_tables(P.pubname) GPT,
+          pg_class C JOIN pg_namespace N ON (N.oid = C.relnamespace)
+diff --git a/src/include/catalog/catversion.h b/src/include/catalog/catversion.h
+index 78d25036b35..c6a82d679b1 100644
+--- a/src/include/catalog/catversion.h
++++ b/src/include/catalog/catversion.h
+@@ -55,8 +55,8 @@
+  * on that day.  (Hopefully we'll never commit ten independent sets of
+  * catalog changes on the same day...)
+  */
+ 
+ /*							yyyymmddN */
+-#define CATALOG_VERSION_NO	202209011
++#define CATALOG_VERSION_NO	202209062
+ 
+ #endif
+diff --git a/src/test/regress/expected/rules.out b/src/test/regress/expected/rules.out
+index 7ec3d2688f0..9dd137415e8 100644
+--- a/src/test/regress/expected/rules.out
++++ b/src/test/regress/expected/rules.out
+@@ -1438,17 +1438,12 @@ pg_prepared_xacts| SELECT p.transaction,
+      LEFT JOIN pg_database d ON ((p.dbid = d.oid)));
+ pg_publication_tables| SELECT p.pubname,
+     n.nspname AS schemaname,
+     c.relname AS tablename,
+     ( SELECT array_agg(a.attname ORDER BY a.attnum) AS array_agg
+-           FROM (unnest(
+-                CASE
+-                    WHEN (gpt.attrs IS NOT NULL) THEN (gpt.attrs)::integer[]
+-                    ELSE ( SELECT array_agg(g.g) AS array_agg
+-                       FROM generate_series(1, (c.relnatts)::integer) g(g))
+-                END) k(k)
+-             JOIN pg_attribute a ON (((a.attrelid = gpt.relid) AND (a.attnum = k.k))))) AS attnames,
++           FROM pg_attribute a
++          WHERE ((a.attrelid = gpt.relid) AND (a.attnum > 0) AND (NOT a.attisdropped) AND ((a.attnum = ANY ((gpt.attrs)::smallint[])) OR (gpt.attrs IS NULL)))) AS attnames,
+     pg_get_expr(gpt.qual, gpt.relid) AS rowfilter
+    FROM pg_publication p,
+     LATERAL pg_get_publication_tables((p.pubname)::text) gpt(relid, attrs, qual),
+     (pg_class c
+      JOIN pg_namespace n ON ((n.oid = c.relnamespace)))

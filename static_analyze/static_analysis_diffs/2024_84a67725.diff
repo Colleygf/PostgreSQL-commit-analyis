@@ -1,0 +1,50 @@
+commit 84a67725cd11ffbd5c0e142b067ae90dc3e57270
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Tue Dec 3 14:32:45 2024 +0100
+
+    Fix handling of CREATE DOMAIN with GENERATED constraint syntax
+    
+    Stuff like
+    
+        CREATE DOMAIN foo AS int CONSTRAINT cc GENERATED ALWAYS AS (2) STORED
+    
+    is not supported for domains, but the parser allows it, because it's
+    the same syntax as for table constraints.  But CreateDomain() did not
+    explicitly handle all ConstrType values, so the above would get an
+    internal error like
+    
+        ERROR:  unrecognized constraint subtype: 4
+    
+    Fix that by providing a user-facing error message for all ConstrType
+    values.  Also, remove the switch default case, so future additions to
+    ConstrType are caught.
+    
+    Reported-by: Jian He <jian.universality@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/CACJufxF8fmM=Dbm4pDFuV_nKGz2-No0k4YifhrF3-rjXTWJM3w@mail.gmail.com
+
+diff --git a/src/backend/commands/typecmds.c b/src/backend/commands/typecmds.c
+index 971a8a1ebc5..da591c0922b 100644
+--- a/src/backend/commands/typecmds.c
++++ b/src/backend/commands/typecmds.c
+@@ -1009,14 +1009,18 @@ DefineDomain(CreateDomainStmt *stmt)
+ 				ereport(ERROR,
+ 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+ 						 errmsg("specifying constraint deferrability not supported for domains")));
+ 				break;
+ 
+-			default:
+-				elog(ERROR, "unrecognized constraint subtype: %d",
+-					 (int) constr->contype);
++			case CONSTR_GENERATED:
++			case CONSTR_IDENTITY:
++				ereport(ERROR,
++						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
++						 errmsg("specifying GENERATED not supported for domains")));
+ 				break;
++
++				/* no default, to let compiler warn about missing case */
+ 		}
+ 	}
+ 
+ 	/* Allocate OID for array type */
+ 	domainArrayOid = AssignTypeArrayOid();

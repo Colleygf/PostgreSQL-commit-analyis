@@ -1,0 +1,66 @@
+commit c6a43c25a8ba1a825588f7af25a7173f2e66ce8d
+Author: John Naylor <john.naylor@postgresql.org>
+Date:   Mon Aug 29 17:25:59 2022 +0700
+
+    Fix broken cast on MSVC
+    
+    Per buildfarm animal drongo, casting a vector type to the same type
+    causes a compile error. We still need the cast on ARM64, so invent a
+    wrapper function that does the casting only where necessary.
+    
+    Discussion: https://www.postgresql.org/message-id/CAFBsxsEouaTwbmpqV%2BEW2%3DwFbhw2vHRe26NQTRcd0%3DNaOFDy7A%40mail.gmail.com
+
+diff --git a/src/include/port/pg_lfind.h b/src/include/port/pg_lfind.h
+index d575e733d34..0625cac6b59 100644
+--- a/src/include/port/pg_lfind.h
++++ b/src/include/port/pg_lfind.h
+@@ -149,11 +149,11 @@ pg_lfind32(uint32 key, uint32 *base, uint32 nelem)
+ 		tmp1 = vector32_or(result1, result2);
+ 		tmp2 = vector32_or(result3, result4);
+ 		result = vector32_or(tmp1, tmp2);
+ 
+ 		/* see if there was a match */
+-		if (vector8_is_highbit_set((Vector8) result))
++		if (vector32_is_highbit_set(result))
+ 		{
+ 			Assert(assert_result == true);
+ 			return true;
+ 		}
+ 	}
+diff --git a/src/include/port/simd.h b/src/include/port/simd.h
+index b538ac070f7..0ff1549083a 100644
+--- a/src/include/port/simd.h
++++ b/src/include/port/simd.h
+@@ -272,10 +272,32 @@ vector8_is_highbit_set(const Vector8 v)
+ #else
+ 	return v & vector8_broadcast(0x80);
+ #endif
+ }
+ 
++/*
++ * Exactly like vector32_is_highbit_set except for the input type, so it
++ * looks at each byte separately.
++ *
++ * XXX x86 uses the same underlying type for 8-bit, 16-bit, and 32-bit
++ * integer elements, but Arm does not, hence the need for a separate
++ * function. We could instead adopt the behavior of Arm's vmaxvq_u32(), i.e.
++ * check each 32-bit element, but that would require an additional mask
++ * operation on x86.
++ */
++#ifndef USE_NO_SIMD
++static inline bool
++vector32_is_highbit_set(const Vector32 v)
++{
++#if defined(USE_NEON)
++	return vector8_is_highbit_set((Vector8) v);
++#else
++	return vector8_is_highbit_set(v);
++#endif
++}
++#endif							/* ! USE_NO_SIMD */
++
+ /*
+  * Return the bitwise OR of the inputs
+  */
+ static inline Vector8
+ vector8_or(const Vector8 v1, const Vector8 v2)

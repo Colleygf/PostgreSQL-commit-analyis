@@ -1,0 +1,65 @@
+commit 4b652692e97923298d0c7b9c1c303fc648984d92
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri Oct 18 11:28:54 2024 +0200
+
+    Fix memory leaks from incorrect strsep() uses
+    
+    Commit 5d2e1cc117b introduced some strsep() uses, but it did the
+    memory management wrong in some cases.  We need to keep a separate
+    pointer to the allocate memory so that we can free it later, because
+    strsep() advances the pointer we pass to it, and it at the end it
+    will be NULL, so any free() calls won't do anything.
+    
+    (This fixes two of the four places changed in commit 5d2e1cc117b.  The
+    other two don't have this problem.)
+    
+    Reported-by: Alexander Lakhin <exclusion@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/79692bf9-17d3-41e6-b9c9-fc8c3944222a@eisentraut.org
+
+diff --git a/src/common/logging.c b/src/common/logging.c
+index aedd1ae2d8c..3cf119090a5 100644
+--- a/src/common/logging.c
++++ b/src/common/logging.c
+@@ -118,12 +118,13 @@ pg_logging_init(const char *argv0)
+ 			char	   *colors = strdup(pg_colors_env);
+ 
+ 			if (colors)
+ 			{
+ 				char	   *token;
++				char	   *cp = colors;
+ 
+-				while ((token = strsep(&colors, ":")))
++				while ((token = strsep(&cp, ":")))
+ 				{
+ 					char	   *e = strchr(token, '=');
+ 
+ 					if (e)
+ 					{
+diff --git a/src/test/regress/pg_regress.c b/src/test/regress/pg_regress.c
+index 5157629b1cc..6c188954b14 100644
+--- a/src/test/regress/pg_regress.c
++++ b/src/test/regress/pg_regress.c
+@@ -231,18 +231,21 @@ free_stringlist(_stringlist **listhead)
+  * Split a delimited string into a stringlist
+  */
+ static void
+ split_to_stringlist(const char *s, const char *delim, _stringlist **listhead)
+ {
+-	char	   *sc = pg_strdup(s);
+ 	char	   *token;
++	char	   *sc;
++	char	   *tofree;
++
++	tofree = sc = pg_strdup(s);
+ 
+ 	while ((token = strsep(&sc, delim)))
+ 	{
+ 		add_stringlist_item(listhead, token);
+ 	}
+-	free(sc);
++	free(tofree);
+ }
+ 
+ /*
+  * Bailing out is for unrecoverable errors which prevents further testing to
+  * occur and after which the test run should be aborted. By passing noatexit

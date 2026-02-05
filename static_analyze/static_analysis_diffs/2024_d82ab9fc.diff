@@ -1,0 +1,75 @@
+commit d82ab9fc31aa62d94c26d7df98e65c6ceaadb01f
+Author: Bruce Momjian <bruce@momjian.us>
+Date:   Thu May 9 11:43:03 2024 -0400
+
+    doc PG 17 relnotes:  Fixes from jian he
+    
+    Backpatch-through: master
+
+diff --git a/doc/src/sgml/release-17.sgml b/doc/src/sgml/release-17.sgml
+index 916069dd981..54b27c47538 100644
+--- a/doc/src/sgml/release-17.sgml
++++ b/doc/src/sgml/release-17.sgml
+@@ -749,11 +749,11 @@ Author: Nathan Bossart <nathan@postgresql.org>
+ <para>
+ Add per-table GRANT permission MAINTAIN to control maintenance operations (Nathan Bossart)
+ </para>
+ 
+ <para>
+-The operations are VACUUM, ANALYZE, REINDEX, REFRESH MATERIALIZE VIEW, CLUSTER, and LOCK TABLE.
++The operations are VACUUM, ANALYZE, REINDEX, REFRESH MATERIALIZED VIEW, CLUSTER, and LOCK TABLE.
+ </para>
+ </listitem>
+ 
+ <!--
+ Author: Nathan Bossart <nathan@postgresql.org>
+@@ -764,22 +764,22 @@ Author: Nathan Bossart <nathan@postgresql.org>
+ <para>
+ Add user-grantable role pg_maintain to control maintenance operations (Nathan Bossart)
+ </para>
+ 
+ <para>
+-The operations are VACUUM, ANALYZE, REINDEX, REFRESH MATERIALIZE VIEW, CLUSTER, and LOCK TABLE.
++The operations are VACUUM, ANALYZE, REINDEX, REFRESH MATERIALIZED VIEW, CLUSTER, and LOCK TABLE.
+ </para>
+ </listitem>
+ 
+ <!--
+ Author: Nathan Bossart <nathan@postgresql.org>
+ 2024-02-14 [8d8afd48d] Allow pg_monitor to execute pg_current_logfile().
+ -->
+ 
+ <listitem>
+ <para>
+-Allow roles with pg_monitor privileges to execute pg_current_logfile() (Pavlo Golub, Nathan Bossart)
++Allow roles with pg_monitor membership to execute pg_current_logfile() (Pavlo Golub, Nathan Bossart)
+ </para>
+ </listitem>
+ 
+      </itemizedlist>
+ 
+@@ -1736,22 +1736,22 @@ Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+ 2023-11-06 [526fe0d79] Add XMLText function (SQL/XML X038)
+ -->
+ 
+ <listitem>
+ <para>
+-Add function XMLText() to convert text to a single XML text node (Jim Jones)
++Add function xmltext() to convert text to a single XML text node (Jim Jones)
+ </para>
+ </listitem>
+ 
+ <!--
+ Author: Tom Lane <tgl@sss.pgh.pa.us>
+ 2024-03-20 [1218ca995] Add to_regtypemod function to extract typemod from a str
+ -->
+ 
+ <listitem>
+ <para>
+-Add function to_regtypemod() to return the typemod of a string (David Wheeler, Erik Wienhold)
++Add function to_regtypemod() to return the type modifier of a type specification (David Wheeler, Erik Wienhold)
+ </para>
+ </listitem>
+ 
+ <!--
+ Author: Tom Lane <tgl@sss.pgh.pa.us>

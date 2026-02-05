@@ -1,0 +1,88 @@
+commit e557c82759a3362d8fb618c798ca99ee90be96c5
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu Oct 23 14:23:26 2025 -0400
+
+    Avoid memory leak in validation of a PL/Python trigger function.
+    
+    If we're trying to perform check_function_bodies validation
+    of a PL/Python trigger function, we create a new PLyProcedure,
+    but we don't put it into the PLy_procedure_cache hash table.
+    (Doing so would be useless, since we don't have the relation
+    OID that is part of the cache key for a trigger function, so
+    we could not make an entry that would be found by later uses.)
+    However, we didn't think through what to do instead, with the
+    result that the PLyProcedure was simply leaked.
+    
+    It would take a pretty large number of CREATE FUNCTION operations
+    for this to amount to a serious problem, but it's easy to see the
+    memory bloat if you do CREATE OR REPLACE FUNCTION in a loop.
+    
+    To fix, have PLy_procedure_get delete the new PLyProcedure
+    and return NULL if it's not going to cache the PLyProcedure.
+    I considered making plpython3_validator do the cleanup instead,
+    which would be more natural.  But then plpython3_validator would
+    have to know the rules under which PLy_procedure_get returns a
+    non-cached PLyProcedure, else it risks deleting something that's
+    pointed to by a cache entry.  On the whole it seems more robust
+    to deal with the case inside PLy_procedure_get.
+    
+    Found by the new version of Coverity (nice catch!).  In the end
+    I feel this fix is more about satisfying Coverity than about
+    fixing a real-world problem, so I'm not going to back-patch.
+
+diff --git a/src/pl/plpython/plpy_main.c b/src/pl/plpython/plpy_main.c
+index 8ae02a239ae..7673b5eca7b 100644
+--- a/src/pl/plpython/plpy_main.c
++++ b/src/pl/plpython/plpy_main.c
+@@ -131,11 +131,11 @@ plpython3_validator(PG_FUNCTION_ARGS)
+ 	is_trigger = PLy_procedure_is_trigger(procStruct);
+ 
+ 	ReleaseSysCache(tuple);
+ 
+ 	/* We can't validate triggers against any particular table ... */
+-	PLy_procedure_get(funcoid, InvalidOid, is_trigger);
++	(void) PLy_procedure_get(funcoid, InvalidOid, is_trigger);
+ 
+ 	PG_RETURN_VOID();
+ }
+ 
+ Datum
+diff --git a/src/pl/plpython/plpy_procedure.c b/src/pl/plpython/plpy_procedure.c
+index 22d9ef0fe06..655ab1d09ee 100644
+--- a/src/pl/plpython/plpy_procedure.c
++++ b/src/pl/plpython/plpy_procedure.c
+@@ -58,11 +58,16 @@ PLy_procedure_name(PLyProcedure *proc)
+  * fn_rel is InvalidOid or the relation this function triggers on
+  * is_trigger denotes whether the function is a trigger function
+  *
+  * The reason that both fn_rel and is_trigger need to be passed is that when
+  * trigger functions get validated we don't know which relation(s) they'll
+- * be used with, so no sensible fn_rel can be passed.
++ * be used with, so no sensible fn_rel can be passed.  Also, in that case
++ * we can't make a cache entry because we can't construct the right cache key.
++ * To forestall leakage of the PLyProcedure in such cases, delete it after
++ * construction and return NULL.  That's okay because the only caller that
++ * would pass that set of values is plpython3_validator, which ignores our
++ * result anyway.
+  */
+ PLyProcedure *
+ PLy_procedure_get(Oid fn_oid, Oid fn_rel, PLyTrigType is_trigger)
+ {
+ 	bool		use_cache;
+@@ -100,10 +105,16 @@ PLy_procedure_get(Oid fn_oid, Oid fn_rel, PLyTrigType is_trigger)
+ 		{
+ 			/* Haven't found it, create a new procedure */
+ 			proc = PLy_procedure_create(procTup, fn_oid, is_trigger);
+ 			if (use_cache)
+ 				entry->proc = proc;
++			else
++			{
++				/* Delete the proc, otherwise it's a memory leak */
++				PLy_procedure_delete(proc);
++				proc = NULL;
++			}
+ 		}
+ 		else if (!PLy_procedure_valid(proc, procTup))
+ 		{
+ 			/* Found it, but it's invalid, free and reuse the cache entry */
+ 			entry->proc = NULL;

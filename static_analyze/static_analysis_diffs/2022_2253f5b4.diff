@@ -1,0 +1,111 @@
+commit 2253f5b49748ff7b48ccc67260c84cbca99db688
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Mon Jun 20 14:33:41 2022 +0200
+
+    Fix file references inside some SGML comments
+    
+    In some cases, the comments mentioning their own file or another file
+    were not correct.
+    
+    Author: Josh Soref <jsoref@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/CACZqfqCyhE-voJUrUkc3GQuDakfJKx1ViiCdY7B8tQwyL6727g%40mail.gmail.com
+
+diff --git a/doc/src/sgml/appendix-obsolete-default-roles.sgml b/doc/src/sgml/appendix-obsolete-default-roles.sgml
+index bf828b39ab4..f5133f95760 100644
+--- a/doc/src/sgml/appendix-obsolete-default-roles.sgml
++++ b/doc/src/sgml/appendix-obsolete-default-roles.sgml
+@@ -1,8 +1,8 @@
+-<!-- doc/src/sgml/obsolete-default-roles.sgml -->
++<!-- doc/src/sgml/appendix-obsolete-default-roles.sgml -->
+ <!--
+-  See doc/src/sgml/obsolete.sgml for why this file exists. Do not change the id attribute.
++  See doc/src/sgml/appendix-obsolete.sgml for why this file exists. Do not change the id attribute.
+ -->
+ 
+ <sect1 id="default-roles" xreflabel="default-roles">
+   <title>Default Roles Renamed to Predefined Roles</title>
+ 
+diff --git a/doc/src/sgml/appendix-obsolete-pgreceivexlog.sgml b/doc/src/sgml/appendix-obsolete-pgreceivexlog.sgml
+index f74d0ae832e..d84412d0478 100644
+--- a/doc/src/sgml/appendix-obsolete-pgreceivexlog.sgml
++++ b/doc/src/sgml/appendix-obsolete-pgreceivexlog.sgml
+@@ -1,8 +1,8 @@
+-<!-- doc/src/sgml/obsolete-pgxlogdump.sgml -->
++<!-- doc/src/sgml/appendix-obsolete-pgreceivexlog.sgml -->
+ <!--
+-  See doc/src/sgml/obsolete.sgml for why this file exists. Do not change the id attribute.
++  See doc/src/sgml/appendix-obsolete.sgml for why this file exists. Do not change the id attribute.
+ -->
+ 
+ <sect1 id="app-pgreceivexlog" xreflabel="pg_receivexlog">
+   <title><command>pg_receivexlog</command> renamed to <command>pg_receivewal</command></title>
+ 
+diff --git a/doc/src/sgml/appendix-obsolete-pgresetxlog.sgml b/doc/src/sgml/appendix-obsolete-pgresetxlog.sgml
+index 7d999301f15..33008611be5 100644
+--- a/doc/src/sgml/appendix-obsolete-pgresetxlog.sgml
++++ b/doc/src/sgml/appendix-obsolete-pgresetxlog.sgml
+@@ -1,8 +1,8 @@
+-<!-- doc/src/sgml/obsolete-pgresetxlog.sgml -->
++<!-- doc/src/sgml/appendix-obsolete-pgresetxlog.sgml -->
+ <!--
+-  See doc/src/sgml/obsolete.sgml for why this file exists. Do not change the id attribute.
++  See doc/src/sgml/appendix-obsolete.sgml for why this file exists. Do not change the id attribute.
+ -->
+ 
+ <sect1 id="app-pgresetxlog" xreflabel="pg_resetxlog">
+   <title><command>pg_resetxlog</command> renamed to <command>pg_resetwal</command></title>
+ 
+diff --git a/doc/src/sgml/appendix-obsolete-pgxlogdump.sgml b/doc/src/sgml/appendix-obsolete-pgxlogdump.sgml
+index 4173fee0414..76f2a8f1597 100644
+--- a/doc/src/sgml/appendix-obsolete-pgxlogdump.sgml
++++ b/doc/src/sgml/appendix-obsolete-pgxlogdump.sgml
+@@ -1,8 +1,8 @@
+-<!-- doc/src/sgml/obsolete-pgxlogdump.sgml -->
++<!-- doc/src/sgml/appendix-obsolete-pgxlogdump.sgml -->
+ <!--
+-  See doc/src/sgml/obsolete.sgml for why this file exists. Do not change the id attribute.
++  See doc/src/sgml/appendix-obsolete.sgml for why this file exists. Do not change the id attribute.
+ -->
+ 
+ <sect1 id="pgxlogdump" xreflabel="pg_xlogdump">
+   <title><command>pg_xlogdump</command> renamed to <command>pg_waldump</command></title>
+ 
+diff --git a/doc/src/sgml/appendix-obsolete-recovery-config.sgml b/doc/src/sgml/appendix-obsolete-recovery-config.sgml
+index 77c4289531b..1cf49131140 100644
+--- a/doc/src/sgml/appendix-obsolete-recovery-config.sgml
++++ b/doc/src/sgml/appendix-obsolete-recovery-config.sgml
+@@ -1,8 +1,8 @@
+-<!-- doc/src/sgml/obsolete-recovery-config.sgml -->
++<!-- doc/src/sgml/appendix-obsolete-recovery-config.sgml -->
+ <!--
+-  See doc/src/sgml/obsolete.sgml for why this file exists. Do not change the id attribute.
++  See doc/src/sgml/appendix-obsolete.sgml for why this file exists. Do not change the id attribute.
+ -->
+ 
+ <sect1 id="recovery-config" xreflabel="recovery.conf">
+   <title><filename>recovery.conf</filename> file merged into <filename>postgresql.conf</filename></title>
+ 
+diff --git a/doc/src/sgml/appendix-obsolete.sgml b/doc/src/sgml/appendix-obsolete.sgml
+index d218de6c098..b1a00c8ce67 100644
+--- a/doc/src/sgml/appendix-obsolete.sgml
++++ b/doc/src/sgml/appendix-obsolete.sgml
+@@ -1,6 +1,6 @@
+-<!-- doc/src/sgml/obsolete.sgml -->
++<!-- doc/src/sgml/appendix-obsolete.sgml -->
+ 
+ <appendix id="appendix-obsolete">
+  <title>Obsolete or Renamed Features</title>
+ 
+  <para>
+diff --git a/doc/src/sgml/backup-manifest.sgml b/doc/src/sgml/backup-manifest.sgml
+index 6ecf9977a54..771be1310a1 100644
+--- a/doc/src/sgml/backup-manifest.sgml
++++ b/doc/src/sgml/backup-manifest.sgml
+@@ -1,6 +1,6 @@
+-<!-- doc/src/sgml/backupmanifest.sgml -->
++<!-- doc/src/sgml/backup-manifest.sgml -->
+ 
+ <chapter id="backup-manifest-format">
+  <title>Backup Manifest Format</title>
+ 
+   <indexterm>

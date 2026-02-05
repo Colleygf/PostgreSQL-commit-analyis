@@ -1,0 +1,95 @@
+commit 2d756ebbe857e3d395d18350bf232300ebd23981
+Author: Richard Guo <rguo@postgresql.org>
+Date:   Fri Sep 12 11:12:19 2025 +0900
+
+    Fix misuse of Relids for storing attribute numbers
+    
+    The typedef Relids (Bitmapset *) is intended to represent set of
+    relation identifiers, but was incorrectly used in several places to
+    store sets of attribute numbers.  This is my oversight in e2debb643.
+    
+    Fix that by replacing such usages with Bitmapset * to reflect the
+    correct semantics.
+    
+    Author: Junwang Zhao <zhjwpku@gmail.com>
+    Reviewed-by: Tender Wang <tndrwang@gmail.com>
+    Reviewed-by: Richard Guo <guofenglinux@gmail.com>
+    Discussion: https://postgr.es/m/CAEG8a3LJhp_xriXf39iCz0TsK+M-2biuhDhpLC6Baxw8+ZYT3A@mail.gmail.com
+
+diff --git a/src/backend/optimizer/util/clauses.c b/src/backend/optimizer/util/clauses.c
+index 6f0b338d2cd..ae0bd073ca9 100644
+--- a/src/backend/optimizer/util/clauses.c
++++ b/src/backend/optimizer/util/clauses.c
+@@ -4201,11 +4201,11 @@ simplify_function(Oid funcid, Oid result_type, int32 result_typmod,
+  * use.
+  */
+ bool
+ var_is_nonnullable(PlannerInfo *root, Var *var, bool use_rel_info)
+ {
+-	Relids		notnullattnums = NULL;
++	Bitmapset  *notnullattnums = NULL;
+ 
+ 	Assert(IsA(var, Var));
+ 
+ 	/* skip upper-level Vars */
+ 	if (var->varlevelsup != 0)
+diff --git a/src/backend/optimizer/util/plancat.c b/src/backend/optimizer/util/plancat.c
+index 4536bdd6cb4..572d626b2c4 100644
+--- a/src/backend/optimizer/util/plancat.c
++++ b/src/backend/optimizer/util/plancat.c
+@@ -60,11 +60,11 @@ int			constraint_exclusion = CONSTRAINT_EXCLUSION_PARTITION;
+ get_relation_info_hook_type get_relation_info_hook = NULL;
+ 
+ typedef struct NotnullHashEntry
+ {
+ 	Oid			relid;			/* OID of the relation */
+-	Relids		notnullattnums; /* attnums of NOT NULL columns */
++	Bitmapset  *notnullattnums; /* attnums of NOT NULL columns */
+ } NotnullHashEntry;
+ 
+ 
+ static void get_relation_foreign_keys(PlannerInfo *root, RelOptInfo *rel,
+ 									  Relation relation, bool inhparent);
+@@ -681,11 +681,11 @@ void
+ get_relation_notnullatts(PlannerInfo *root, Relation relation)
+ {
+ 	Oid			relid = RelationGetRelid(relation);
+ 	NotnullHashEntry *hentry;
+ 	bool		found;
+-	Relids		notnullattnums = NULL;
++	Bitmapset  *notnullattnums = NULL;
+ 
+ 	/* bail out if the relation has no not-null constraints */
+ 	if (relation->rd_att->constr == NULL ||
+ 		!relation->rd_att->constr->has_not_null)
+ 		return;
+@@ -748,11 +748,11 @@ get_relation_notnullatts(PlannerInfo *root, Relation relation)
+ /*
+  * find_relation_notnullatts -
+  *	  Searches the hash table and returns the column not-null constraint
+  *	  information for a given relation.
+  */
+-Relids
++Bitmapset *
+ find_relation_notnullatts(PlannerInfo *root, Oid relid)
+ {
+ 	NotnullHashEntry *hentry;
+ 	bool		found;
+ 
+diff --git a/src/include/optimizer/plancat.h b/src/include/optimizer/plancat.h
+index dd8f2cd157f..96107076832 100644
+--- a/src/include/optimizer/plancat.h
++++ b/src/include/optimizer/plancat.h
+@@ -28,11 +28,11 @@ extern PGDLLIMPORT get_relation_info_hook_type get_relation_info_hook;
+ extern void get_relation_info(PlannerInfo *root, Oid relationObjectId,
+ 							  bool inhparent, RelOptInfo *rel);
+ 
+ extern void get_relation_notnullatts(PlannerInfo *root, Relation relation);
+ 
+-extern Relids find_relation_notnullatts(PlannerInfo *root, Oid relid);
++extern Bitmapset *find_relation_notnullatts(PlannerInfo *root, Oid relid);
+ 
+ extern List *infer_arbiter_indexes(PlannerInfo *root);
+ 
+ extern void estimate_rel_size(Relation rel, int32 *attr_widths,
+ 							  BlockNumber *pages, double *tuples, double *allvisfrac);

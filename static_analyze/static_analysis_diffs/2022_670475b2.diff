@@ -1,0 +1,38 @@
+commit 670475b2fa4bc683edf3d595292ce696496f6b49
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Tue Aug 9 12:55:45 2022 +1200
+
+    Fix obsolete comment in commit_ts.c.
+    
+    Commit 08aa89b removed COMMIT_TS_SETTS, but left a reference in a
+    comment.
+    
+    Author: Nathan Bossart <nathandbossart@gmail.com>
+    Discussion: https://postgr.es/m/20220726173343.GA154110%40nathanxps13
+
+diff --git a/src/backend/access/transam/commit_ts.c b/src/backend/access/transam/commit_ts.c
+index 4dc8d402bd3..9aa4675cb79 100644
+--- a/src/backend/access/transam/commit_ts.c
++++ b/src/backend/access/transam/commit_ts.c
+@@ -5,17 +5,14 @@
+  *
+  * This module is a pg_xact-like system that stores the commit timestamp
+  * for each transaction.
+  *
+  * XLOG interactions: this module generates an XLOG record whenever a new
+- * CommitTs page is initialized to zeroes.  Also, one XLOG record is
+- * generated for setting of values when the caller requests it; this allows
+- * us to support values coming from places other than transaction commit.
+- * Other writes of CommitTS come from recording of transaction commit in
+- * xact.c, which generates its own XLOG records for these events and will
+- * re-perform the status update on redo; so we need make no additional XLOG
+- * entry here.
++ * CommitTs page is initialized to zeroes.  Other writes of CommitTS come
++ * from recording of transaction commit in xact.c, which generates its own
++ * XLOG records for these events and will re-perform the status update on
++ * redo; so we need make no additional XLOG entry here.
+  *
+  * Portions Copyright (c) 1996-2022, PostgreSQL Global Development Group
+  * Portions Copyright (c) 1994, Regents of the University of California
+  *
+  * src/backend/access/transam/commit_ts.c

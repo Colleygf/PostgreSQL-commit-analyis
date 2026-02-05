@@ -1,0 +1,103 @@
+commit 03bf7a12c5a44ced377352c8f9bf6e9f4b863885
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Mon Oct 13 17:56:45 2025 -0400
+
+    Fix incorrect message-printing in win32security.c.
+    
+    log_error() would probably fail completely if used, and would
+    certainly print garbage for anything that needed to be interpolated
+    into the message, because it was failing to use the correct printing
+    subroutine for a va_list argument.
+    
+    This bug likely went undetected because the error cases this code
+    is used for are rarely exercised - they only occur when Windows
+    security API calls fail catastrophically (out of memory, security
+    subsystem corruption, etc).
+    
+    The FRONTEND variant can be fixed just by calling vfprintf()
+    instead of fprintf().  However, there was no va_list variant
+    of write_stderr(), so create one by refactoring that function.
+    Following the usual naming convention for such things, call
+    it vwrite_stderr().
+    
+    Author: Bryan Green <dbryan.green@gmail.com>
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/CAF+pBj8goe4fRmZ0V3Cs6eyWzYLvK+HvFLYEYWG=TzaM+tWPnw@mail.gmail.com
+    Backpatch-through: 13
+
+diff --git a/src/backend/utils/error/elog.c b/src/backend/utils/error/elog.c
+index 648d2d2e70c..29643c51439 100644
+--- a/src/backend/utils/error/elog.c
++++ b/src/backend/utils/error/elog.c
+@@ -3793,17 +3793,28 @@ append_with_tabs(StringInfo buf, const char *str)
+ void
+ write_stderr(const char *fmt,...)
+ {
+ 	va_list		ap;
+ 
++	va_start(ap, fmt);
++	vwrite_stderr(fmt, ap);
++	va_end(ap);
++}
++
++
++/*
++ * Write errors to stderr (or by equal means when stderr is
++ * not available) - va_list version
++ */
++void
++vwrite_stderr(const char *fmt, va_list ap)
++{
+ #ifdef WIN32
+ 	char		errbuf[2048];	/* Arbitrary size? */
+ #endif
+ 
+ 	fmt = _(fmt);
+-
+-	va_start(ap, fmt);
+ #ifndef WIN32
+ 	/* On Unix, we just fprintf to stderr */
+ 	vfprintf(stderr, fmt, ap);
+ 	fflush(stderr);
+ #else
+@@ -3822,7 +3833,6 @@ write_stderr(const char *fmt,...)
+ 		/* Not running as service, write to stderr */
+ 		write_console(errbuf, strlen(errbuf));
+ 		fflush(stderr);
+ 	}
+ #endif
+-	va_end(ap);
+ }
+diff --git a/src/include/utils/elog.h b/src/include/utils/elog.h
+index 348dafbf906..001ab93ae6c 100644
+--- a/src/include/utils/elog.h
++++ b/src/include/utils/elog.h
+@@ -526,7 +526,8 @@ extern void write_jsonlog(ErrorData *edata);
+  * Write errors to stderr (or by equal means when stderr is
+  * not available). Used before ereport/elog can be used
+  * safely (memory context, GUC load etc)
+  */
+ extern void write_stderr(const char *fmt,...) pg_attribute_printf(1, 2);
++extern void vwrite_stderr(const char *fmt, va_list ap) pg_attribute_printf(1, 0);
+ 
+ #endif							/* ELOG_H */
+diff --git a/src/port/win32security.c b/src/port/win32security.c
+index a46b82dd048..b7608ab1706 100644
+--- a/src/port/win32security.c
++++ b/src/port/win32security.c
+@@ -29,13 +29,13 @@ log_error(const char *fmt,...)
+ {
+ 	va_list		ap;
+ 
+ 	va_start(ap, fmt);
+ #ifndef FRONTEND
+-	write_stderr(fmt, ap);
++	vwrite_stderr(fmt, ap);
+ #else
+-	fprintf(stderr, fmt, ap);
++	vfprintf(stderr, fmt, ap);
+ #endif
+ 	va_end(ap);
+ }
+ 
+ /*

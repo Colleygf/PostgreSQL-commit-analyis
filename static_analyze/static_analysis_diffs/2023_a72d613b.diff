@@ -1,0 +1,77 @@
+commit a72d613b4c91462d9405c4e1b05c42d33013c333
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Aug 9 08:56:05 2023 +0900
+
+    Fix pg_dumpall with in-place tablespaces
+    
+    In-place tablespaces would be dumped with the path produced by
+    pg_tablespace_location(), which is in this case a relative path built as
+    pg_tblspc/OID, but this would fail to restore as such tablespaces need
+    to use an empty string as location.  In order to detect if an in-place
+    tablespace is used, this commit checks if the path returned is relative
+    and adapts the dump contents in consequence.
+    
+    Like the other changes related to in-place tablespaces, no backpatch is
+    done as these are only intended for development purposes.  Rui Zhao has
+    fixed the code, while the test is from me.
+    
+    Author: Rui Zhao, Michael Paquier
+    Discussion: https://postgr.es/m/80c80b4a-b87b-456f-bd46-1ae326601d79.xiyuan.zr@alibaba-inc.com
+
+diff --git a/src/bin/pg_dump/pg_dumpall.c b/src/bin/pg_dump/pg_dumpall.c
+index 0ab52ca81d7..e2a9733d348 100644
+--- a/src/bin/pg_dump/pg_dumpall.c
++++ b/src/bin/pg_dump/pg_dumpall.c
+@@ -1284,11 +1284,20 @@ dumpTablespaces(PGconn *conn)
+ 
+ 		appendPQExpBuffer(buf, "CREATE TABLESPACE %s", fspcname);
+ 		appendPQExpBuffer(buf, " OWNER %s", fmtId(spcowner));
+ 
+ 		appendPQExpBufferStr(buf, " LOCATION ");
+-		appendStringLiteralConn(buf, spclocation, conn);
++
++		/*
++		 * In-place tablespaces use a relative path, and need to be dumped
++		 * with an empty string as location.
++		 */
++		if (is_absolute_path(spclocation))
++			appendStringLiteralConn(buf, spclocation, conn);
++		else
++			appendStringLiteralConn(buf, "", conn);
++
+ 		appendPQExpBufferStr(buf, ";\n");
+ 
+ 		if (spcoptions && spcoptions[0] != '\0')
+ 			appendPQExpBuffer(buf, "ALTER TABLESPACE %s SET (%s);\n",
+ 							  fspcname, spcoptions);
+diff --git a/src/bin/pg_dump/t/002_pg_dump.pl b/src/bin/pg_dump/t/002_pg_dump.pl
+index 0efeb3367d5..6ad83102874 100644
+--- a/src/bin/pg_dump/t/002_pg_dump.pl
++++ b/src/bin/pg_dump/t/002_pg_dump.pl
+@@ -1905,10 +1905,26 @@ my %tests = (
+ 			pg_dumpall_globals => 1,
+ 			pg_dumpall_globals_clean => 1,
+ 		},
+ 	},
+ 
++	'CREATE TABLESPACE regress_dump_tablespace' => {
++		create_order => 2,
++		create_sql => q(
++		    SET allow_in_place_tablespaces = on;
++			CREATE TABLESPACE regress_dump_tablespace
++			OWNER regress_dump_test_role LOCATION ''),
++		regexp =>
++		  qr/^CREATE TABLESPACE regress_dump_tablespace OWNER regress_dump_test_role LOCATION '';/m,
++		like => {
++			pg_dumpall_dbprivs => 1,
++			pg_dumpall_exclude => 1,
++			pg_dumpall_globals => 1,
++			pg_dumpall_globals_clean => 1,
++		},
++	},
++
+ 	'CREATE DATABASE regression_invalid...' => {
+ 		create_order => 1,
+ 		create_sql => q(
+ 		    CREATE DATABASE regression_invalid;
+ 			UPDATE pg_database SET datconnlimit = -2 WHERE datname = 'regression_invalid'),

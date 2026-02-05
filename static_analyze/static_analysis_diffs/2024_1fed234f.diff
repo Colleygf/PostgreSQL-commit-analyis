@@ -1,0 +1,67 @@
+commit 1fed234f9faf1071d925434c5e9c14688fb4c77e
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu Oct 17 15:28:32 2024 -0400
+
+    ecpg: fix more minor mishandling of bad input in preprocessor.
+    
+    Don't get confused by an unmatched right brace in the input.
+    (Previously, this led to discarding information about file-level
+    variables and then possibly crashing.)
+    
+    Detect, rather than crash on, an attempt to index into a non-array
+    variable.
+    
+    As before, in the absence of field complaints I'm not too
+    excited about back-patching these.
+    
+    Per valgrind testing by Alexander Lakhin.
+    
+    Discussion: https://postgr.es/m/a239aec2-6c79-5fc9-9272-cea41158a360@gmail.com
+
+diff --git a/src/interfaces/ecpg/preproc/ecpg.trailer b/src/interfaces/ecpg/preproc/ecpg.trailer
+index e466668ea24..424903f76e0 100644
+--- a/src/interfaces/ecpg/preproc/ecpg.trailer
++++ b/src/interfaces/ecpg/preproc/ecpg.trailer
+@@ -41,16 +41,19 @@ statement: ecpgstart at toplevel_stmt ';'
+ 		braces_open++;
+ 		fputs("{", base_yyout);
+ 	}
+ 	| '}'
+ 	{
+-		remove_typedefs(braces_open);
+-		remove_variables(braces_open--);
+-		if (braces_open == 0)
++		if (braces_open > 0)
+ 		{
+-			free(current_function);
+-			current_function = NULL;
++			remove_typedefs(braces_open);
++			remove_variables(braces_open);
++			if (--braces_open == 0)
++			{
++				free(current_function);
++				current_function = NULL;
++			}
+ 		}
+ 		fputs("}", base_yyout);
+ 	}
+ 	;
+ 
+diff --git a/src/interfaces/ecpg/preproc/variable.c b/src/interfaces/ecpg/preproc/variable.c
+index a4294b8f0ff..ac80d2c0209 100644
+--- a/src/interfaces/ecpg/preproc/variable.c
++++ b/src/interfaces/ecpg/preproc/variable.c
+@@ -231,11 +231,12 @@ find_variable(const char *name)
+ 
+ 				*next = '\0';
+ 				p = find_simple(name);
+ 				if (p == NULL)
+ 					mmfatal(PARSE_ERROR, "variable \"%s\" is not declared", name);
+-
++				if (p->type->type != ECPGt_array)
++					mmfatal(PARSE_ERROR, "variable \"%s\" is not a pointer", name);
+ 				*next = c;
+ 				switch (p->type->u.element->type)
+ 				{
+ 					case ECPGt_array:
+ 						return new_variable(name, ECPGmake_array_type(ECPGmake_simple_type(p->type->u.element->u.element->type, p->type->u.element->u.element->size, p->type->u.element->u.element->counter), p->type->u.element->size), p->brace_level);

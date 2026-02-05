@@ -1,0 +1,87 @@
+commit 95d14b7ae26db5ed85d9945e29121bb0e9b59863
+Author: Tomas Vondra <tomas.vondra@postgresql.org>
+Date:   Fri Apr 19 15:43:14 2024 +0200
+
+    Fix a couple typos in BRIN code
+    
+    Typos introduced by commits c1ec02be1d79, b43757171470 and dae761a87eda.
+    
+    Author: Alvaro Herrera
+    Reported-by: Alexander Lakhin
+    Discussion: https://postgr.es/m/202401091043.e3nrqiad6gb7@alvherre.pgsql
+
+diff --git a/doc/src/sgml/indexam.sgml b/doc/src/sgml/indexam.sgml
+index 76ac0fcddd7..18cf23296f2 100644
+--- a/doc/src/sgml/indexam.sgml
++++ b/doc/src/sgml/indexam.sgml
+@@ -368,11 +368,11 @@ aminsert (Relation indexRelation,
+    in <literal>indexInfo-&gt;ii_Context</literal> and store a pointer to the
+    data in <literal>indexInfo-&gt;ii_AmCache</literal> (which will be NULL
+    initially). After the index insertions complete, the memory will be freed
+    automatically. If additional cleanup is required (e.g. if the cache contains
+    buffers and tuple descriptors), the AM may define an optional function
+-   <literal>indexinsertcleanup</literal>, called before the memory is released.
++   <literal>aminsertcleanup</literal>, called before the memory is released.
+   </para>
+ 
+   <para>
+ <programlisting>
+ void
+diff --git a/src/backend/access/brin/brin.c b/src/backend/access/brin/brin.c
+index 32722f0961b..4f708bba658 100644
+--- a/src/backend/access/brin/brin.c
++++ b/src/backend/access/brin/brin.c
+@@ -220,11 +220,11 @@ static void union_tuples(BrinDesc *bdesc, BrinMemTuple *a,
+ static void brin_vacuum_scan(Relation idxrel, BufferAccessStrategy strategy);
+ static bool add_values_to_range(Relation idxRel, BrinDesc *bdesc,
+ 								BrinMemTuple *dtup, const Datum *values, const bool *nulls);
+ static bool check_null_keys(BrinValues *bval, ScanKey *nullkeys, int nnullkeys);
+ static void brin_fill_empty_ranges(BrinBuildState *state,
+-								   BlockNumber prevRange, BlockNumber maxRange);
++								   BlockNumber prevRange, BlockNumber nextRange);
+ 
+ /* parallel index builds */
+ static void _brin_begin_parallel(BrinBuildState *buildstate, Relation heap, Relation index,
+ 								 bool isconcurrent, int request);
+ static void _brin_end_parallel(BrinLeader *brinleader, BrinBuildState *state);
+@@ -1149,12 +1149,12 @@ brinbuild(Relation heap, Relation index, IndexInfo *indexInfo)
+ 	/*
+ 	 * Attempt to launch parallel worker scan when required
+ 	 *
+ 	 * XXX plan_create_index_workers makes the number of workers dependent on
+ 	 * maintenance_work_mem, requiring 32MB for each worker. That makes sense
+-	 * for btree, but not for BRIN, which can do away with much less memory.
+-	 * So maybe make that somehow less strict, optionally?
++	 * for btree, but not for BRIN, which can do with much less memory. So
++	 * maybe make that somehow less strict, optionally?
+ 	 */
+ 	if (indexInfo->ii_ParallelWorkers > 0)
+ 		_brin_begin_parallel(state, heap, index, indexInfo->ii_Concurrent,
+ 							 indexInfo->ii_ParallelWorkers);
+ 
+@@ -2619,11 +2619,11 @@ _brin_parallel_merge(BrinBuildState *state)
+ 	/* do the actual sort in the leader */
+ 	tuplesort_performsort(state->bs_sortstate);
+ 
+ 	/*
+ 	 * Initialize BrinMemTuple we'll use to union summaries from workers (in
+-	 * case they happened to produce parts of the same paga range).
++	 * case they happened to produce parts of the same page range).
+ 	 */
+ 	memtuple = brin_new_memtuple(state->bs_bdesc);
+ 
+ 	/*
+ 	 * Create a memory context we'll reset to combine results for a single
+@@ -2930,11 +2930,11 @@ _brin_parallel_build_main(dsm_segment *seg, shm_toc *toc)
+  *
+  * Returns a BRIN tuple representing an empty page range starting at the
+  * specified block number. The empty tuple is initialized only once, when it's
+  * needed for the first time, stored in the memory context bs_context to ensure
+  * proper life span, and reused on following calls. All empty tuples are
+- * exactly the same except for the bs_blkno field, which is set to the value
++ * exactly the same except for the bt_blkno field, which is set to the value
+  * in blkno parameter.
+  */
+ static void
+ brin_build_empty_tuple(BrinBuildState *state, BlockNumber blkno)
+ {

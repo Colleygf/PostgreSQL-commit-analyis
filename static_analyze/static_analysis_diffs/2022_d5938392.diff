@@ -1,0 +1,110 @@
+commit d59383924c580a77a2346d9b1284c8589b3d43e2
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Thu Aug 4 14:16:26 2022 -0400
+
+    Fix check_exclusion_or_unique_constraint for UNIQUE NULLS NOT DISTINCT.
+    
+    Adjusting this function was overlooked in commit 94aa7cc5f.  The only
+    visible symptom (so far) is that INSERT ... ON CONFLICT could go into
+    an endless loop when inserting a null that has a conflict.
+    
+    Richard Guo and Tom Lane, per bug #17558 from Andrew Kesper
+    
+    Discussion: https://postgr.es/m/17558-3f6599ffcf52fd4a@postgresql.org
+
+diff --git a/src/backend/executor/execIndexing.c b/src/backend/executor/execIndexing.c
+index 0cb0b8f1111..6a8735edf7f 100644
+--- a/src/backend/executor/execIndexing.c
++++ b/src/backend/executor/execIndexing.c
+@@ -697,17 +697,23 @@ check_exclusion_or_unique_constraint(Relation heap, Relation index,
+ 		constr_procs = indexInfo->ii_UniqueProcs;
+ 		constr_strats = indexInfo->ii_UniqueStrats;
+ 	}
+ 
+ 	/*
+-	 * If any of the input values are NULL, the constraint check is assumed to
+-	 * pass (i.e., we assume the operators are strict).
++	 * If any of the input values are NULL, and the index uses the default
++	 * nulls-are-distinct mode, the constraint check is assumed to pass (i.e.,
++	 * we assume the operators are strict).  Otherwise, we interpret the
++	 * constraint as specifying IS NULL for each column whose input value is
++	 * NULL.
+ 	 */
+-	for (i = 0; i < indnkeyatts; i++)
++	if (!indexInfo->ii_NullsNotDistinct)
+ 	{
+-		if (isnull[i])
+-			return true;
++		for (i = 0; i < indnkeyatts; i++)
++		{
++			if (isnull[i])
++				return true;
++		}
+ 	}
+ 
+ 	/*
+ 	 * Search the tuples that are in the index for any violations, including
+ 	 * tuples that aren't visible yet.
+@@ -715,11 +721,11 @@ check_exclusion_or_unique_constraint(Relation heap, Relation index,
+ 	InitDirtySnapshot(DirtySnapshot);
+ 
+ 	for (i = 0; i < indnkeyatts; i++)
+ 	{
+ 		ScanKeyEntryInitialize(&scankeys[i],
+-							   0,
++							   isnull[i] ? SK_ISNULL | SK_SEARCHNULL : 0,
+ 							   i + 1,
+ 							   constr_strats[i],
+ 							   InvalidOid,
+ 							   index_collations[i],
+ 							   constr_procs[i],
+diff --git a/src/test/regress/expected/constraints.out b/src/test/regress/expected/constraints.out
+index 36ccbb5f155..05b7244e4a7 100644
+--- a/src/test/regress/expected/constraints.out
++++ b/src/test/regress/expected/constraints.out
+@@ -447,19 +447,20 @@ SELECT * FROM UNIQUE_TBL;
+ 
+ DROP TABLE UNIQUE_TBL;
+ CREATE TABLE UNIQUE_TBL (i int UNIQUE NULLS NOT DISTINCT, t text);
+ INSERT INTO UNIQUE_TBL VALUES (1, 'one');
+ INSERT INTO UNIQUE_TBL VALUES (2, 'two');
+-INSERT INTO UNIQUE_TBL VALUES (1, 'three');
++INSERT INTO UNIQUE_TBL VALUES (1, 'three');  -- fail
+ ERROR:  duplicate key value violates unique constraint "unique_tbl_i_key"
+ DETAIL:  Key (i)=(1) already exists.
+ INSERT INTO UNIQUE_TBL VALUES (4, 'four');
+ INSERT INTO UNIQUE_TBL VALUES (5, 'one');
+ INSERT INTO UNIQUE_TBL (t) VALUES ('six');
+-INSERT INTO UNIQUE_TBL (t) VALUES ('seven');
++INSERT INTO UNIQUE_TBL (t) VALUES ('seven');  -- fail
+ ERROR:  duplicate key value violates unique constraint "unique_tbl_i_key"
+ DETAIL:  Key (i)=(null) already exists.
++INSERT INTO UNIQUE_TBL (t) VALUES ('eight') ON CONFLICT DO NOTHING;  -- no-op
+ SELECT * FROM UNIQUE_TBL;
+  i |  t   
+ ---+------
+  1 | one
+  2 | two
+diff --git a/src/test/regress/sql/constraints.sql b/src/test/regress/sql/constraints.sql
+index 34de0c969ae..833819a32e2 100644
+--- a/src/test/regress/sql/constraints.sql
++++ b/src/test/regress/sql/constraints.sql
+@@ -308,15 +308,16 @@ DROP TABLE UNIQUE_TBL;
+ 
+ CREATE TABLE UNIQUE_TBL (i int UNIQUE NULLS NOT DISTINCT, t text);
+ 
+ INSERT INTO UNIQUE_TBL VALUES (1, 'one');
+ INSERT INTO UNIQUE_TBL VALUES (2, 'two');
+-INSERT INTO UNIQUE_TBL VALUES (1, 'three');
++INSERT INTO UNIQUE_TBL VALUES (1, 'three');  -- fail
+ INSERT INTO UNIQUE_TBL VALUES (4, 'four');
+ INSERT INTO UNIQUE_TBL VALUES (5, 'one');
+ INSERT INTO UNIQUE_TBL (t) VALUES ('six');
+-INSERT INTO UNIQUE_TBL (t) VALUES ('seven');
++INSERT INTO UNIQUE_TBL (t) VALUES ('seven');  -- fail
++INSERT INTO UNIQUE_TBL (t) VALUES ('eight') ON CONFLICT DO NOTHING;  -- no-op
+ 
+ SELECT * FROM UNIQUE_TBL;
+ 
+ DROP TABLE UNIQUE_TBL;
+ 

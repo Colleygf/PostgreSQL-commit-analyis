@@ -1,0 +1,45 @@
+commit 21267b64771925c154a767b1f261b5501d7bb26f
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Sun Jul 10 16:30:03 2022 +1200
+
+    Fix \watch's interaction with libedit on ^C.
+    
+    When you hit ^C, the terminal driver in Unix-like systems echoes "^C" as
+    well as sending an interrupt signal (depending on stty settings).  At
+    least libedit (but maybe also libreadline) is then confused about the
+    current cursor location, and corrupts the display if you try to scroll
+    back.  Fix, by moving to a new line before the next prompt is displayed.
+    
+    Back-patch to all supported released.
+    
+    Author: Pavel Stehule <pavel.stehule@gmail.com>
+    Reported-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/3278793.1626198638%40sss.pgh.pa.us
+
+diff --git a/src/bin/psql/command.c b/src/bin/psql/command.c
+index c562c04afee..0955142215a 100644
+--- a/src/bin/psql/command.c
++++ b/src/bin/psql/command.c
+@@ -5143,10 +5143,22 @@ do_watch(PQExpBuffer query_buf, double sleep)
+ 	if (pagerpipe)
+ 	{
+ 		pclose(pagerpipe);
+ 		restore_sigpipe_trap();
+ 	}
++	else
++	{
++		/*
++		 * If the terminal driver echoed "^C", libedit/libreadline might be
++		 * confused about the cursor position.  Therefore, inject a newline
++		 * before the next prompt is displayed.  We only do this when not
++		 * using a pager, because pagers are expected to restore the screen to
++		 * a sane state on exit.
++		 */
++		fprintf(stdout, "\n");
++		fflush(stdout);
++	}
+ 
+ #ifdef HAVE_POSIX_DECL_SIGWAIT
+ 	/* Disable the interval timer. */
+ 	memset(&interval, 0, sizeof(interval));
+ 	setitimer(ITIMER_REAL, &interval, NULL);

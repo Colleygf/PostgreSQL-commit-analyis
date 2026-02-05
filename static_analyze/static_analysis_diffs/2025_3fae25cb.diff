@@ -1,0 +1,171 @@
+commit 3fae25cbb35aa885c411fb51f55a64bb80dc5844
+Author: David Rowley <drowley@postgresql.org>
+Date:   Thu Apr 17 11:37:55 2025 +1200
+
+    Fixup various new-to-v18 usages of appendPQExpBuffer
+    
+    Use appendPQExpBufferStr when there are no parameters and
+    appendPQExpBufferChar when the string length is 1.
+    
+    Author: David Rowley <drowleyml@gmail.com>
+    Discussion: https://postgr.es/m/CAApHDvoARMvPeXTTC0HnpARBHn-WgVstc8XFCyMGOzvgu_1HvQ@mail.gmail.com
+
+diff --git a/src/bin/pg_basebackup/pg_createsubscriber.c b/src/bin/pg_basebackup/pg_createsubscriber.c
+index 42aaa428aed..b92a978a426 100644
+--- a/src/bin/pg_basebackup/pg_createsubscriber.c
++++ b/src/bin/pg_basebackup/pg_createsubscriber.c
+@@ -1485,11 +1485,11 @@ start_standby_server(const struct CreateSubscriberOptions *opt, bool restricted_
+ 	appendPQExpBuffer(pg_ctl_cmd, "\"%s\" start -D ", pg_ctl_path);
+ 	appendShellString(pg_ctl_cmd, subscriber_dir);
+ 	appendPQExpBuffer(pg_ctl_cmd, " -s -o \"-c sync_replication_slots=off\"");
+ 
+ 	/* Prevent unintended slot invalidation */
+-	appendPQExpBuffer(pg_ctl_cmd, " -o \"-c idle_replication_slot_timeout=0\"");
++	appendPQExpBufferStr(pg_ctl_cmd, " -o \"-c idle_replication_slot_timeout=0\"");
+ 
+ 	if (restricted_access)
+ 	{
+ 		appendPQExpBuffer(pg_ctl_cmd, " -o \"-p %s\"", opt->sub_port);
+ #if !defined(WIN32)
+@@ -1511,11 +1511,11 @@ start_standby_server(const struct CreateSubscriberOptions *opt, bool restricted_
+ 		appendPQExpBuffer(pg_ctl_cmd, " -o \"-c config_file=%s\"",
+ 						  opt->config_file);
+ 
+ 	/* Suppress to start logical replication if requested */
+ 	if (restrict_logical_worker)
+-		appendPQExpBuffer(pg_ctl_cmd, " -o \"-c max_logical_replication_workers=0\"");
++		appendPQExpBufferStr(pg_ctl_cmd, " -o \"-c max_logical_replication_workers=0\"");
+ 
+ 	pg_log_debug("pg_ctl command is: %s", pg_ctl_cmd->data);
+ 	rc = system(pg_ctl_cmd->data);
+ 	pg_ctl_status(pg_ctl_cmd->data, rc);
+ 	standby_running = true;
+diff --git a/src/bin/pg_dump/pg_dump.c b/src/bin/pg_dump/pg_dump.c
+index b158d96a831..8ef9c6a021a 100644
+--- a/src/bin/pg_dump/pg_dump.c
++++ b/src/bin/pg_dump/pg_dump.c
+@@ -9749,11 +9749,11 @@ determineNotNullFlags(Archive *fout, PGresult *res, int r,
+ 
+ 		if (*invalidnotnulloids == NULL)
+ 		{
+ 			*invalidnotnulloids = createPQExpBuffer();
+ 			appendPQExpBufferChar(*invalidnotnulloids, '{');
+-			appendPQExpBuffer(*invalidnotnulloids, "%s", constroid);
++			appendPQExpBufferStr(*invalidnotnulloids, constroid);
+ 		}
+ 		else
+ 			appendPQExpBuffer(*invalidnotnulloids, ",%s", constroid);
+ 
+ 		/* nothing else to do */
+@@ -10976,11 +10976,11 @@ dumpRelationStats_dumper(Archive *fout, const void *userArg, const TocEntry *te)
+ 		 * use attname directly.  We must specify attnum for indexes, since
+ 		 * their attnames are not necessarily stable across dump/reload.
+ 		 */
+ 		if (rsinfo->nindAttNames == 0)
+ 		{
+-			appendPQExpBuffer(out, ",\n\t'attname', ");
++			appendPQExpBufferStr(out, ",\n\t'attname', ");
+ 			appendStringLiteralAH(out, attname, fout);
+ 		}
+ 		else
+ 		{
+ 			bool		found = false;
+diff --git a/src/interfaces/libpq/fe-auth-oauth-curl.c b/src/interfaces/libpq/fe-auth-oauth-curl.c
+index cd9c0323bb6..ddd87dcf02d 100644
+--- a/src/interfaces/libpq/fe-auth-oauth-curl.c
++++ b/src/interfaces/libpq/fe-auth-oauth-curl.c
+@@ -2857,11 +2857,11 @@ error_return:
+ 			conn->errorMessage.data[len - 1] = '\0';
+ 			conn->errorMessage.len--;
+ 		}
+ 	}
+ 
+-	appendPQExpBufferStr(&conn->errorMessage, "\n");
++	appendPQExpBufferChar(&conn->errorMessage, '\n');
+ 
+ 	return PGRES_POLLING_FAILED;
+ }
+ 
+ /*
+diff --git a/src/test/modules/test_escape/test_escape.c b/src/test/modules/test_escape/test_escape.c
+index f6b36448977..0b4883cc7c8 100644
+--- a/src/test/modules/test_escape/test_escape.c
++++ b/src/test/modules/test_escape/test_escape.c
+@@ -94,12 +94,11 @@ escape_literal(PGconn *conn, PQExpBuffer target,
+ 	char	   *escaped;
+ 
+ 	escaped = PQescapeLiteral(conn, unescaped, unescaped_len);
+ 	if (!escaped)
+ 	{
+-		appendPQExpBuffer(escape_err, "%s",
+-						  PQerrorMessage(conn));
++		appendPQExpBufferStr(escape_err, PQerrorMessage(conn));
+ 		escape_err->data[escape_err->len - 1] = 0;
+ 		escape_err->len--;
+ 		return false;
+ 	}
+ 	else
+@@ -118,12 +117,11 @@ escape_identifier(PGconn *conn, PQExpBuffer target,
+ 	char	   *escaped;
+ 
+ 	escaped = PQescapeIdentifier(conn, unescaped, unescaped_len);
+ 	if (!escaped)
+ 	{
+-		appendPQExpBuffer(escape_err, "%s",
+-						  PQerrorMessage(conn));
++		appendPQExpBufferStr(escape_err, PQerrorMessage(conn));
+ 		escape_err->data[escape_err->len - 1] = 0;
+ 		escape_err->len--;
+ 		return false;
+ 	}
+ 	else
+@@ -151,12 +149,11 @@ escape_string_conn(PGconn *conn, PQExpBuffer target,
+ 	target->len += sz;
+ 	appendPQExpBufferChar(target, '\'');
+ 
+ 	if (error)
+ 	{
+-		appendPQExpBuffer(escape_err, "%s",
+-						  PQerrorMessage(conn));
++		appendPQExpBufferStr(escape_err, PQerrorMessage(conn));
+ 		escape_err->data[escape_err->len - 1] = 0;
+ 		escape_err->len--;
+ 		return false;
+ 	}
+ 	else
+@@ -512,11 +509,11 @@ test_psql_parse(pe_test_config *tc, PQExpBuffer testname,
+ 
+ 		appendPQExpBuffer(details,
+ 						  "#\t\t %d: scan_result: %s prompt: %u, query_buf: ",
+ 						  matches, scan_res_s(scan_result), prompt_status);
+ 		escapify(details, query_buf->data, query_buf->len);
+-		appendPQExpBuffer(details, "\n");
++		appendPQExpBufferChar(details, '\n');
+ 
+ 		matches++;
+ 	}
+ 	while (scan_result != PSCAN_INCOMPLETE && scan_result != PSCAN_EOL);
+ 
+@@ -564,20 +561,20 @@ test_one_vector_escape(pe_test_config *tc, const pe_test_vector *tv, const pe_te
+ 	{
+ 		goto out;
+ 	}
+ 
+ 	/* name to describe the test */
+-	appendPQExpBuffer(testname, ">");
++	appendPQExpBufferChar(testname, '>');
+ 	escapify(testname, tv->escape, tv->escape_len);
+ 	appendPQExpBuffer(testname, "< - %s - %s",
+ 					  tv->client_encoding, ef->name);
+ 
+ 	/* details to describe the test, to allow for debugging */
+ 	appendPQExpBuffer(details, "#\t input: %zd bytes: ",
+ 					  tv->escape_len);
+ 	escapify(details, tv->escape, tv->escape_len);
+-	appendPQExpBufferStr(details, "\n");
++	appendPQExpBufferChar(details, '\n');
+ 	appendPQExpBuffer(details, "#\t encoding: %s\n",
+ 					  tv->client_encoding);
+ 
+ 
+ 	/* check encoding of input, to compare with after the test */

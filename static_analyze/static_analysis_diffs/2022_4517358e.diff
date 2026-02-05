@@ -1,0 +1,87 @@
+commit 4517358ee78213cd2ca18270ab4d32cd69b0b19d
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Tue Oct 25 15:24:41 2022 +1300
+
+    Fix stat() for recursive junction points on Windows.
+    
+    Commit c5cb8f3b supposed that we'd only ever have to follow one junction
+    point in stat(), because we don't construct longer chains of them ourselves.
+    When examining a parent directory supplied by the user, we should really be
+    able to cope with longer chains, just in case someone has their system
+    set up that way.  Choose an arbitrary cap of 8, to match the minimum
+    acceptable value of SYMLOOP_MAX in POSIX.
+    
+    Previously I'd avoided reporting ELOOP thinking Windows didn't have it,
+    but it turns out that it does, so we can use the proper error number.
+    
+    Reviewed-by: Roman Zharkov <r.zharkov@postgrespro.ru>
+    Discussion: https://postgr.es/m/CA%2BhUKGJ7JDGWYFt9%3D-TyJiRRy5q9TtPfqeKkneWDr1XPU1%2Biqw%40mail.gmail.com
+    Discussion: https://postgr.es/m/CA%2BhUKG%2BajSQ_8eu2AogTncOnZ5me2D-Cn66iN_-wZnRjLN%2Bicg%40mail.gmail.com
+
+diff --git a/src/port/win32stat.c b/src/port/win32stat.c
+index ce8d87093d8..e6553e4030b 100644
+--- a/src/port/win32stat.c
++++ b/src/port/win32stat.c
+@@ -197,27 +197,37 @@ _pglstat64(const char *name, struct stat *buf)
+  * Windows implementation of stat().
+  */
+ int
+ _pgstat64(const char *name, struct stat *buf)
+ {
++	int			loops = 0;
+ 	int			ret;
++	char		curr[MAXPGPATH];
+ 
+ 	ret = _pglstat64(name, buf);
+ 
++	strlcpy(curr, name, MAXPGPATH);
++
+ 	/* Do we need to follow a symlink (junction point)? */
+-	if (ret == 0 && S_ISLNK(buf->st_mode))
++	while (ret == 0 && S_ISLNK(buf->st_mode))
+ 	{
+ 		char		next[MAXPGPATH];
+ 		ssize_t		size;
+ 
++		if (++loops > 8)
++		{
++			errno = ELOOP;
++			return -1;
++		}
++
+ 		/*
+ 		 * _pglstat64() already called readlink() once to be able to fill in
+ 		 * st_size, and now we need to do it again to get the path to follow.
+ 		 * That could be optimized, but stat() on symlinks is probably rare
+ 		 * and this way is simple.
+ 		 */
+-		size = readlink(name, next, sizeof(next));
++		size = readlink(curr, next, sizeof(next));
+ 		if (size < 0)
+ 		{
+ 			if (errno == EACCES &&
+ 				pg_RtlGetLastNtStatus() == STATUS_DELETE_PENDING)
+ 			{
+@@ -232,21 +242,11 @@ _pgstat64(const char *name, struct stat *buf)
+ 			return -1;
+ 		}
+ 		next[size] = 0;
+ 
+ 		ret = _pglstat64(next, buf);
+-		if (ret == 0 && S_ISLNK(buf->st_mode))
+-		{
+-			/*
+-			 * We're only prepared to go one hop, because we only expect to
+-			 * deal with the simple cases that we create.  The error for too
+-			 * many symlinks is supposed to be ELOOP, but Windows hasn't got
+-			 * it.
+-			 */
+-			errno = EIO;
+-			return -1;
+-		}
++		strcpy(curr, next);
+ 	}
+ 
+ 	return ret;
+ }
+ 

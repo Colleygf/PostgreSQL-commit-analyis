@@ -1,0 +1,136 @@
+commit b1ffe3ff0b7ed87b34ae0fc6eba71bf032e41b59
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Fri Jun 21 18:31:15 2024 +0300
+
+    Fix bugs in MultiXact truncation
+    
+    1. TruncateMultiXact() performs the SLRU truncations in a critical
+    section. Deleting the SLRU segments calls ForwardSyncRequest(), which
+    will try to compact the request queue if it's full
+    (CompactCheckpointerRequestQueue()). That in turn allocates memory,
+    which is not allowed in a critical section. Backtrace:
+    
+        TRAP: failed Assert("CritSectionCount == 0 || (context)->allowInCritSection"), File: "../src/backend/utils/mmgr/mcxt.c", Line: 1353, PID: 920981
+        postgres: autovacuum worker template0(ExceptionalCondition+0x6e)[0x560a501e866e]
+        postgres: autovacuum worker template0(+0x5dce3d)[0x560a50217e3d]
+        postgres: autovacuum worker template0(ForwardSyncRequest+0x8e)[0x560a4ffec95e]
+        postgres: autovacuum worker template0(RegisterSyncRequest+0x2b)[0x560a50091eeb]
+        postgres: autovacuum worker template0(+0x187b0a)[0x560a4fdc2b0a]
+        postgres: autovacuum worker template0(SlruDeleteSegment+0x101)[0x560a4fdc2ab1]
+        postgres: autovacuum worker template0(TruncateMultiXact+0x2fb)[0x560a4fdbde1b]
+        postgres: autovacuum worker template0(vac_update_datfrozenxid+0x4b3)[0x560a4febd2f3]
+        postgres: autovacuum worker template0(+0x3adf66)[0x560a4ffe8f66]
+        postgres: autovacuum worker template0(AutoVacWorkerMain+0x3ed)[0x560a4ffe7c2d]
+        postgres: autovacuum worker template0(+0x3b1ead)[0x560a4ffecead]
+        postgres: autovacuum worker template0(+0x3b620e)[0x560a4fff120e]
+        postgres: autovacuum worker template0(+0x3b3fbb)[0x560a4ffeefbb]
+        postgres: autovacuum worker template0(+0x2f724e)[0x560a4ff3224e]
+        /lib/x86_64-linux-gnu/libc.so.6(+0x27c8a)[0x7f62cc642c8a]
+        /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x85)[0x7f62cc642d45]
+        postgres: autovacuum worker template0(_start+0x21)[0x560a4fd16f31]
+    
+    To fix, bail out in CompactCheckpointerRequestQueue() without doing
+    anything, if it's called in a critical section. That covers the above
+    call path, as well as any other similar cases where
+    RegisterSyncRequest might be called in a critical section.
+    
+    2. After fixing that, another problem became apparent: Autovacuum
+    process doing that truncation can deadlock with the checkpointer
+    process. TruncateMultiXact() sets "MyProc->delayChkptFlags |=
+    DELAY_CHKPT_START". If the sync request queue is full and cannot be
+    compacted, the process will repeatedly sleep and retry, until there is
+    room in the queue. However, if the checkpointer is trying to start a
+    checkpoint at the same time, and is waiting for the DELAY_CHKPT_START
+    processes to finish, the queue will never shrink.
+    
+    More concretely, the autovacuum process is stuck here:
+    
+        #0  0x00007fc934926dc3 in epoll_wait () from /lib/x86_64-linux-gnu/libc.so.6
+        #1  0x000056220b24348b in WaitEventSetWaitBlock (set=0x56220c2e4b50, occurred_events=0x7ffe7856d040, nevents=1, cur_timeout=<optimized out>) at ../src/backend/storage/ipc/latch.c:1570
+        #2  WaitEventSetWait (set=0x56220c2e4b50, timeout=timeout@entry=10, occurred_events=<optimized out>, occurred_events@entry=0x7ffe7856d040, nevents=nevents@entry=1,
+            wait_event_info=wait_event_info@entry=150994949) at ../src/backend/storage/ipc/latch.c:1516
+        #3  0x000056220b243224 in WaitLatch (latch=<optimized out>, latch@entry=0x0, wakeEvents=wakeEvents@entry=40, timeout=timeout@entry=10, wait_event_info=wait_event_info@entry=150994949)
+            at ../src/backend/storage/ipc/latch.c:538
+        #4  0x000056220b26cf46 in RegisterSyncRequest (ftag=ftag@entry=0x7ffe7856d0a0, type=type@entry=SYNC_FORGET_REQUEST, retryOnError=true) at ../src/backend/storage/sync/sync.c:614
+        #5  0x000056220af9db0a in SlruInternalDeleteSegment (ctl=ctl@entry=0x56220b7beb60 <MultiXactMemberCtlData>, segno=segno@entry=11350) at ../src/backend/access/transam/slru.c:1495
+        #6  0x000056220af9dab1 in SlruDeleteSegment (ctl=ctl@entry=0x56220b7beb60 <MultiXactMemberCtlData>, segno=segno@entry=11350) at ../src/backend/access/transam/slru.c:1566
+        #7  0x000056220af98e1b in PerformMembersTruncation (oldestOffset=<optimized out>, newOldestOffset=<optimized out>) at ../src/backend/access/transam/multixact.c:3006
+        #8  TruncateMultiXact (newOldestMulti=newOldestMulti@entry=3221225472, newOldestMultiDB=newOldestMultiDB@entry=4) at ../src/backend/access/transam/multixact.c:3201
+        #9  0x000056220b098303 in vac_truncate_clog (frozenXID=749, minMulti=<optimized out>, lastSaneFrozenXid=749, lastSaneMinMulti=3221225472) at ../src/backend/commands/vacuum.c:1917
+        #10 vac_update_datfrozenxid () at ../src/backend/commands/vacuum.c:1760
+        #11 0x000056220b1c3f76 in do_autovacuum () at ../src/backend/postmaster/autovacuum.c:2550
+        #12 0x000056220b1c2c3d in AutoVacWorkerMain (startup_data=<optimized out>, startup_data_len=<optimized out>) at ../src/backend/postmaster/autovacuum.c:1569
+    
+    and the checkpointer is stuck here:
+    
+        #0  0x00007fc9348ebf93 in clock_nanosleep () from /lib/x86_64-linux-gnu/libc.so.6
+        #1  0x00007fc9348fe353 in nanosleep () from /lib/x86_64-linux-gnu/libc.so.6
+        #2  0x000056220b40ecb4 in pg_usleep (microsec=microsec@entry=10000) at ../src/port/pgsleep.c:50
+        #3  0x000056220afb43c3 in CreateCheckPoint (flags=flags@entry=108) at ../src/backend/access/transam/xlog.c:7098
+        #4  0x000056220b1c6e86 in CheckpointerMain (startup_data=<optimized out>, startup_data_len=<optimized out>) at ../src/backend/postmaster/checkpointer.c:464
+    
+    To fix, add AbsorbSyncRequests() to the loops where the checkpointer
+    waits for DELAY_CHKPT_START or DELAY_CHKPT_COMPLETE operations to
+    finish.
+    
+    Backpatch to v14. Before that, SLRU deletion didn't call
+    RegisterSyncRequest, which avoided this failure. I'm not sure if there
+    are other similar scenarios on older versions, but we haven't had
+    any such reports.
+    
+    Discussion: https://www.postgresql.org/message-id/ccc66933-31c1-4f6a-bf4b-45fef0d4f22e@iki.fi
+
+diff --git a/src/backend/access/transam/xlog.c b/src/backend/access/transam/xlog.c
+index 330e058c5f2..8dcdf5a7646 100644
+--- a/src/backend/access/transam/xlog.c
++++ b/src/backend/access/transam/xlog.c
+@@ -7092,10 +7092,17 @@ CreateCheckPoint(int flags)
+ 	vxids = GetVirtualXIDsDelayingChkpt(&nvxids, DELAY_CHKPT_START);
+ 	if (nvxids > 0)
+ 	{
+ 		do
+ 		{
++			/*
++			 * Keep absorbing fsync requests while we wait. There could even
++			 * be a deadlock if we don't, if the process that prevents the
++			 * checkpoint is trying to add a request to the queue.
++			 */
++			AbsorbSyncRequests();
++
+ 			pgstat_report_wait_start(WAIT_EVENT_CHECKPOINT_DELAY_START);
+ 			pg_usleep(10000L);	/* wait for 10 msec */
+ 			pgstat_report_wait_end();
+ 		} while (HaveVirtualXIDsDelayingChkpt(vxids, nvxids,
+ 											  DELAY_CHKPT_START));
+@@ -7107,10 +7114,12 @@ CreateCheckPoint(int flags)
+ 	vxids = GetVirtualXIDsDelayingChkpt(&nvxids, DELAY_CHKPT_COMPLETE);
+ 	if (nvxids > 0)
+ 	{
+ 		do
+ 		{
++			AbsorbSyncRequests();
++
+ 			pgstat_report_wait_start(WAIT_EVENT_CHECKPOINT_DELAY_COMPLETE);
+ 			pg_usleep(10000L);	/* wait for 10 msec */
+ 			pgstat_report_wait_end();
+ 		} while (HaveVirtualXIDsDelayingChkpt(vxids, nvxids,
+ 											  DELAY_CHKPT_COMPLETE));
+diff --git a/src/backend/postmaster/checkpointer.c b/src/backend/postmaster/checkpointer.c
+index 3c68a9904db..199f008bcda 100644
+--- a/src/backend/postmaster/checkpointer.c
++++ b/src/backend/postmaster/checkpointer.c
+@@ -1167,10 +1167,14 @@ CompactCheckpointerRequestQueue(void)
+ 	bool	   *skip_slot;
+ 
+ 	/* must hold CheckpointerCommLock in exclusive mode */
+ 	Assert(LWLockHeldByMe(CheckpointerCommLock));
+ 
++	/* Avoid memory allocations in a critical section. */
++	if (CritSectionCount > 0)
++		return false;
++
+ 	/* Initialize skip_slot array */
+ 	skip_slot = palloc0(sizeof(bool) * CheckpointerShmem->num_requests);
+ 
+ 	/* Initialize temporary hash table */
+ 	ctl.keysize = sizeof(CheckpointerRequest);

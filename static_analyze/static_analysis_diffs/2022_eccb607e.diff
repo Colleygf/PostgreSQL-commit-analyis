@@ -1,0 +1,80 @@
+commit eccb607e19993483e25966abae895277599f77a2
+Author: Peter Geoghegan <pg@bowt.ie>
+Date:   Tue Sep 20 14:08:57 2022 -0700
+
+    Fix recent cpluspluscheck issue in selfuncs.h.
+    
+    Fix selfuncs.h cpluspluscheck complaint, without reintroducing a
+    parameter name inconsistency (restore the original declaration names,
+    and then make corresponding function definitions consistent with that).
+    
+    Oversight in commit a601366a.
+    
+    Author: Peter Geoghegan <pg@bowt.ie>
+    Reported-By: Andres Freund <andres@anarazel.de>
+
+diff --git a/src/backend/utils/adt/selfuncs.c b/src/backend/utils/adt/selfuncs.c
+index c746759eef4..1808388397a 100644
+--- a/src/backend/utils/adt/selfuncs.c
++++ b/src/backend/utils/adt/selfuncs.c
+@@ -288,11 +288,11 @@ eqsel_internal(PG_FUNCTION_ARGS, bool negate)
+  * var_eq_const --- eqsel for var = const case
+  *
+  * This is exported so that some other estimation functions can use it.
+  */
+ double
+-var_eq_const(VariableStatData *vardata, Oid operator, Oid collation,
++var_eq_const(VariableStatData *vardata, Oid oproid, Oid collation,
+ 			 Datum constval, bool constisnull,
+ 			 bool varonleft, bool negate)
+ {
+ 	double		selec;
+ 	double		nullfrac = 0.0;
+@@ -329,11 +329,11 @@ var_eq_const(VariableStatData *vardata, Oid operator, Oid collation,
+ 	{
+ 		selec = 1.0 / vardata->rel->tuples;
+ 	}
+ 	else if (HeapTupleIsValid(vardata->statsTuple) &&
+ 			 statistic_proc_security_check(vardata,
+-										   (opfuncoid = get_opcode(operator))))
++										   (opfuncoid = get_opcode(oproid))))
+ 	{
+ 		AttStatsSlot sslot;
+ 		bool		match = false;
+ 		int			i;
+ 
+@@ -459,11 +459,11 @@ var_eq_const(VariableStatData *vardata, Oid operator, Oid collation,
+  * var_eq_non_const --- eqsel for var = something-other-than-const case
+  *
+  * This is exported so that some other estimation functions can use it.
+  */
+ double
+-var_eq_non_const(VariableStatData *vardata, Oid operator, Oid collation,
++var_eq_non_const(VariableStatData *vardata, Oid oproid, Oid collation,
+ 				 Node *other,
+ 				 bool varonleft, bool negate)
+ {
+ 	double		selec;
+ 	double		nullfrac = 0.0;
+diff --git a/src/include/utils/selfuncs.h b/src/include/utils/selfuncs.h
+index 49af4ed2ede..d485b9bfcd9 100644
+--- a/src/include/utils/selfuncs.h
++++ b/src/include/utils/selfuncs.h
+@@ -179,15 +179,15 @@ extern double ineq_histogram_selectivity(PlannerInfo *root,
+ 										 Oid opoid, FmgrInfo *opproc,
+ 										 bool isgt, bool iseq,
+ 										 Oid collation,
+ 										 Datum constval, Oid consttype);
+ extern double var_eq_const(VariableStatData *vardata,
+-						   Oid operator, Oid collation,
++						   Oid oproid, Oid collation,
+ 						   Datum constval, bool constisnull,
+ 						   bool varonleft, bool negate);
+ extern double var_eq_non_const(VariableStatData *vardata,
+-							   Oid operator, Oid collation,
++							   Oid oproid, Oid collation,
+ 							   Node *other,
+ 							   bool varonleft, bool negate);
+ 
+ extern Selectivity boolvarsel(PlannerInfo *root, Node *arg, int varRelid);
+ extern Selectivity booltestsel(PlannerInfo *root, BoolTestType booltesttype,

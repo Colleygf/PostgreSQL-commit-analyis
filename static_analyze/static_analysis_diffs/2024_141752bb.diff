@@ -1,0 +1,45 @@
+commit 141752bbb0308a40bdbef3ab0a2ba31162813412
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Tue Jan 2 10:18:47 2024 +0100
+
+    Fix typos in simplehash.h
+    
+    Author: Richard Guo <guofenglinux@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/18252-d46d27900a277d87@postgresql.org
+
+diff --git a/src/include/lib/simplehash.h b/src/include/lib/simplehash.h
+index b1a3d7f9277..864cbbe3db4 100644
+--- a/src/include/lib/simplehash.h
++++ b/src/include/lib/simplehash.h
+@@ -768,26 +768,25 @@ restart:
+ 		}
+ 	}
+ }
+ 
+ /*
+- * Insert the key key into the hash-table, set *found to true if the key
+- * already exists, false otherwise. Returns the hash-table entry in either
+- * case.
++ * Insert the key into the hash-table, set *found to true if the key already
++ * exists, false otherwise. Returns the hash-table entry in either case.
+  */
+ SH_SCOPE	SH_ELEMENT_TYPE *
+ SH_INSERT(SH_TYPE * tb, SH_KEY_TYPE key, bool *found)
+ {
+ 	uint32		hash = SH_HASH_KEY(tb, key);
+ 
+ 	return SH_INSERT_HASH_INTERNAL(tb, key, hash, found);
+ }
+ 
+ /*
+- * Insert the key key into the hash-table using an already-calculated
+- * hash. Set *found to true if the key already exists, false
+- * otherwise. Returns the hash-table entry in either case.
++ * Insert the key into the hash-table using an already-calculated hash. Set
++ * *found to true if the key already exists, false otherwise. Returns the
++ * hash-table entry in either case.
+  */
+ SH_SCOPE	SH_ELEMENT_TYPE *
+ SH_INSERT_HASH(SH_TYPE * tb, SH_KEY_TYPE key, uint32 hash, bool *found)
+ {
+ 	return SH_INSERT_HASH_INTERNAL(tb, key, hash, found);

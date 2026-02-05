@@ -1,0 +1,110 @@
+commit 5dc456b7dda4f7d0d7735b066607c190c74d174a
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Fri Aug 11 20:43:34 2023 +0900
+
+    Fix code indentation violations introduced by recent commit
+    
+    The two culprit commits are 5765cfe and 5e0c761.
+    
+    Per buildfarm member koel for the first commit, while I have noticed the
+    second one in passing.
+
+diff --git a/src/backend/utils/fmgr/fmgr.c b/src/backend/utils/fmgr/fmgr.c
+index 6b2d7d7be38..9dfdf890c51 100644
+--- a/src/backend/utils/fmgr/fmgr.c
++++ b/src/backend/utils/fmgr/fmgr.c
+@@ -667,11 +667,12 @@ fmgr_security_definer(PG_FUNCTION_ARGS)
+ 
+ 		datum = SysCacheGetAttr(PROCOID, tuple, Anum_pg_proc_proconfig,
+ 								&isnull);
+ 		if (!isnull)
+ 		{
+-			ArrayType *array;
++			ArrayType  *array;
++
+ 			oldcxt = MemoryContextSwitchTo(fcinfo->flinfo->fn_mcxt);
+ 			array = DatumGetArrayTypeP(datum);
+ 			TransformGUCArray(array, &fcache->configNames,
+ 							  &fcache->configValues);
+ 			MemoryContextSwitchTo(oldcxt);
+@@ -684,26 +685,26 @@ fmgr_security_definer(PG_FUNCTION_ARGS)
+ 	else
+ 		fcache = fcinfo->flinfo->fn_extra;
+ 
+ 	/* GetUserIdAndSecContext is cheap enough that no harm in a wasted call */
+ 	GetUserIdAndSecContext(&save_userid, &save_sec_context);
+-	if (fcache->configNames != NIL)		/* Need a new GUC nesting level */
++	if (fcache->configNames != NIL) /* Need a new GUC nesting level */
+ 		save_nestlevel = NewGUCNestLevel();
+ 	else
+ 		save_nestlevel = 0;		/* keep compiler quiet */
+ 
+ 	if (OidIsValid(fcache->userid))
+ 		SetUserIdAndSecContext(fcache->userid,
+ 							   save_sec_context | SECURITY_LOCAL_USERID_CHANGE);
+ 
+ 	forboth(lc1, fcache->configNames, lc2, fcache->configValues)
+ 	{
+-		GucContext	 context = superuser() ? PGC_SUSET : PGC_USERSET;
+-		GucSource	 source	 = PGC_S_SESSION;
+-		GucAction	 action	 = GUC_ACTION_SAVE;
+-		char		*name	 = lfirst(lc1);
+-		char		*value	 = lfirst(lc2);
++		GucContext	context = superuser() ? PGC_SUSET : PGC_USERSET;
++		GucSource	source = PGC_S_SESSION;
++		GucAction	action = GUC_ACTION_SAVE;
++		char	   *name = lfirst(lc1);
++		char	   *value = lfirst(lc2);
+ 
+ 		(void) set_config_option(name, value,
+ 								 context, source,
+ 								 action, true, 0, false);
+ 	}
+diff --git a/src/backend/utils/misc/guc.c b/src/backend/utils/misc/guc.c
+index 3449470953a..99bb2fdd190 100644
+--- a/src/backend/utils/misc/guc.c
++++ b/src/backend/utils/misc/guc.c
+@@ -6278,20 +6278,20 @@ TransformGUCArray(ArrayType *array, List **names, List **values)
+  */
+ void
+ ProcessGUCArray(ArrayType *array,
+ 				GucContext context, GucSource source, GucAction action)
+ {
+-	List *gucNames;
+-	List *gucValues;
+-	ListCell *lc1;
+-	ListCell *lc2;
++	List	   *gucNames;
++	List	   *gucValues;
++	ListCell   *lc1;
++	ListCell   *lc2;
+ 
+ 	TransformGUCArray(array, &gucNames, &gucValues);
+ 	forboth(lc1, gucNames, lc2, gucValues)
+ 	{
+-		char *name = lfirst(lc1);
+-		char *value = lfirst(lc2);
++		char	   *name = lfirst(lc1);
++		char	   *value = lfirst(lc2);
+ 
+ 		(void) set_config_option(name, value,
+ 								 context, source,
+ 								 action, true, 0, false);
+ 
+diff --git a/src/bin/pgbench/pgbench.c b/src/bin/pgbench/pgbench.c
+index d2b7fc87e44..763c4b946a4 100644
+--- a/src/bin/pgbench/pgbench.c
++++ b/src/bin/pgbench/pgbench.c
+@@ -2244,11 +2244,11 @@ evalStandardFunc(CState *st,
+ 
+ 	/*
+ 	 * This value is double braced to workaround GCC bug 53119, which seems to
+ 	 * exist at least on gcc (Debian 4.7.2-5) 4.7.2, 32-bit.
+ 	 */
+-	PgBenchValue vargs[MAX_FARGS] = { { 0 } };
++	PgBenchValue vargs[MAX_FARGS] = {{0}};
+ 
+ 	for (nargs = 0; nargs < MAX_FARGS && l != NULL; nargs++, l = l->next)
+ 	{
+ 		if (!evaluateExpr(st, l->expr, &vargs[nargs]))
+ 			return false;

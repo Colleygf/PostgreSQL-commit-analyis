@@ -1,0 +1,95 @@
+commit b7f315c9d7d839dda847b10d170ffec7c3f4dbba
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Fri Nov 10 22:46:46 2023 +0200
+
+    Fix how SJE checks against PHVs
+    
+    It seems that a PHV evaluated/needed at or below the self join should not have
+    a problem if we remove the self join.  But this requires further investigation.
+    For now, we just do not remove self joins if the rel to be removed is laterally
+    referenced by PHVs.
+    
+    Discussion: https://postgr.es/m/CAMbWs4-ns73VF9gi37q61G3dS6Xuos+HtryMaBh37WQn=BsaJw@mail.gmail.com
+    Author: Richard Guo
+
+diff --git a/src/backend/optimizer/plan/analyzejoins.c b/src/backend/optimizer/plan/analyzejoins.c
+index 271f694d996..b9be19a687f 100644
+--- a/src/backend/optimizer/plan/analyzejoins.c
++++ b/src/backend/optimizer/plan/analyzejoins.c
+@@ -474,11 +474,10 @@ remove_rel_from_query(PlannerInfo *root, RelOptInfo *rel,
+ 			/* ph_needed might or might not become empty */
+ 			phv->phrels = replace_relid(phv->phrels, relid, subst);
+ 			phv->phrels = replace_relid(phv->phrels, ojrelid, subst);
+ 			Assert(!bms_is_empty(phv->phrels));
+ 			replace_varno((Node *) phv->phexpr, relid, subst);
+-			phinfo->ph_lateral = replace_relid(phinfo->ph_lateral, relid, subst);
+ 			Assert(phv->phnullingrels == NULL); /* no need to adjust */
+ 		}
+ 	}
+ }
+ 
+@@ -2132,11 +2131,12 @@ remove_self_joins_one_group(PlannerInfo *root, Relids relids)
+ 			{
+ 				PlaceHolderInfo *phinfo = (PlaceHolderInfo *) lfirst(lc);
+ 
+ 				/* there isn't any other place to eval PHV */
+ 				if (bms_is_subset(phinfo->ph_eval_at, joinrelids) ||
+-					bms_is_subset(phinfo->ph_needed, joinrelids))
++					bms_is_subset(phinfo->ph_needed, joinrelids) ||
++					bms_is_member(r, phinfo->ph_lateral))
+ 					break;
+ 			}
+ 			if (lc)
+ 				continue;
+ 
+diff --git a/src/test/regress/expected/join.out b/src/test/regress/expected/join.out
+index b60f5a67c1e..2c73270143b 100644
+--- a/src/test/regress/expected/join.out
++++ b/src/test/regress/expected/join.out
+@@ -6819,10 +6819,25 @@ on true;
+                ->  Materialize
+                      ->  Seq Scan on emp1 t4
+                            Filter: (id IS NOT NULL)
+ (8 rows)
+ 
++-- Check that SJE does not remove self joins if a PHV references the removed
++-- rel laterally.
++explain (costs off)
++select * from emp1 t1 join emp1 t2 on t1.id = t2.id left join
++    lateral (select t1.id as t1id, * from generate_series(1,1) t3) s on true;
++                    QUERY PLAN                     
++---------------------------------------------------
++ Nested Loop Left Join
++   ->  Nested Loop
++         ->  Seq Scan on emp1 t1
++         ->  Index Scan using emp1_pkey on emp1 t2
++               Index Cond: (id = t1.id)
++   ->  Function Scan on generate_series t3
++(6 rows)
++
+ -- We can remove the join even if we find the join can't duplicate rows and
+ -- the base quals of each side are different.  In the following case we end up
+ -- moving quals over to s1 to make it so it can't match any rows.
+ create table sl(a int, b int, c int);
+ create unique index on sl(a, b);
+diff --git a/src/test/regress/sql/join.sql b/src/test/regress/sql/join.sql
+index fbaee480d32..8a8a63bd2f1 100644
+--- a/src/test/regress/sql/join.sql
++++ b/src/test/regress/sql/join.sql
+@@ -2598,10 +2598,16 @@ select * from emp1 t1 left join
+     (select coalesce(t3.code, 1) from emp1 t2
+         left join (emp1 t3 join emp1 t4 on t3.id = t4.id)
+         on true)
+ on true;
+ 
++-- Check that SJE does not remove self joins if a PHV references the removed
++-- rel laterally.
++explain (costs off)
++select * from emp1 t1 join emp1 t2 on t1.id = t2.id left join
++    lateral (select t1.id as t1id, * from generate_series(1,1) t3) s on true;
++
+ -- We can remove the join even if we find the join can't duplicate rows and
+ -- the base quals of each side are different.  In the following case we end up
+ -- moving quals over to s1 to make it so it can't match any rows.
+ create table sl(a int, b int, c int);
+ create unique index on sl(a, b);

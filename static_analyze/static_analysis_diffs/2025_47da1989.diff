@@ -1,0 +1,75 @@
+commit 47da198934e9a764ad3c60c5e573ab13b4e2d591
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Sat Dec 6 14:41:29 2025 +0900
+
+    Improve error reporting of recovery test 027_stream_regress
+    
+    Previously, the 027_stream_regress test reported the full contents of
+    regression.diffs upon a test failure, when the standby and the primary
+    were still alive.  If a test fails quite badly, the amount of
+    information reported can be really high, bloating the reports in the
+    buildfarm, the CI, or even local runs.
+    
+    In most cases, we have noticed that having all this information is not
+    necessary when attempting to identify the source of a problem in this
+    test.  This commit changes the situation by including the head and tail
+    of regression.diffs in the reports generated on failure rather than its
+    full contents, building upon b93f4e2f98b3 to optionally control the size
+    of the reports with the new environment variable
+    PG_TEST_FILE_READ_LINES.
+    
+    This will perhaps require some more tuning, but the hope is to reduce
+    some of the buildfarm report bloat while making the information good
+    enough to deduce what is happening when something is going wrong, be it
+    in the buildfarm or some tests run in the CI, at least.
+    
+    Suggested-by: Andres Freund <andres@anarazel.de>
+    Author: Nazir Bilal Yavuz <byavuz81@gmail.com>
+    Reviewed-by: Michael Paquier <michael@paquier.xyz>
+    Discussion: https://postgr.es/m/CAN55FZ1D6KXvjSs7YGsDeadqCxNF3UUhjRAfforzzP0k-cE=bA@mail.gmail.com
+
+diff --git a/src/test/recovery/t/027_stream_regress.pl b/src/test/recovery/t/027_stream_regress.pl
+index 589c79d97d3..195e1eb8347 100644
+--- a/src/test/recovery/t/027_stream_regress.pl
++++ b/src/test/recovery/t/027_stream_regress.pl
+@@ -81,24 +81,34 @@ my $rc =
+ 	  . "--max-concurrent-tests=20 "
+ 	  . "--inputdir=../regress "
+ 	  . "--outputdir=\"$outputdir\"");
+ 
+ # Regression diffs are only meaningful if both the primary and the standby
+-# are still alive after a regression test failure.  A crash would cause a
+-# useless increase in the log quantity, mostly filled with information
+-# related to queries that could not run.
++# are still alive after a regression test failure.
+ my $primary_alive = $node_primary->is_alive;
+ my $standby_alive = $node_standby_1->is_alive;
+ if ($rc != 0 && $primary_alive && $standby_alive)
+ {
+ 	# Dump out the regression diffs file, if there is one
+ 	my $diffs = "$outputdir/regression.diffs";
+ 	if (-e $diffs)
+ 	{
+-		print "=== dumping $diffs ===\n";
+-		print slurp_file($diffs);
+-		print "=== EOF ===\n";
++		# Dump portions of the diff file.
++		my ($head, $tail) = read_head_tail($diffs);
++
++		diag("=== dumping $diffs (head) ===");
++		foreach my $line (@$head)
++		{
++			diag($line);
++		}
++
++		diag("=== dumping $diffs (tail) ===");
++		foreach my $line (@$tail)
++		{
++			diag($line);
++		}
++		diag("=== EOF ===");
+ 	}
+ }
+ is($rc, 0, 'regression tests pass');
+ is($primary_alive, 1, 'primary alive after regression test run');
+ is($standby_alive, 1, 'standby alive after regression test run');

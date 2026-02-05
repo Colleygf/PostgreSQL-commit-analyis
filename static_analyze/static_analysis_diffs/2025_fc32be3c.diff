@@ -1,0 +1,77 @@
+commit fc32be3c941f9d98dd9f549153a5fcea6c3e9b8b
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Mon Jun 2 10:12:58 2025 +0200
+
+    Fix incorrect format placeholders
+    
+    Fixes for return type of dclist_count().
+
+diff --git a/src/backend/storage/aio/aio.c b/src/backend/storage/aio/aio.c
+index c64d815ebd1..6c6c0a908e2 100644
+--- a/src/backend/storage/aio/aio.c
++++ b/src/backend/storage/aio/aio.c
+@@ -750,11 +750,11 @@ pgaio_io_reclaim(PgAioHandle *ioh)
+ static void
+ pgaio_io_wait_for_free(void)
+ {
+ 	int			reclaimed = 0;
+ 
+-	pgaio_debug(DEBUG2, "waiting for free IO with %d pending, %d in-flight, %d idle IOs",
++	pgaio_debug(DEBUG2, "waiting for free IO with %d pending, %u in-flight, %u idle IOs",
+ 				pgaio_my_backend->num_staged_ios,
+ 				dclist_count(&pgaio_my_backend->in_flight_ios),
+ 				dclist_count(&pgaio_my_backend->idle_ios));
+ 
+ 	/*
+@@ -795,11 +795,11 @@ pgaio_io_wait_for_free(void)
+ 		return;
+ 
+ 	if (dclist_count(&pgaio_my_backend->in_flight_ios) == 0)
+ 		ereport(ERROR,
+ 				errmsg_internal("no free IOs despite no in-flight IOs"),
+-				errdetail_internal("%d pending, %d in-flight, %d idle IOs",
++				errdetail_internal("%d pending, %u in-flight, %u idle IOs",
+ 								   pgaio_my_backend->num_staged_ios,
+ 								   dclist_count(&pgaio_my_backend->in_flight_ios),
+ 								   dclist_count(&pgaio_my_backend->idle_ios)));
+ 
+ 	/*
+@@ -826,11 +826,11 @@ pgaio_io_wait_for_free(void)
+ 				break;
+ 
+ 			case PGAIO_HS_COMPLETED_IO:
+ 			case PGAIO_HS_SUBMITTED:
+ 				pgaio_debug_io(DEBUG2, ioh,
+-							   "waiting for free io with %d in flight",
++							   "waiting for free io with %u in flight",
+ 							   dclist_count(&pgaio_my_backend->in_flight_ios));
+ 
+ 				/*
+ 				 * In a more general case this would be racy, because the
+ 				 * generation could increase after we read ioh->state above.
+@@ -1250,11 +1250,11 @@ pgaio_closing_fd(int fd)
+ 
+ 			if (!ioh)
+ 				break;
+ 
+ 			pgaio_debug_io(DEBUG2, ioh,
+-						   "waiting for IO before FD %d gets closed, %d in-flight IOs",
++						   "waiting for IO before FD %d gets closed, %u in-flight IOs",
+ 						   fd, dclist_count(&pgaio_my_backend->in_flight_ios));
+ 
+ 			/* see comment in pgaio_io_wait_for_free() about raciness */
+ 			pgaio_io_wait(ioh, generation);
+ 		}
+@@ -1286,11 +1286,11 @@ pgaio_shutdown(int code, Datum arg)
+ 	{
+ 		PgAioHandle *ioh = dclist_head_element(PgAioHandle, node, &pgaio_my_backend->in_flight_ios);
+ 		uint64		generation = ioh->generation;
+ 
+ 		pgaio_debug_io(DEBUG2, ioh,
+-					   "waiting for IO to complete during shutdown, %d in-flight IOs",
++					   "waiting for IO to complete during shutdown, %u in-flight IOs",
+ 					   dclist_count(&pgaio_my_backend->in_flight_ios));
+ 
+ 		/* see comment in pgaio_io_wait_for_free() about raciness */
+ 		pgaio_io_wait(ioh, generation);
+ 	}

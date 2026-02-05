@@ -1,0 +1,71 @@
+commit 8d7d2197f31c1839db4726d1a12cb29016f4fa36
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Mon Dec 11 08:50:43 2023 +0530
+
+    Fix an undetected deadlock due to apply worker.
+    
+    The apply worker needs to update the state of the subscription tables to
+    'READY' during the synchronization phase which requires locking the
+    corresponding subscription. The apply worker also waits for the
+    subscription tables to reach the 'SYNCDONE' state after holding the locks
+    on the subscription and the wait is done using WaitLatch. The 'SYNCDONE'
+    state is changed by tablesync workers again by locking the corresponding
+    subscription. Both the state updates use AccessShareLock mode to lock the
+    subscription, so they can't block each other. However, a backend can
+    simultaneously try to acquire a lock on the same subscription using
+    AccessExclusiveLock mode to alter the subscription. Now, the backend's
+    wait on a lock can sneak in between the apply worker and table sync worker
+    causing deadlock.
+    
+    In other words, apply_worker waits for tablesync worker which waits for
+    backend, and backend waits for apply worker. This is not detected by the
+    deadlock detector because apply worker uses WaitLatch.
+    
+    The fix is to release existing locks in apply worker before it starts to
+    wait for tablesync worker to change the state.
+    
+    Reported-by: Tomas Vondra
+    Author: Shlok Kyal
+    Reviewed-by: Amit Kapila, Peter Smith
+    Backpatch-through: 12
+    Discussion: https://postgr.es/m/d291bb50-12c4-e8af-2af2-7bb9bb4d8e3e@enterprisedb.com
+
+diff --git a/src/backend/replication/logical/tablesync.c b/src/backend/replication/logical/tablesync.c
+index df3c42eb5de..4d056c16c8d 100644
+--- a/src/backend/replication/logical/tablesync.c
++++ b/src/backend/replication/logical/tablesync.c
+@@ -539,19 +539,29 @@ process_syncing_tables_for_apply(XLogRecPtr current_lsn)
+ 						logicalrep_worker_wakeup_ptr(syncworker);
+ 
+ 					/* Now safe to release the LWLock */
+ 					LWLockRelease(LogicalRepWorkerLock);
+ 
++					if (started_tx)
++					{
++						/*
++						 * We must commit the existing transaction to release
++						 * the existing locks before entering a busy loop.
++						 * This is required to avoid any undetected deadlocks
++						 * due to any existing lock as deadlock detector won't
++						 * be able to detect the waits on the latch.
++						 */
++						CommitTransactionCommand();
++						pgstat_report_stat(false);
++					}
++
+ 					/*
+ 					 * Enter busy loop and wait for synchronization worker to
+ 					 * reach expected state (or die trying).
+ 					 */
+-					if (!started_tx)
+-					{
+-						StartTransactionCommand();
+-						started_tx = true;
+-					}
++					StartTransactionCommand();
++					started_tx = true;
+ 
+ 					wait_for_relation_state_change(rstate->relid,
+ 												   SUBREL_STATE_SYNCDONE);
+ 				}
+ 				else

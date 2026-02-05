@@ -1,0 +1,97 @@
+commit 4766eef3174b0b1bd8d2428381a7a33813386a6a
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Wed Apr 5 12:56:29 2023 -0400
+
+    Fix another issue with ENABLE/DISABLE TRIGGER on partitioned tables.
+    
+    In v13 and v14, the ENABLE/DISABLE TRIGGER USER variant malfunctioned
+    on cloned triggers, failing to find the clones because it thought they
+    were system triggers.  Other variants of ENABLE/DISABLE TRIGGER would
+    improperly apply a superuserness check.  Fix by adjusting the is-it-
+    a-system-trigger check to match reality in those branches.  (As far
+    as I can find, this is the only place that got it wrong.)
+    
+    There's no such bug in v15/HEAD, because we revised the catalog
+    representation of system triggers to be what this code was expecting.
+    However, add the test case to these branches anyway, because this area
+    is visibly pretty fragile.  Also remove an obsoleted comment.
+    
+    The recent v15/HEAD commit 6949b921d fixed a nearby bug.  I now see
+    that my commit message for that was inaccurate: the behavior of
+    recursing to clone triggers is older than v15, but it didn't apply
+    to the case in v13/v14 because in those branches parent partitioned
+    tables have no pg_trigger entries for foreign-key triggers.  But add
+    the test case from that commit to v13/v14, just to show what is
+    happening there.
+    
+    Per bug #17886 from DzmitryH.
+    
+    Discussion: https://postgr.es/m/17886-5406d5d828aa4aa3@postgresql.org
+
+diff --git a/src/backend/commands/trigger.c b/src/backend/commands/trigger.c
+index 0f2de7e2e01..4b295f8da5e 100644
+--- a/src/backend/commands/trigger.c
++++ b/src/backend/commands/trigger.c
+@@ -861,15 +861,10 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
+ 		trigname = stmt->trigname;
+ 	}
+ 
+ 	/*
+ 	 * Build the new pg_trigger tuple.
+-	 *
+-	 * When we're creating a trigger in a partition, we mark it as internal,
+-	 * even though we don't do the isInternal magic in this function.  This
+-	 * makes the triggers in partitions identical to the ones in the
+-	 * partitioned tables, except that they are marked internal.
+ 	 */
+ 	memset(nulls, false, sizeof(nulls));
+ 
+ 	values[Anum_pg_trigger_oid - 1] = ObjectIdGetDatum(trigoid);
+ 	values[Anum_pg_trigger_tgrelid - 1] = ObjectIdGetDatum(RelationGetRelid(rel));
+diff --git a/src/test/regress/expected/triggers.out b/src/test/regress/expected/triggers.out
+index f7301b52130..e8de916dfe2 100644
+--- a/src/test/regress/expected/triggers.out
++++ b/src/test/regress/expected/triggers.out
+@@ -2716,10 +2716,22 @@ select tgrelid::regclass, tgname, tgenabled from pg_trigger
+  child1  | tg      | A
+  parent  | tg      | A
+  parent  | tg_stmt | A
+ (3 rows)
+ 
++-- This variant malfunctioned in some releases.
++alter table parent disable trigger user;
++select tgrelid::regclass, tgname, tgenabled from pg_trigger
++  where tgrelid in ('parent'::regclass, 'child1'::regclass)
++  order by tgrelid::regclass::text, tgname;
++ tgrelid | tgname  | tgenabled 
++---------+---------+-----------
++ child1  | tg      | D
++ parent  | tg      | D
++ parent  | tg_stmt | D
++(3 rows)
++
+ drop table parent, child1;
+ -- Check processing of foreign key triggers
+ create table parent (a int primary key, f int references parent)
+   partition by list (a);
+ create table child1 partition of parent for values in (1);
+diff --git a/src/test/regress/sql/triggers.sql b/src/test/regress/sql/triggers.sql
+index 4222a8500b4..d29e98d2ac9 100644
+--- a/src/test/regress/sql/triggers.sql
++++ b/src/test/regress/sql/triggers.sql
+@@ -1876,10 +1876,15 @@ select tgrelid::regclass, tgname, tgenabled from pg_trigger
+   where tgrelid in ('parent'::regclass, 'child1'::regclass)
+   order by tgrelid::regclass::text, tgname;
+ -- The following is a no-op for the parent trigger but not so
+ -- for the child trigger, so recursion should be applied.
+ alter table parent enable always trigger tg;
++select tgrelid::regclass, tgname, tgenabled from pg_trigger
++  where tgrelid in ('parent'::regclass, 'child1'::regclass)
++  order by tgrelid::regclass::text, tgname;
++-- This variant malfunctioned in some releases.
++alter table parent disable trigger user;
+ select tgrelid::regclass, tgname, tgenabled from pg_trigger
+   where tgrelid in ('parent'::regclass, 'child1'::regclass)
+   order by tgrelid::regclass::text, tgname;
+ drop table parent, child1;
+ 

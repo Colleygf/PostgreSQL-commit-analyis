@@ -1,0 +1,106 @@
+commit 21ac38f498b33f0231842238b83847ec63dfe07b
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Thu May 9 13:31:22 2024 +0200
+
+    Fix inconsistencies in error messages
+    
+    Reported by Kyotaro Horiguchi
+    
+    Also some comments mentioning wrong version numbers, spotted by Justin
+    Pryzby.
+    
+    Discussion: https://postgr.es/m/20240507.171724.750916195320223609.horikyota.ntt@gmail.com
+    Discussion: https://postgr.es/m/Zh0aAH7tbZb-9HbC@pryzbyj2023
+
+diff --git a/src/backend/catalog/pg_constraint.c b/src/backend/catalog/pg_constraint.c
+index 6b8496e0850..12a73d5a309 100644
+--- a/src/backend/catalog/pg_constraint.c
++++ b/src/backend/catalog/pg_constraint.c
+@@ -756,11 +756,11 @@ AdjustNotNullInheritance1(Oid relid, AttrNumber attnum, int count,
+ 		if (!is_no_inherit && conform->connoinherit)
+ 		{
+ 			if (!allow_noinherit_change)
+ 				ereport(ERROR,
+ 						errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+-						errmsg("cannot change NO INHERIT status of NOT NULL constraint \"%s\" in relation \"%s\"",
++						errmsg("cannot change NO INHERIT status of NOT NULL constraint \"%s\" on relation \"%s\"",
+ 							   NameStr(conform->conname), get_rel_name(relid)));
+ 
+ 			conform->connoinherit = false;
+ 			retval = -1;		/* caller must add constraint on child rels */
+ 		}
+diff --git a/src/backend/commands/tablecmds.c b/src/backend/commands/tablecmds.c
+index 5bf5e69c5b8..925978c35b9 100644
+--- a/src/backend/commands/tablecmds.c
++++ b/src/backend/commands/tablecmds.c
+@@ -7903,15 +7903,14 @@ ATExecSetNotNull(List **wqueue, Relation rel, char *conName, char *colName,
+ 		 * Don't let a NO INHERIT constraint be changed into inherit.
+ 		 */
+ 		if (conForm->connoinherit && recurse)
+ 			ereport(ERROR,
+ 					errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+-					errmsg("cannot change NO INHERIT status of NOT NULL constraint \"%s\" in relation \"%s\"",
++					errmsg("cannot change NO INHERIT status of NOT NULL constraint \"%s\" on relation \"%s\"",
+ 						   NameStr(conForm->conname),
+ 						   RelationGetRelationName(rel)));
+ 
+-
+ 		/*
+ 		 * If we find an appropriate constraint, we're almost done, but just
+ 		 * need to change some properties on it: if we're recursing, increment
+ 		 * coninhcount; if not, set conislocal if not already set.
+ 		 */
+diff --git a/src/bin/pg_dump/common.c b/src/bin/pg_dump/common.c
+index c7dd0b11fd2..ba53c66098a 100644
+--- a/src/bin/pg_dump/common.c
++++ b/src/bin/pg_dump/common.c
+@@ -476,11 +476,11 @@ flagInhIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
+  *	 for each dumpable table in tblinfo, flag its inherited attributes
+  *
+  * What we need to do here is:
+  *
+  * - Detect child columns that inherit NOT NULL bits from their parents, so
+- *   that we needn't specify that again for the child. (Versions >= 16 no
++ *   that we needn't specify that again for the child. (Versions >= 17 no
+  *   longer need this.)
+  *
+  * - Detect child columns that have DEFAULT NULL when their parents had some
+  *   non-null default.  In this case, we make up a dummy AttrDefInfo object so
+  *   that we'll correctly emit the necessary DEFAULT NULL clause; otherwise
+diff --git a/src/bin/pg_dump/pg_dump.c b/src/bin/pg_dump/pg_dump.c
+index 379debac24a..5f005a2f140 100644
+--- a/src/bin/pg_dump/pg_dump.c
++++ b/src/bin/pg_dump/pg_dump.c
+@@ -8862,11 +8862,11 @@ getTableAttrs(Archive *fout, TableInfo *tblinfo, int numTables)
+ 					  "LEFT JOIN pg_catalog.pg_type t "
+ 					  "ON (a.atttypid = t.oid)\n",
+ 					  tbloids->data);
+ 
+ 	/*
+-	 * In versions 16 and up, we need pg_constraint for explicit NOT NULL
++	 * In versions 17 and up, we need pg_constraint for explicit NOT NULL
+ 	 * entries.  Also, we need to know if the NOT NULL for each column is
+ 	 * backing a primary key.
+ 	 */
+ 	if (fout->remoteVersion >= 170000)
+ 		appendPQExpBufferStr(q,
+diff --git a/src/test/regress/expected/inherit.out b/src/test/regress/expected/inherit.out
+index eaa65049c7b..a621db0aa3d 100644
+--- a/src/test/regress/expected/inherit.out
++++ b/src/test/regress/expected/inherit.out
+@@ -2278,13 +2278,13 @@ Child tables: inh_nn_child,
+ 
+ drop table inh_nn_parent, inh_nn_child, inh_nn_child2;
+ CREATE TABLE inh_nn_parent (a int, NOT NULL a NO INHERIT);
+ CREATE TABLE inh_nn_child() INHERITS (inh_nn_parent);
+ ALTER TABLE inh_nn_parent ADD CONSTRAINT nna NOT NULL a;
+-ERROR:  cannot change NO INHERIT status of NOT NULL constraint "inh_nn_parent_a_not_null" in relation "inh_nn_parent"
++ERROR:  cannot change NO INHERIT status of NOT NULL constraint "inh_nn_parent_a_not_null" on relation "inh_nn_parent"
+ ALTER TABLE inh_nn_parent ALTER a SET NOT NULL;
+-ERROR:  cannot change NO INHERIT status of NOT NULL constraint "inh_nn_parent_a_not_null" in relation "inh_nn_parent"
++ERROR:  cannot change NO INHERIT status of NOT NULL constraint "inh_nn_parent_a_not_null" on relation "inh_nn_parent"
+ DROP TABLE inh_nn_parent cascade;
+ NOTICE:  drop cascades to table inh_nn_child
+ -- Adding a PK at the top level of a hierarchy should cause all descendants
+ -- to be checked for nulls, even past a no-inherit constraint
+ CREATE TABLE inh_nn_lvl1 (a int);

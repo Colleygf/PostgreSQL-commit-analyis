@@ -1,0 +1,72 @@
+commit 67bab53d64428e4d43386be0e077cd662bc9cad3
+Author: Noah Misch <noah@leadboat.com>
+Date:   Thu Oct 24 09:16:38 2024 -0700
+
+    Fix parallel worker tracking of new catalog relfilenumbers.
+    
+    Reunite RestorePendingSyncs() with RestoreRelationMap().  If
+    RelationInitPhysicalAddr() ran after RestoreRelationMap() but before
+    RestorePendingSyncs(), the relcache entry could cause RelationNeedsWAL()
+    to return true erroneously.  Trouble required commands of the current
+    transaction to include REINDEX or CLUSTER of a system catalog.  The
+    parallel leader correctly derived RelationNeedsWAL()==false from the new
+    relfilenumber, but the worker saw RelationNeedsWAL()==true.  Worker
+    MarkBufferDirtyHint() then wrote unwanted WAL.  Recovery of that
+    unwanted WAL could lose tuples like the system could before commit
+    c6b92041d38512a4176ed76ad06f713d2e6c01a8 introduced this tracking.
+    RestorePendingSyncs() and RestoreRelationMap() were adjacent till commit
+    126ec0bc76d044d3a9eb86538b61242bf7da6db4, so no back-patch for now.
+    
+    Reviewed by Tom Lane.
+    
+    Discussion: https://postgr.es/m/20241019232815.c6.nmisch@google.com
+
+diff --git a/src/backend/access/transam/parallel.c b/src/backend/access/transam/parallel.c
+index d4e84aabac7..4a2e352d579 100644
+--- a/src/backend/access/transam/parallel.c
++++ b/src/backend/access/transam/parallel.c
+@@ -1419,21 +1419,22 @@ ParallelWorkerMain(Datum main_arg)
+ 	/* Crank up a transaction state appropriate to a parallel worker. */
+ 	tstatespace = shm_toc_lookup(toc, PARALLEL_KEY_TRANSACTION_STATE, false);
+ 	StartParallelWorkerTransaction(tstatespace);
+ 
+ 	/*
+-	 * Restore relmapper and reindex state early, since these affect catalog
+-	 * access.  Ideally we'd do this even before calling InitPostgres, but
+-	 * that has order-of-initialization problems, and also the relmapper would
+-	 * get confused during the CommitTransactionCommand call above.
++	 * Restore state that affects catalog access.  Ideally we'd do this even
++	 * before calling InitPostgres, but that has order-of-initialization
++	 * problems, and also the relmapper would get confused during the
++	 * CommitTransactionCommand call above.
+ 	 */
++	pendingsyncsspace = shm_toc_lookup(toc, PARALLEL_KEY_PENDING_SYNCS,
++									   false);
++	RestorePendingSyncs(pendingsyncsspace);
+ 	relmapperspace = shm_toc_lookup(toc, PARALLEL_KEY_RELMAPPER_STATE, false);
+ 	RestoreRelationMap(relmapperspace);
+ 	reindexspace = shm_toc_lookup(toc, PARALLEL_KEY_REINDEX_STATE, false);
+ 	RestoreReindexState(reindexspace);
+-
+-	/* Restore combo CID state. */
+ 	combocidspace = shm_toc_lookup(toc, PARALLEL_KEY_COMBO_CID, false);
+ 	RestoreComboCIDState(combocidspace);
+ 
+ 	/* Attach to the per-session DSM segment and contained objects. */
+ 	session_dsm_handle_space =
+@@ -1486,15 +1487,10 @@ ParallelWorkerMain(Datum main_arg)
+ 
+ 	/* Restore temp-namespace state to ensure search path matches leader's. */
+ 	SetTempNamespaceState(fps->temp_namespace_id,
+ 						  fps->temp_toast_namespace_id);
+ 
+-	/* Restore pending syncs. */
+-	pendingsyncsspace = shm_toc_lookup(toc, PARALLEL_KEY_PENDING_SYNCS,
+-									   false);
+-	RestorePendingSyncs(pendingsyncsspace);
+-
+ 	/* Restore uncommitted enums. */
+ 	uncommittedenumsspace = shm_toc_lookup(toc, PARALLEL_KEY_UNCOMMITTEDENUMS,
+ 										   false);
+ 	RestoreUncommittedEnums(uncommittedenumsspace);
+ 

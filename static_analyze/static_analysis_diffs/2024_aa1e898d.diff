@@ -1,0 +1,52 @@
+commit aa1e898dea666629bb5314fd25445545b9eb7b27
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Fri Oct 25 13:07:07 2024 +0300
+
+    Fix concurrrently in typcache_rel_type_cache.sql
+    
+    All injection points there must be local.  Otherwise it affects parallel
+    tests.
+    
+    Reported-by: Andres Freund
+    Discussion: https://postgr.es/m/b3ybc66l6lhmtzj2n7ypumz5yjz7njc46sddsqshdtstgj74ah%40qgtn6nzokj6a
+
+diff --git a/src/test/modules/typcache/expected/typcache_rel_type_cache.out b/src/test/modules/typcache/expected/typcache_rel_type_cache.out
+index b113e0bbd5d..a91bd72b9bd 100644
+--- a/src/test/modules/typcache/expected/typcache_rel_type_cache.out
++++ b/src/test/modules/typcache/expected/typcache_rel_type_cache.out
+@@ -6,10 +6,17 @@
+ -- entry should be created.  This is validated by subsequent modification of
+ -- the table schema, then type casts which use new schema implying
+ -- successful type cache invalidation by relation oid.
+ --
+ CREATE EXTENSION injection_points;
++-- Make all injection points local to this process, for concurrency.
++SELECT injection_points_set_local();
++ injection_points_set_local 
++----------------------------
++ 
++(1 row)
++
+ CREATE TABLE t (i int);
+ SELECT injection_points_attach('typecache-before-rel-type-cache-insert', 'error');
+  injection_points_attach 
+ -------------------------
+  
+diff --git a/src/test/modules/typcache/sql/typcache_rel_type_cache.sql b/src/test/modules/typcache/sql/typcache_rel_type_cache.sql
+index 2c0a434d988..c1a3af509c0 100644
+--- a/src/test/modules/typcache/sql/typcache_rel_type_cache.sql
++++ b/src/test/modules/typcache/sql/typcache_rel_type_cache.sql
+@@ -8,10 +8,13 @@
+ -- successful type cache invalidation by relation oid.
+ --
+ 
+ CREATE EXTENSION injection_points;
+ 
++-- Make all injection points local to this process, for concurrency.
++SELECT injection_points_set_local();
++
+ CREATE TABLE t (i int);
+ SELECT injection_points_attach('typecache-before-rel-type-cache-insert', 'error');
+ SELECT '(1)'::t;
+ SELECT injection_points_detach('typecache-before-rel-type-cache-insert');
+ ALTER TABLE t ADD COLUMN j int;

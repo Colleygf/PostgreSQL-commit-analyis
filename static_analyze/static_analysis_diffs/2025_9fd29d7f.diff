@@ -1,0 +1,79 @@
+commit 9fd29d7ff476f3f1c1a22d6d6f730e813eddd960
+Author: David Rowley <drowley@postgresql.org>
+Date:   Tue Oct 21 20:46:14 2025 +1300
+
+    Fix BRIN 32-bit counter wrap issue with huge tables
+    
+    A BlockNumber (32-bit) might not be large enough to add bo_pagesPerRange
+    to when the table contains close to 2^32 pages.  At worst, this could
+    result in a cancellable infinite loop during the BRIN index scan with
+    power-of-2 pagesPerRange, and slow (inefficient) BRIN index scans and
+    scanning of unneeded heap blocks for non power-of-2 pagesPerRange.
+    
+    Backpatch to all supported versions.
+    
+    Author: sunil s <sunilfeb26@gmail.com>
+    Reviewed-by: David Rowley <dgrowleyml@gmail.com>
+    Reviewed-by: Michael Paquier <michael@paquier.xyz>
+    Discussion: https://postgr.es/m/CAOG6S4-tGksTQhVzJM19NzLYAHusXsK2HmADPZzGQcfZABsvpA@mail.gmail.com
+    Backpatch-through: 13
+
+diff --git a/src/backend/access/brin/brin.c b/src/backend/access/brin/brin.c
+index 7ff7467e462..f37faf3562b 100644
+--- a/src/backend/access/brin/brin.c
++++ b/src/backend/access/brin/brin.c
+@@ -571,11 +571,10 @@ bringetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
+ 	BrinDesc   *bdesc;
+ 	Oid			heapOid;
+ 	Relation	heapRel;
+ 	BrinOpaque *opaque;
+ 	BlockNumber nblocks;
+-	BlockNumber heapBlk;
+ 	int64		totalpages = 0;
+ 	FmgrInfo   *consistentFn;
+ 	MemoryContext oldcxt;
+ 	MemoryContext perRangeCxt;
+ 	BrinMemTuple *dtup;
+@@ -733,13 +732,14 @@ bringetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
+ 	oldcxt = MemoryContextSwitchTo(perRangeCxt);
+ 
+ 	/*
+ 	 * Now scan the revmap.  We start by querying for heap page 0,
+ 	 * incrementing by the number of pages per range; this gives us a full
+-	 * view of the table.
++	 * view of the table.  We make use of uint64 for heapBlk as a BlockNumber
++	 * could wrap for tables with close to 2^32 pages.
+ 	 */
+-	for (heapBlk = 0; heapBlk < nblocks; heapBlk += opaque->bo_pagesPerRange)
++	for (uint64 heapBlk = 0; heapBlk < nblocks; heapBlk += opaque->bo_pagesPerRange)
+ 	{
+ 		bool		addrange;
+ 		bool		gottuple = false;
+ 		BrinTuple  *tup;
+ 		OffsetNumber off;
+@@ -747,11 +747,11 @@ bringetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
+ 
+ 		CHECK_FOR_INTERRUPTS();
+ 
+ 		MemoryContextReset(perRangeCxt);
+ 
+-		tup = brinGetTupleForHeapBlock(opaque->bo_rmAccess, heapBlk, &buf,
++		tup = brinGetTupleForHeapBlock(opaque->bo_rmAccess, (BlockNumber ) heapBlk, &buf,
+ 									   &off, &size, BUFFER_LOCK_SHARE);
+ 		if (tup)
+ 		{
+ 			gottuple = true;
+ 			btup = brin_copy_tuple(tup, size, btup, &btupsz);
+@@ -922,11 +922,11 @@ bringetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
+ 		}
+ 
+ 		/* add the pages in the range to the output bitmap, if needed */
+ 		if (addrange)
+ 		{
+-			BlockNumber pageno;
++			uint64 pageno;
+ 
+ 			for (pageno = heapBlk;
+ 				 pageno <= Min(nblocks, heapBlk + opaque->bo_pagesPerRange) - 1;
+ 				 pageno++)
+ 			{

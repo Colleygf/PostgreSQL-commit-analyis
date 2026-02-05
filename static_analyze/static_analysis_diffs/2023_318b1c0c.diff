@@ -1,0 +1,109 @@
+commit 318b1c0cc1660c51c06a716de5d36367afa2499e
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri Feb 24 08:02:48 2023 +0100
+
+    Fix incorrect format placeholders
+
+diff --git a/src/backend/statistics/dependencies.c b/src/backend/statistics/dependencies.c
+index e6e2835345e..a156756b4e1 100644
+--- a/src/backend/statistics/dependencies.c
++++ b/src/backend/statistics/dependencies.c
+@@ -507,11 +507,11 @@ statext_dependencies_deserialize(bytea *data)
+ 
+ 	if (data == NULL)
+ 		return NULL;
+ 
+ 	if (VARSIZE_ANY_EXHDR(data) < SizeOfHeader)
+-		elog(ERROR, "invalid MVDependencies size %zd (expected at least %zd)",
++		elog(ERROR, "invalid MVDependencies size %zu (expected at least %zu)",
+ 			 VARSIZE_ANY_EXHDR(data), SizeOfHeader);
+ 
+ 	/* read the MVDependencies header */
+ 	dependencies = (MVDependencies *) palloc0(sizeof(MVDependencies));
+ 
+@@ -539,11 +539,11 @@ statext_dependencies_deserialize(bytea *data)
+ 
+ 	/* what minimum bytea size do we expect for those parameters */
+ 	min_expected_size = SizeOfItem(dependencies->ndeps);
+ 
+ 	if (VARSIZE_ANY_EXHDR(data) < min_expected_size)
+-		elog(ERROR, "invalid dependencies size %zd (expected at least %zd)",
++		elog(ERROR, "invalid dependencies size %zu (expected at least %zu)",
+ 			 VARSIZE_ANY_EXHDR(data), min_expected_size);
+ 
+ 	/* allocate space for the MCV items */
+ 	dependencies = repalloc(dependencies, offsetof(MVDependencies, deps)
+ 							+ (dependencies->ndeps * sizeof(MVDependency *)));
+diff --git a/src/backend/statistics/mcv.c b/src/backend/statistics/mcv.c
+index e21e0e87e41..03b9f04bb56 100644
+--- a/src/backend/statistics/mcv.c
++++ b/src/backend/statistics/mcv.c
+@@ -1030,11 +1030,11 @@ statext_mcv_deserialize(bytea *data)
+ 	 * We can't possibly deserialize a MCV list if there's not even a complete
+ 	 * header. We need an explicit formula here, because we serialize the
+ 	 * header fields one by one, so we need to ignore struct alignment.
+ 	 */
+ 	if (VARSIZE_ANY(data) < MinSizeOfMCVList)
+-		elog(ERROR, "invalid MCV size %zd (expected at least %zu)",
++		elog(ERROR, "invalid MCV size %zu (expected at least %zu)",
+ 			 VARSIZE_ANY(data), MinSizeOfMCVList);
+ 
+ 	/* read the MCV list header */
+ 	mcvlist = (MCVList *) palloc0(offsetof(MCVList, items));
+ 
+@@ -1091,11 +1091,11 @@ statext_mcv_deserialize(bytea *data)
+ 	 * Check that we have at least the dimension and info records, along with
+ 	 * the items. We don't know the size of the serialized values yet. We need
+ 	 * to do this check first, before accessing the dimension info.
+ 	 */
+ 	if (VARSIZE_ANY(data) < expected_size)
+-		elog(ERROR, "invalid MCV size %zd (expected %zu)",
++		elog(ERROR, "invalid MCV size %zu (expected %zu)",
+ 			 VARSIZE_ANY(data), expected_size);
+ 
+ 	/* Now copy the array of type Oids. */
+ 	memcpy(mcvlist->types, ptr, sizeof(Oid) * ndims);
+ 	ptr += (sizeof(Oid) * ndims);
+@@ -1123,11 +1123,11 @@ statext_mcv_deserialize(bytea *data)
+ 	 * Now we know the total expected MCV size, including all the pieces
+ 	 * (header, dimension info. items and deduplicated data). So do the final
+ 	 * check on size.
+ 	 */
+ 	if (VARSIZE_ANY(data) != expected_size)
+-		elog(ERROR, "invalid MCV size %zd (expected %zu)",
++		elog(ERROR, "invalid MCV size %zu (expected %zu)",
+ 			 VARSIZE_ANY(data), expected_size);
+ 
+ 	/*
+ 	 * We need an array of Datum values for each dimension, so that we can
+ 	 * easily translate the uint16 indexes later. We also need a top-level
+diff --git a/src/backend/statistics/mvdistinct.c b/src/backend/statistics/mvdistinct.c
+index df5cc3e13a7..6d25c14644a 100644
+--- a/src/backend/statistics/mvdistinct.c
++++ b/src/backend/statistics/mvdistinct.c
+@@ -259,11 +259,11 @@ statext_ndistinct_deserialize(bytea *data)
+ 	if (data == NULL)
+ 		return NULL;
+ 
+ 	/* we expect at least the basic fields of MVNDistinct struct */
+ 	if (VARSIZE_ANY_EXHDR(data) < SizeOfHeader)
+-		elog(ERROR, "invalid MVNDistinct size %zd (expected at least %zd)",
++		elog(ERROR, "invalid MVNDistinct size %zu (expected at least %zu)",
+ 			 VARSIZE_ANY_EXHDR(data), SizeOfHeader);
+ 
+ 	/* initialize pointer to the data part (skip the varlena header) */
+ 	tmp = VARDATA_ANY(data);
+ 
+@@ -285,11 +285,11 @@ statext_ndistinct_deserialize(bytea *data)
+ 		elog(ERROR, "invalid zero-length item array in MVNDistinct");
+ 
+ 	/* what minimum bytea size do we expect for those parameters */
+ 	minimum_size = MinSizeOfItems(ndist.nitems);
+ 	if (VARSIZE_ANY_EXHDR(data) < minimum_size)
+-		elog(ERROR, "invalid MVNDistinct size %zd (expected at least %zd)",
++		elog(ERROR, "invalid MVNDistinct size %zu (expected at least %zu)",
+ 			 VARSIZE_ANY_EXHDR(data), minimum_size);
+ 
+ 	/*
+ 	 * Allocate space for the ndistinct items (no space for each item's
+ 	 * attnos: those live in bitmapsets allocated separately)

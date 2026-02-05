@@ -1,0 +1,93 @@
+commit 17935e1fdf0aff083347b4b2d6268d945041d188
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Thu Nov 30 10:56:48 2023 +0100
+
+    Fix array subscript warnings
+    
+    Commit a5cf808be55 accidentally passed signed chars to isalpha and
+    isspace in the parser code which leads to undefined behavior.  Fix
+    by casting the parameters to unsigned chars.
+    
+    Author: Pavel Stehule <pavel.stehule@gmail.com>
+    Reported-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Reported-by: Michael Paquier <michael@paquier.xyz>
+    Discussion: https://postgr.es/m/388186.1701315586@sss.pgh.pa.us
+    Discussion: https://postgr.es/m/ZWgg5xim2CXQcfmh@paquier.xyz
+
+diff --git a/src/bin/pg_dump/filter.c b/src/bin/pg_dump/filter.c
+index dff871c7cd0..d79b6da27c0 100644
+--- a/src/bin/pg_dump/filter.c
++++ b/src/bin/pg_dump/filter.c
+@@ -183,18 +183,18 @@ filter_get_keyword(const char **line, int *size)
+ 
+ 	/* Set returned length preemptively in case no keyword is found */
+ 	*size = 0;
+ 
+ 	/* Skip initial whitespace */
+-	while (isspace(*ptr))
++	while (isspace((unsigned char) *ptr))
+ 		ptr++;
+ 
+-	if (isalpha(*ptr))
++	if (isalpha((unsigned char) *ptr))
+ 	{
+ 		result = ptr++;
+ 
+-		while (isalpha(*ptr) || *ptr == '_')
++		while (isalpha((unsigned char) *ptr) || *ptr == '_')
+ 			ptr++;
+ 
+ 		*size = ptr - result;
+ 	}
+ 
+@@ -299,22 +299,22 @@ read_pattern(FilterStateData *fstate, const char *str, PQExpBuffer pattern)
+ {
+ 	bool		skip_space = true;
+ 	bool		found_space = false;
+ 
+ 	/* Skip initial whitespace */
+-	while (isspace(*str))
++	while (isspace((unsigned char) *str))
+ 		str++;
+ 
+ 	if (*str == '\0')
+ 	{
+ 		pg_log_filter_error(fstate, _("missing object name pattern"));
+ 		fstate->exit_nicely(1);
+ 	}
+ 
+ 	while (*str && *str != '#')
+ 	{
+-		while (*str && !isspace(*str) && !strchr("#,.()\"", *str))
++		while (*str && !isspace((unsigned char) *str) && !strchr("#,.()\"", *str))
+ 		{
+ 			/*
+ 			 * Append space only when it is allowed, and when it was found in
+ 			 * original string.
+ 			 */
+@@ -349,11 +349,11 @@ read_pattern(FilterStateData *fstate, const char *str, PQExpBuffer pattern)
+ 		}
+ 
+ 		found_space = false;
+ 
+ 		/* skip ending whitespaces */
+-		while (isspace(*str))
++		while (isspace((unsigned char) *str))
+ 		{
+ 			found_space = true;
+ 			str++;
+ 		}
+ 	}
+@@ -398,11 +398,11 @@ filter_read_item(FilterStateData *fstate,
+ 		PQExpBufferData pattern;
+ 
+ 		fstate->lineno++;
+ 
+ 		/* Skip initial white spaces */
+-		while (isspace(*str))
++		while (isspace((unsigned char) *str))
+ 			str++;
+ 
+ 		/*
+ 		 * Skip empty lines or lines where the first non-whitespace character
+ 		 * is a hash indicating a comment.

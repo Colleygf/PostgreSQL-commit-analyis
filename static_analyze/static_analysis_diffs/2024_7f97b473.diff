@@ -1,0 +1,116 @@
+commit 7f97b4734f937db6f8dab1bbf8bbaab349e6c9b1
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Dec 23 14:46:49 2024 +0900
+
+    Fix some comments related to library unloading
+    
+    Library unloading has never been supported with its code removed in
+    ab02d702ef08, and there were some comments still mentioning that it was
+    a possible operation.
+    
+    ChangAo has noticed the incorrect references in dfmgr.c, while I have
+    noticed the other ones while scanning the rest of the tree for similar
+    mistakes.
+    
+    Author: ChangAo Chen, Michael Paquier
+    Reviewed-by: Tom Lane
+    Discussion: https://postgr.es/m/tencent_1D09840A1632D406A610C8C4E2491D74DB0A@qq.com
+
+diff --git a/contrib/auto_explain/auto_explain.c b/contrib/auto_explain/auto_explain.c
+index f2eaa8e4949..4d87ea808e7 100644
+--- a/contrib/auto_explain/auto_explain.c
++++ b/contrib/auto_explain/auto_explain.c
+@@ -68,11 +68,11 @@ static bool current_query_sampled = false;
+ #define auto_explain_enabled() \
+ 	(auto_explain_log_min_duration >= 0 && \
+ 	 (nesting_level == 0 || auto_explain_log_nested_statements) && \
+ 	 current_query_sampled)
+ 
+-/* Saved hook values in case of unload */
++/* Saved hook values */
+ static ExecutorStart_hook_type prev_ExecutorStart = NULL;
+ static ExecutorRun_hook_type prev_ExecutorRun = NULL;
+ static ExecutorFinish_hook_type prev_ExecutorFinish = NULL;
+ static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
+ 
+diff --git a/contrib/passwordcheck/passwordcheck.c b/contrib/passwordcheck/passwordcheck.c
+index 0785618f2ab..b5d95b558e9 100644
+--- a/contrib/passwordcheck/passwordcheck.c
++++ b/contrib/passwordcheck/passwordcheck.c
+@@ -24,11 +24,11 @@
+ #include "fmgr.h"
+ #include "libpq/crypt.h"
+ 
+ PG_MODULE_MAGIC;
+ 
+-/* Saved hook value in case of unload */
++/* Saved hook value */
+ static check_password_hook_type prev_check_password_hook = NULL;
+ 
+ /* passwords shorter than this will be rejected */
+ #define MIN_PWD_LENGTH 8
+ 
+diff --git a/contrib/pg_stat_statements/pg_stat_statements.c b/contrib/pg_stat_statements/pg_stat_statements.c
+index 602cae54ffd..7b3dd137b8f 100644
+--- a/contrib/pg_stat_statements/pg_stat_statements.c
++++ b/contrib/pg_stat_statements/pg_stat_statements.c
+@@ -254,11 +254,11 @@ typedef struct pgssSharedState
+ /*---- Local variables ----*/
+ 
+ /* Current nesting depth of planner/ExecutorRun/ProcessUtility calls */
+ static int	nesting_level = 0;
+ 
+-/* Saved hook values in case of unload */
++/* Saved hook values */
+ static shmem_request_hook_type prev_shmem_request_hook = NULL;
+ static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
+ static post_parse_analyze_hook_type prev_post_parse_analyze_hook = NULL;
+ static planner_hook_type prev_planner_hook = NULL;
+ static ExecutorStart_hook_type prev_ExecutorStart = NULL;
+diff --git a/contrib/sepgsql/hooks.c b/contrib/sepgsql/hooks.c
+index 0f206b1093d..edf5206aa8b 100644
+--- a/contrib/sepgsql/hooks.c
++++ b/contrib/sepgsql/hooks.c
+@@ -392,11 +392,11 @@ sepgsql_utility_command(PlannedStmt *pstmt,
+ 	}
+ 	PG_END_TRY();
+ }
+ 
+ /*
+- * Module load/unload callback
++ * Module load callback
+  */
+ void
+ _PG_init(void)
+ {
+ 	/*
+diff --git a/src/backend/utils/fmgr/dfmgr.c b/src/backend/utils/fmgr/dfmgr.c
+index 8e81ecc7491..8b7807472fd 100644
+--- a/src/backend/utils/fmgr/dfmgr.c
++++ b/src/backend/utils/fmgr/dfmgr.c
+@@ -123,11 +123,11 @@ load_external_function(const char *filename, const char *funcname,
+ }
+ 
+ /*
+  * This function loads a shlib file without looking up any particular
+  * function in it.  If the same shlib has previously been loaded,
+- * unload and reload it.
++ * we do not load it again.
+  *
+  * When 'restricted' is true, only libraries in the presumed-secure
+  * directory $libdir/plugins may be referenced.
+  */
+ void
+@@ -140,11 +140,11 @@ load_file(const char *filename, bool restricted)
+ 		check_restricted_library_name(filename);
+ 
+ 	/* Expand the possibly-abbreviated filename to an exact path name */
+ 	fullname = expand_dynamic_library_name(filename);
+ 
+-	/* Load the shared library */
++	/* Load the shared library, unless we already did */
+ 	(void) internal_load_library(fullname);
+ 
+ 	pfree(fullname);
+ }
+ 

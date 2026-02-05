@@ -1,0 +1,36 @@
+commit 86b276a4a9b4b2c63ef00765f0e2867e1bcac4ca
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Wed Nov 19 10:41:28 2025 +0100
+
+    Fix indentation
+    
+    for commit 0fc33b00536
+
+diff --git a/src/backend/utils/misc/guc.c b/src/backend/utils/misc/guc.c
+index 526a57a16f8..c6484aea087 100644
+--- a/src/backend/utils/misc/guc.c
++++ b/src/backend/utils/misc/guc.c
+@@ -3134,13 +3134,21 @@ parse_and_validate_value(const struct config_generic *record,
+ 				{
+ 					char	   *hintmsg;
+ 
+ 					hintmsg = config_enum_get_options(conf,
+ 													  _("Available values: "),
+-													  /* translator: This is the terminator of a list of entity names. */
++
++					/*
++					 * translator: This is the terminator of a list of entity
++					 * names.
++					 */
+ 													  _("."),
+-													  /* translator: This is a separator in a list of entity names. */
++
++					/*
++					 * translator: This is a separator in a list of entity
++					 * names.
++					 */
+ 													  _(", "));
+ 
+ 					ereport(elevel,
+ 							(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+ 							 errmsg("invalid value for parameter \"%s\": \"%s\"",

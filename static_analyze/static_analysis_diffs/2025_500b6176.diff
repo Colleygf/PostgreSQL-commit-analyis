@@ -1,0 +1,101 @@
+commit 500b61769fa27e9f00a03c3f544f70da3bf3d679
+Author: Andres Freund <andres@anarazel.de>
+Date:   Fri Apr 25 12:18:27 2025 -0400
+
+    Fix bug allowing io_combine_limit > io_max_combine_combine limit
+    
+    10f66468475 intended to limit the value of io_combine_limit to the minimum of
+    io_combine_limit and io_max_combine_limit. To avoid issues with interdependent
+    GUCs, it introduced io_combine_limit_guc and set io_combine_limit in assign
+    hooks. That plan was thwarted by guc_tables.c accidentally still referencing
+    io_combine_limit, instead of io_combine_limit_guc.  That lead to the GUC
+    machinery overriding the work done in the assign hooks, potentially leaving
+    io_combine_limit with a too high value.
+    
+    The consequence of this bug was that when running with io_combine_limit >
+    io_combine_limit_guc the AIO machinery would not have reserved large enough
+    iovec and IO data arrays, with one IO's arrays overlapping with another IO's,
+    leading to total confusion.
+    
+    To make such a problem easier to detect in the future, add assertions to
+    pgaio_io_set_handle_data_* checking the length is smaller than
+    io_max_combine_limit (not just PG_IOV_MAX).
+    
+    It'd be nice to have a few tests for this, but it's not entirely obvious how
+    to do so portably.
+    
+    As remarked upon by Tom, the GUC assignment hooks really shouldn't set the
+    underlying variable, that's the job of the GUC machinery. Change that as well.
+    
+    Discussion: https://postgr.es/m/c5jyqnuwrpigd35qe7xdypxsisdjrdba5iw63mhcse4mzjogxo@qdjpv22z763f
+
+diff --git a/src/backend/commands/variable.c b/src/backend/commands/variable.c
+index a9f2a3a3062..608f10d9412 100644
+--- a/src/backend/commands/variable.c
++++ b/src/backend/commands/variable.c
+@@ -1161,18 +1161,16 @@ assign_maintenance_io_concurrency(int newval, void *extra)
+  * they may be assigned in either order.
+  */
+ void
+ assign_io_max_combine_limit(int newval, void *extra)
+ {
+-	io_max_combine_limit = newval;
+-	io_combine_limit = Min(io_max_combine_limit, io_combine_limit_guc);
++	io_combine_limit = Min(newval, io_combine_limit_guc);
+ }
+ void
+ assign_io_combine_limit(int newval, void *extra)
+ {
+-	io_combine_limit_guc = newval;
+-	io_combine_limit = Min(io_max_combine_limit, io_combine_limit_guc);
++	io_combine_limit = Min(io_max_combine_limit, newval);
+ }
+ 
+ /*
+  * These show hooks just exist because we want to show the values in octal.
+  */
+diff --git a/src/backend/storage/aio/aio_callback.c b/src/backend/storage/aio/aio_callback.c
+index bf42778a48c..0ad9795bb7e 100644
+--- a/src/backend/storage/aio/aio_callback.c
++++ b/src/backend/storage/aio/aio_callback.c
+@@ -122,10 +122,11 @@ void
+ pgaio_io_set_handle_data_64(PgAioHandle *ioh, uint64 *data, uint8 len)
+ {
+ 	Assert(ioh->state == PGAIO_HS_HANDED_OUT);
+ 	Assert(ioh->handle_data_len == 0);
+ 	Assert(len <= PG_IOV_MAX);
++	Assert(len <= io_max_combine_limit);
+ 
+ 	for (int i = 0; i < len; i++)
+ 		pgaio_ctl->handle_data[ioh->iovec_off + i] = data[i];
+ 	ioh->handle_data_len = len;
+ }
+@@ -139,10 +140,11 @@ void
+ pgaio_io_set_handle_data_32(PgAioHandle *ioh, uint32 *data, uint8 len)
+ {
+ 	Assert(ioh->state == PGAIO_HS_HANDED_OUT);
+ 	Assert(ioh->handle_data_len == 0);
+ 	Assert(len <= PG_IOV_MAX);
++	Assert(len <= io_max_combine_limit);
+ 
+ 	for (int i = 0; i < len; i++)
+ 		pgaio_ctl->handle_data[ioh->iovec_off + i] = data[i];
+ 	ioh->handle_data_len = len;
+ }
+diff --git a/src/backend/utils/misc/guc_tables.c b/src/backend/utils/misc/guc_tables.c
+index 60b12446a1c..2f8cbd86759 100644
+--- a/src/backend/utils/misc/guc_tables.c
++++ b/src/backend/utils/misc/guc_tables.c
+@@ -3285,11 +3285,11 @@ struct config_int ConfigureNamesInt[] =
+ 			RESOURCES_IO,
+ 			gettext_noop("Limit on the size of data reads and writes."),
+ 			NULL,
+ 			GUC_UNIT_BLOCKS
+ 		},
+-		&io_combine_limit,
++		&io_combine_limit_guc,
+ 		DEFAULT_IO_COMBINE_LIMIT,
+ 		1, MAX_IO_COMBINE_LIMIT,
+ 		NULL, assign_io_combine_limit, NULL
+ 	},
+ 

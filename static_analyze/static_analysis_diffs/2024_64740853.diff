@@ -1,0 +1,62 @@
+commit 64740853f07fd1a8314ad68c38298d7e5afe1acc
+Author: Noah Misch <noah@leadboat.com>
+Date:   Sun Aug 18 12:03:59 2024 -0700
+
+    Fix comments on wal_level=minimal, CREATE TABLESPACE and CREATE DATABASE.
+    
+    Commit 97ddda8a82ac470ae581d0eb485b6577707678bc removed the rmtree()
+    behavior from XLOG_TBLSPC_CREATE, obsoleting that part of the comment.
+    The comment's point about XLOG_DBASE_CREATE was wrong when commit
+    fa0f466d5329e10b16f3b38c8eaf5306f7e234e8 introduced the point.  (It
+    would have been accurate if that commit had predated commit
+    fbcbc5d06f53aea412130deb52e216aa3883fb8d introducing the second
+    checkpoint of CREATE DATABASE.)  Nothing can skip log_smgrcreate() on
+    the basis of wal_level=minimal, so don't comment on that.
+    
+    Commit c6b92041d38512a4176ed76ad06f713d2e6c01a8 expanded WAL skipping
+    from five specific operations to relfilenodes generally, hence the
+    CreateDatabaseUsingFileCopy() comment change.
+    
+    Discussion: https://postgr.es/m/20231008022204.cc@rfd.leadboat.com
+
+diff --git a/src/backend/access/heap/heapam_handler.c b/src/backend/access/heap/heapam_handler.c
+index e28047c201a..1c6da286d43 100644
+--- a/src/backend/access/heap/heapam_handler.c
++++ b/src/backend/access/heap/heapam_handler.c
+@@ -603,13 +603,11 @@ heapam_relation_set_new_filelocator(Relation rel,
+ 
+ 	srel = RelationCreateStorage(*newrlocator, persistence, true);
+ 
+ 	/*
+ 	 * If required, set up an init fork for an unlogged table so that it can
+-	 * be correctly reinitialized on restart.  Recovery may remove it while
+-	 * replaying, for example, an XLOG_DBASE_CREATE* or XLOG_TBLSPC_CREATE
+-	 * record.  Therefore, logging is necessary even if wal_level=minimal.
++	 * be correctly reinitialized on restart.
+ 	 */
+ 	if (persistence == RELPERSISTENCE_UNLOGGED)
+ 	{
+ 		Assert(rel->rd_rel->relkind == RELKIND_RELATION ||
+ 			   rel->rd_rel->relkind == RELKIND_MATVIEW ||
+diff --git a/src/backend/commands/dbcommands.c b/src/backend/commands/dbcommands.c
+index 7c92c3463b6..eb2301a5cf4 100644
+--- a/src/backend/commands/dbcommands.c
++++ b/src/backend/commands/dbcommands.c
+@@ -642,13 +642,14 @@ CreateDatabaseUsingFileCopy(Oid src_dboid, Oid dst_dboid, Oid src_tsid,
+ 	 * committed XLOG_DBASE_CREATE_FILE_COPY operations will never need to be
+ 	 * replayed (at least not in ordinary crash recovery; we still have to
+ 	 * make the XLOG entry for the benefit of PITR operations). This avoids
+ 	 * two nasty scenarios:
+ 	 *
+-	 * #1: When PITR is off, we don't XLOG the contents of newly created
+-	 * indexes; therefore the drop-and-recreate-whole-directory behavior of
+-	 * DBASE_CREATE replay would lose such indexes.
++	 * #1: At wal_level=minimal, we don't XLOG the contents of newly created
++	 * relfilenodes; therefore the drop-and-recreate-whole-directory behavior
++	 * of DBASE_CREATE replay would lose such files created in the new
++	 * database between our commit and the next checkpoint.
+ 	 *
+ 	 * #2: Since we have to recopy the source database during DBASE_CREATE
+ 	 * replay, we run the risk of copying changes in it that were committed
+ 	 * after the original CREATE DATABASE command but before the system crash
+ 	 * that led to the replay.  This is at least unexpected and at worst could

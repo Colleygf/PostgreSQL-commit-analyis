@@ -1,0 +1,106 @@
+commit db22b900244d3c51918acce44cbe5bb6f6507d32
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Tue Nov 12 01:44:20 2024 +0200
+
+    Fix arrays comparison in CompareOpclassOptions()
+    
+    The current code calls array_eq() and does not provide FmgrInfo.  This commit
+    provides initialization of FmgrInfo and uses C collation as the safe option
+    for text comparison because we don't know anything about the semantics of
+    opclass options.
+    
+    Backpatch to 13, where opclass options were introduced.
+    
+    Reported-by: Nicolas Maus
+    Discussion: https://postgr.es/m/18692-72ea398df3ec6712%40postgresql.org
+    Backpatch-through: 13
+
+diff --git a/contrib/pg_trgm/expected/pg_trgm.out b/contrib/pg_trgm/expected/pg_trgm.out
+index ce4bf1d4e51..0b70d9de256 100644
+--- a/contrib/pg_trgm/expected/pg_trgm.out
++++ b/contrib/pg_trgm/expected/pg_trgm.out
+@@ -2370,10 +2370,13 @@ DETAIL:  Valid values are between "1" and "2024".
+ create index trgm_idx on test_trgm using gist (t gist_trgm_ops(siglen=2025));
+ ERROR:  value 2025 out of bounds for option "siglen"
+ DETAIL:  Valid values are between "1" and "2024".
+ create index trgm_idx on test_trgm using gist (t gist_trgm_ops(siglen=2024));
+ set enable_seqscan=off;
++-- check index compatibility handling when opclass option is specified
++alter table test_trgm alter column t type varchar(768);
++alter table test_trgm alter column t type text;
+ select t,similarity(t,'qwertyu0988') as sml from test_trgm where t % 'qwertyu0988' order by sml desc, t;
+       t      |   sml    
+ -------------+----------
+  qwertyu0988 |        1
+  qwertyu0980 | 0.714286
+diff --git a/contrib/pg_trgm/sql/pg_trgm.sql b/contrib/pg_trgm/sql/pg_trgm.sql
+index 6a9da24d5a7..340c9891899 100644
+--- a/contrib/pg_trgm/sql/pg_trgm.sql
++++ b/contrib/pg_trgm/sql/pg_trgm.sql
+@@ -50,10 +50,14 @@ drop index trgm_idx;
+ create index trgm_idx on test_trgm using gist (t gist_trgm_ops(siglen=0));
+ create index trgm_idx on test_trgm using gist (t gist_trgm_ops(siglen=2025));
+ create index trgm_idx on test_trgm using gist (t gist_trgm_ops(siglen=2024));
+ set enable_seqscan=off;
+ 
++-- check index compatibility handling when opclass option is specified
++alter table test_trgm alter column t type varchar(768);
++alter table test_trgm alter column t type text;
++
+ select t,similarity(t,'qwertyu0988') as sml from test_trgm where t % 'qwertyu0988' order by sml desc, t;
+ select t,similarity(t,'gwertyu0988') as sml from test_trgm where t % 'gwertyu0988' order by sml desc, t;
+ select t,similarity(t,'gwertyu1988') as sml from test_trgm where t % 'gwertyu1988' order by sml desc, t;
+ explain (costs off)
+ select t <-> 'q0987wertyu0988', t from test_trgm order by t <-> 'q0987wertyu0988' limit 2;
+diff --git a/src/backend/commands/indexcmds.c b/src/backend/commands/indexcmds.c
+index 2f652463e3c..d1134733c17 100644
+--- a/src/backend/commands/indexcmds.c
++++ b/src/backend/commands/indexcmds.c
+@@ -27,10 +27,11 @@
+ #include "catalog/index.h"
+ #include "catalog/indexing.h"
+ #include "catalog/namespace.h"
+ #include "catalog/pg_am.h"
+ #include "catalog/pg_authid.h"
++#include "catalog/pg_collation.h"
+ #include "catalog/pg_constraint.h"
+ #include "catalog/pg_database.h"
+ #include "catalog/pg_inherits.h"
+ #include "catalog/pg_namespace.h"
+ #include "catalog/pg_opclass.h"
+@@ -360,14 +361,16 @@ CheckIndexCompatible(Oid oldId,
+  */
+ static bool
+ CompareOpclassOptions(const Datum *opts1, const Datum *opts2, int natts)
+ {
+ 	int			i;
++	FmgrInfo	fm;
+ 
+ 	if (!opts1 && !opts2)
+ 		return true;
+ 
++	fmgr_info(F_ARRAY_EQ, &fm);
+ 	for (i = 0; i < natts; i++)
+ 	{
+ 		Datum		opt1 = opts1 ? opts1[i] : (Datum) 0;
+ 		Datum		opt2 = opts2 ? opts2[i] : (Datum) 0;
+ 
+@@ -379,12 +382,16 @@ CompareOpclassOptions(const Datum *opts1, const Datum *opts2, int natts)
+ 				return false;
+ 		}
+ 		else if (opt2 == (Datum) 0)
+ 			return false;
+ 
+-		/* Compare non-NULL text[] datums. */
+-		if (!DatumGetBool(DirectFunctionCall2(array_eq, opt1, opt2)))
++		/*
++		 * Compare non-NULL text[] datums.  Use C collation to enforce binary
++		 * equivalence of texts, because we don't know anything about the
++		 * semantics of opclass options.
++		 */
++		if (!DatumGetBool(FunctionCall2Coll(&fm, C_COLLATION_OID, opt1, opt2)))
+ 			return false;
+ 	}
+ 
+ 	return true;
+ }

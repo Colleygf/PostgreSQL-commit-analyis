@@ -1,0 +1,86 @@
+commit 8e5b92928d2847f556f9fd75edf619935dc87010
+Author: Fujii Masao <fujii@postgresql.org>
+Date:   Tue Sep 16 16:44:58 2025 +0900
+
+    pg_dump: Fix dumping of security labels on subscriptions and event triggers.
+    
+    Previously, pg_dump incorrectly queried pg_seclabel to retrieve security labels
+    for subscriptions, which are stored in pg_shseclabel as they are global objects.
+    This could result in security labels for subscriptions not being dumped.
+    
+    This commit fixes the issue by updating pg_dump to query the pg_seclabels view,
+    which aggregates entries from both pg_seclabel and pg_shseclabel.
+    While querying pg_shseclabel directly for subscriptions was an alternative,
+    using pg_seclabels is simpler and sufficient.
+    
+    In addition, pg_dump is updated to dump security labels on event triggers,
+    which were previously omitted.
+    
+    Backpatch to all supported versions.
+    
+    Author: Jian He <jian.universality@gmail.com>
+    Co-authored-by: Fujii Masao <masao.fujii@gmail.com>
+    Discussion: https://postgr.es/m/CACJufxHCt00pR9h51AVu6+yPD5J7JQn=7dQXxqacj0XyDhc-fA@mail.gmail.com
+    Backpatch-through: 13
+
+diff --git a/src/bin/pg_dump/pg_backup_archiver.c b/src/bin/pg_dump/pg_backup_archiver.c
+index 2f92fce44f6..93814152a5f 100644
+--- a/src/bin/pg_dump/pg_backup_archiver.c
++++ b/src/bin/pg_dump/pg_backup_archiver.c
+@@ -3323,16 +3323,18 @@ _tocEntryRestorePass(TocEntry *te)
+ 	if (strcmp(te->desc, "EVENT TRIGGER") == 0 ||
+ 		strcmp(te->desc, "MATERIALIZED VIEW DATA") == 0)
+ 		return RESTORE_PASS_POST_ACL;
+ 
+ 	/*
+-	 * Comments need to be emitted in the same pass as their parent objects.
+-	 * ACLs haven't got comments, and neither do matview data objects, but
+-	 * event triggers do.  (Fortunately, event triggers haven't got ACLs, or
+-	 * we'd need yet another weird special case.)
++	 * Comments and security labels need to be emitted in the same pass as
++	 * their parent objects. ACLs haven't got comments and security labels,
++	 * and neither do matview data objects, but event triggers do.
++	 * (Fortunately, event triggers haven't got ACLs, or we'd need yet another
++	 * weird special case.)
+ 	 */
+-	if (strcmp(te->desc, "COMMENT") == 0 &&
++	if ((strcmp(te->desc, "COMMENT") == 0 ||
++		 strcmp(te->desc, "SECURITY LABEL") == 0) &&
+ 		strncmp(te->tag, "EVENT TRIGGER ", 14) == 0)
+ 		return RESTORE_PASS_POST_ACL;
+ 
+ 	/*
+ 	 * If statistics data is dependent on materialized view data, it must be
+diff --git a/src/bin/pg_dump/pg_dump.c b/src/bin/pg_dump/pg_dump.c
+index b4c45ad803e..802637fb24e 100644
+--- a/src/bin/pg_dump/pg_dump.c
++++ b/src/bin/pg_dump/pg_dump.c
+@@ -16761,11 +16761,11 @@ collectSecLabels(Archive *fout)
+ 
+ 	query = createPQExpBuffer();
+ 
+ 	appendPQExpBufferStr(query,
+ 						 "SELECT label, provider, classoid, objoid, objsubid "
+-						 "FROM pg_catalog.pg_seclabel "
++						 "FROM pg_catalog.pg_seclabels "
+ 						 "ORDER BY classoid, objoid, objsubid");
+ 
+ 	res = ExecuteSqlQuery(fout, query->data, PGRES_TUPLES_OK);
+ 
+ 	/* Construct lookup table containing OIDs in numeric form */
+@@ -19471,10 +19471,15 @@ dumpEventTrigger(Archive *fout, const EventTriggerInfo *evtinfo)
+ 	if (evtinfo->dobj.dump & DUMP_COMPONENT_COMMENT)
+ 		dumpComment(fout, "EVENT TRIGGER", qevtname,
+ 					NULL, evtinfo->evtowner,
+ 					evtinfo->dobj.catId, 0, evtinfo->dobj.dumpId);
+ 
++	if (evtinfo->dobj.dump & DUMP_COMPONENT_SECLABEL)
++		dumpSecLabel(fout, "EVENT TRIGGER", qevtname,
++					 NULL, evtinfo->evtowner,
++					 evtinfo->dobj.catId, 0, evtinfo->dobj.dumpId);
++
+ 	destroyPQExpBuffer(query);
+ 	destroyPQExpBuffer(delqry);
+ 	free(qevtname);
+ }
+ 

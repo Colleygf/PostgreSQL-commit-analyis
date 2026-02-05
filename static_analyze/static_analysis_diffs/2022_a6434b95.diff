@@ -1,0 +1,86 @@
+commit a6434b951558baad8372dc4b83bf87606dac9cda
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Jul 11 12:47:52 2022 +0900
+
+    Fix two portability issues with the tests of test_oat_hooks
+    
+    This addresses two issues in the tests of test_oat_hooks:
+    - The role regress_test_user was being left behind, preventing the test
+    to succeed on repeated runs.  It makes sense to leave some objects
+    behind to have more coverage for pg_upgrade (as does test_pg_dump), but
+    the role dropped here does not own any objects so there is no reason to
+    keep it.
+    - GRANT SET ON PARAMETER is issued, creating an entry in
+    pg_parameter_acl without cleaning up the entry created.  This causes
+    an overlap with unsafe_tests as both use work_mem, making the latter
+    fail.  This commit adds an extra REVOKE SET ON PARAMETER to clean the
+    contents of pg_parameter_acl, switching to maintenance_work_mem rather
+    than work_mem to avoid an overlap between both tests.
+    
+    The tests of test_oat_hooks cannot use installcheck yet as these are
+    proving to be unstable with caching and the namespace search hooks, so
+    the issues fixed here cannot be reached yet, but they would be once the
+    hook issue is addressed and installcheck is allowed again in
+    test_oat_hooks.
+    
+    Discussion: https://postgr.es/m/YrpVkADAY0knF6vM@paquier.xyz
+    Backpatch-through: 15
+
+diff --git a/src/test/modules/test_oat_hooks/expected/test_oat_hooks.out b/src/test/modules/test_oat_hooks/expected/test_oat_hooks.out
+index 39b274b8fa0..c9b6eb20d37 100644
+--- a/src/test/modules/test_oat_hooks/expected/test_oat_hooks.out
++++ b/src/test/modules/test_oat_hooks/expected/test_oat_hooks.out
+@@ -39,14 +39,17 @@ privileges for parameter test_oat_hooks.super_var1
+ privileges for parameter test_oat_hooks.user_var2
+ privileges for parameter test_oat_hooks.super_var2
+ privileges for parameter none.such
+ privileges for parameter another.bogus
+ -- Check the behavior of the hooks relative to do-nothing grants and revokes
+-GRANT SET ON PARAMETER work_mem TO PUBLIC;
++GRANT SET ON PARAMETER maintenance_work_mem TO PUBLIC;
+ NOTICE:  in process utility: superuser attempting GrantStmt
+ NOTICE:  in process utility: superuser finished GrantStmt
+-REVOKE ALTER SYSTEM ON PARAMETER work_mem FROM PUBLIC;
++REVOKE SET ON PARAMETER maintenance_work_mem FROM PUBLIC;
++NOTICE:  in process utility: superuser attempting GrantStmt
++NOTICE:  in process utility: superuser finished GrantStmt
++REVOKE ALTER SYSTEM ON PARAMETER maintenance_work_mem FROM PUBLIC;
+ NOTICE:  in process utility: superuser attempting GrantStmt
+ NOTICE:  in process utility: superuser finished GrantStmt
+ -- Check the behavior of the hooks relative to unrecognized parameters
+ GRANT ALL ON PARAMETER "none.such" TO PUBLIC;
+ NOTICE:  in process utility: superuser attempting GrantStmt
+@@ -297,5 +300,6 @@ REVOKE ALL PRIVILEGES ON PARAMETER
+ 	none.such, another.bogus,
+ 	test_oat_hooks.user_var1, test_oat_hooks.super_var1,
+ 	test_oat_hooks.user_var2, test_oat_hooks.super_var2
+ 	FROM regress_role_joe;
+ DROP ROLE regress_role_joe;
++DROP ROLE regress_test_user;
+diff --git a/src/test/modules/test_oat_hooks/sql/test_oat_hooks.sql b/src/test/modules/test_oat_hooks/sql/test_oat_hooks.sql
+index 8b6d5373aa5..d692f52d922 100644
+--- a/src/test/modules/test_oat_hooks/sql/test_oat_hooks.sql
++++ b/src/test/modules/test_oat_hooks/sql/test_oat_hooks.sql
+@@ -23,12 +23,13 @@ GRANT SET, ALTER SYSTEM ON PARAMETER another.bogus TO regress_role_joe WITH GRAN
+ 
+ -- Check when the hooks fire relative to dependency based abort of a drop
+ DROP ROLE regress_role_joe;
+ 
+ -- Check the behavior of the hooks relative to do-nothing grants and revokes
+-GRANT SET ON PARAMETER work_mem TO PUBLIC;
+-REVOKE ALTER SYSTEM ON PARAMETER work_mem FROM PUBLIC;
++GRANT SET ON PARAMETER maintenance_work_mem TO PUBLIC;
++REVOKE SET ON PARAMETER maintenance_work_mem FROM PUBLIC;
++REVOKE ALTER SYSTEM ON PARAMETER maintenance_work_mem FROM PUBLIC;
+ 
+ -- Check the behavior of the hooks relative to unrecognized parameters
+ GRANT ALL ON PARAMETER "none.such" TO PUBLIC;
+ 
+ -- Check relative to an operation that causes the catalog entry to be deleted
+@@ -96,5 +97,6 @@ REVOKE ALL PRIVILEGES ON PARAMETER
+ 	none.such, another.bogus,
+ 	test_oat_hooks.user_var1, test_oat_hooks.super_var1,
+ 	test_oat_hooks.user_var2, test_oat_hooks.super_var2
+ 	FROM regress_role_joe;
+ DROP ROLE regress_role_joe;
++DROP ROLE regress_test_user;

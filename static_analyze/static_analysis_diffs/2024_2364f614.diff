@@ -1,0 +1,51 @@
+commit 2364f61488ec1b4bc40d3a73dba4385e8ede65a0
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Tue Dec 17 15:08:29 2024 +0530
+
+    Doc: Fix the wrong link on pg_createsubscriber page.
+    
+    Commit 84db9a0eb1 has added the incorrect link to
+    'initial data synchronization'. It was a subsection of Row Filter and
+    didn't provide the required information.
+    
+    Author: Peter Smith
+    Reviewed-by: Vignesh C, Pavel Luzanov
+    Backpatch-through: 17, where it was introduced
+    Discussion: https://postgr.es/m/CAHut+PtnA4DB_pcv4TDr4NjUSM1=P2N_cuZx5DX09k7LVmaqUA@mail.gmail.com
+
+diff --git a/doc/src/sgml/ref/pg_createsubscriber.sgml b/doc/src/sgml/ref/pg_createsubscriber.sgml
+index df1a92b4dad..26b8e64a4e0 100644
+--- a/doc/src/sgml/ref/pg_createsubscriber.sgml
++++ b/doc/src/sgml/ref/pg_createsubscriber.sgml
+@@ -47,11 +47,12 @@ PostgreSQL documentation
+   <title>Description</title>
+ 
+   <para>
+    <application>pg_createsubscriber</application> creates a new logical
+    replica from a physical standby server.  All tables in the specified
+-   database are included in the logical replication setup.  A pair of
++   database are included in the <link linkend="logical-replication">logical
++   replication</link> setup.  A pair of
+    publication and subscription objects are created for each database.  It
+    must be run at the target server.
+   </para>
+ 
+   <para>
+@@ -68,12 +69,15 @@ PostgreSQL documentation
+    systems because in logical replication setup, most of the time is spent
+    doing the initial data copy.  Furthermore, a side effect of this long time
+    spent synchronizing data is usually a large amount of changes to be applied
+    (that were produced during the initial data copy), which increases even
+    more the time when the logical replica will be available. For smaller
+-   databases, <link linkend="logical-replication-row-filter-initial-data-sync">
+-   initial data synchronization</link> is recommended.
++   databases, it is recommended to set up logical replication with initial data
++   synchronization.  For details, see the <command>CREATE SUBSCRIPTION</command>
++   <link linkend="sql-createsubscription-params-with-copy-data">
++   <literal>copy_data</literal></link> option.
++
+   </para>
+  </refsect1>
+ 
+  <refsect1>
+   <title>Options</title>

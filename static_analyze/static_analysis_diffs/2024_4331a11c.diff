@@ -1,0 +1,77 @@
+commit 4331a11c62eca7426ad4472be051fe512a04fc80
+Author: David Rowley <drowley@postgresql.org>
+Date:   Thu Jul 4 09:44:34 2024 +1200
+
+    Remove incorrect Asserts in buffile.c
+    
+    Both BufFileSize() and BufFileAppend() contained Asserts to ensure the
+    given BufFile(s) had a valid fileset.  A valid fileset isn't required in
+    either of these functions, so remove the Asserts and adjust the
+    comments accordingly.
+    
+    This was noticed while work was being done on a new patch to call
+    BufFileSize() on a BufFile without a valid fileset.  It seems there's
+    currently no code in the tree which could trigger these Asserts, so no
+    need to backpatch this, for now.
+    
+    Reviewed-by: Peter Geoghegan, Matthias van de Meent, Tom Lane
+    Discussion: https://postgr.es/m/CAApHDvofgZT0VzydhyGH5MMb-XZzNDqqAbzf1eBZV5HDm3%2BosQ%40mail.gmail.com
+
+diff --git a/src/backend/storage/file/buffile.c b/src/backend/storage/file/buffile.c
+index a263875fd5a..a27f51f6220 100644
+--- a/src/backend/storage/file/buffile.c
++++ b/src/backend/storage/file/buffile.c
+@@ -855,22 +855,20 @@ BufFileSeekBlock(BufFile *file, int64 blknum)
+ 					   (off_t) (blknum % BUFFILE_SEG_SIZE) * BLCKSZ,
+ 					   SEEK_SET);
+ }
+ 
+ /*
+- * Return the current fileset based BufFile size.
++ * Returns the amount of data in the given BufFile, in bytes.
+  *
+- * Counts any holes left behind by BufFileAppend as part of the size.
++ * Returned value includes the size of any holes left behind by BufFileAppend.
+  * ereport()s on failure.
+  */
+ int64
+ BufFileSize(BufFile *file)
+ {
+ 	int64		lastFileSize;
+ 
+-	Assert(file->fileset != NULL);
+-
+ 	/* Get the size of the last physical file. */
+ 	lastFileSize = FileSize(file->files[file->numFiles - 1]);
+ 	if (lastFileSize < 0)
+ 		ereport(ERROR,
+ 				(errcode_for_file_access(),
+@@ -881,12 +879,11 @@ BufFileSize(BufFile *file)
+ 	return ((file->numFiles - 1) * (int64) MAX_PHYSICAL_FILESIZE) +
+ 		lastFileSize;
+ }
+ 
+ /*
+- * Append the contents of source file (managed within fileset) to
+- * end of target file (managed within same fileset).
++ * Append the contents of the source file to the end of the target file.
+  *
+  * Note that operation subsumes ownership of underlying resources from
+  * "source".  Caller should never call BufFileClose against source having
+  * called here first.  Resource owners for source and target must match,
+  * too.
+@@ -906,14 +903,12 @@ BufFileAppend(BufFile *target, BufFile *source)
+ {
+ 	int64		startBlock = (int64) target->numFiles * BUFFILE_SEG_SIZE;
+ 	int			newNumFiles = target->numFiles + source->numFiles;
+ 	int			i;
+ 
+-	Assert(target->fileset != NULL);
+ 	Assert(source->readOnly);
+ 	Assert(!source->dirty);
+-	Assert(source->fileset != NULL);
+ 
+ 	if (target->resowner != source->resowner)
+ 		elog(ERROR, "could not append BufFile with non-matching resource owner");
+ 
+ 	target->files = (File *)

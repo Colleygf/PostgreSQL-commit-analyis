@@ -1,0 +1,81 @@
+commit dad9ba1c82fd985aa6fb8035ebca1e79c138dde2
+Author: Jeff Davis <jdavis@postgresql.org>
+Date:   Fri Apr 8 03:21:12 2022 -0700
+
+    Fix buildfarm failures in pg_walinspect tests.
+
+diff --git a/contrib/pg_walinspect/Makefile b/contrib/pg_walinspect/Makefile
+index 350845cd43d..960530eb6c1 100644
+--- a/contrib/pg_walinspect/Makefile
++++ b/contrib/pg_walinspect/Makefile
+@@ -9,10 +9,16 @@ PGFILEDESC = "pg_walinspect - functions to inspect contents of PostgreSQL Write-
+ EXTENSION = pg_walinspect
+ DATA = pg_walinspect--1.0.sql
+ 
+ REGRESS = pg_walinspect
+ 
++REGRESS_OPTS = --temp-config $(top_srcdir)/contrib/pg_walinspect/walinspect.conf
++
++# Disabled because these tests require "wal_level=replica", which
++# some installcheck users do not have (e.g. buildfarm clients).
++NO_INSTALLCHECK = 1
++
+ ifdef USE_PGXS
+ PG_CONFIG = pg_config
+ PGXS := $(shell $(PG_CONFIG) --pgxs)
+ include $(PGXS)
+ else
+diff --git a/contrib/pg_walinspect/expected/pg_walinspect.out b/contrib/pg_walinspect/expected/pg_walinspect.out
+index 634b1bb7393..a1ee743457c 100644
+--- a/contrib/pg_walinspect/expected/pg_walinspect.out
++++ b/contrib/pg_walinspect/expected/pg_walinspect.out
+@@ -1,11 +1,15 @@
+ CREATE EXTENSION pg_walinspect;
+-CREATE TABLE sample_tbl(col1 int, col2 int);
+ -- Make sure checkpoints don't interfere with the test.
+-SELECT lsn as wal_lsn1 FROM
+-  pg_create_physical_replication_slot('regress_pg_walinspect_slot', true, false)
+-  \gset
++SELECT 'init' FROM pg_create_physical_replication_slot('regress_pg_walinspect_slot', true, false);
++ ?column? 
++----------
++ init
++(1 row)
++
++CREATE TABLE sample_tbl(col1 int, col2 int);
++SELECT pg_current_wal_lsn() AS wal_lsn1 \gset
+ INSERT INTO sample_tbl SELECT * FROM generate_series(1, 2);
+ SELECT pg_current_wal_lsn() AS wal_lsn2 \gset
+ INSERT INTO sample_tbl SELECT * FROM generate_series(1, 2);
+ -- ===================================================================
+ -- Tests for input validation
+diff --git a/contrib/pg_walinspect/sql/pg_walinspect.sql b/contrib/pg_walinspect/sql/pg_walinspect.sql
+index 1a9fd09e7be..1b265ea7bcc 100644
+--- a/contrib/pg_walinspect/sql/pg_walinspect.sql
++++ b/contrib/pg_walinspect/sql/pg_walinspect.sql
+@@ -1,13 +1,13 @@
+ CREATE EXTENSION pg_walinspect;
+ 
++-- Make sure checkpoints don't interfere with the test.
++SELECT 'init' FROM pg_create_physical_replication_slot('regress_pg_walinspect_slot', true, false);
++
+ CREATE TABLE sample_tbl(col1 int, col2 int);
+ 
+--- Make sure checkpoints don't interfere with the test.
+-SELECT lsn as wal_lsn1 FROM
+-  pg_create_physical_replication_slot('regress_pg_walinspect_slot', true, false)
+-  \gset
++SELECT pg_current_wal_lsn() AS wal_lsn1 \gset
+ 
+ INSERT INTO sample_tbl SELECT * FROM generate_series(1, 2);
+ 
+ SELECT pg_current_wal_lsn() AS wal_lsn2 \gset
+ 
+diff --git a/contrib/pg_walinspect/walinspect.conf b/contrib/pg_walinspect/walinspect.conf
+new file mode 100644
+index 00000000000..67ceb2bb076
+--- /dev/null
++++ b/contrib/pg_walinspect/walinspect.conf
+@@ -0,0 +1,2 @@
++wal_level = replica
++max_replication_slots = 4

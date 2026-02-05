@@ -1,0 +1,46 @@
+commit 1f0019de2fe374fa54fca277f36c2e754894db30
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Fri Dec 23 20:24:41 2022 +1300
+
+    Don't leak a signalfd when using latches in the postmaster.
+    
+    At the time of commit 6a2a70a02 we didn't use latch infrastructure in
+    the postmaster.  We're planning to start doing that, so we'd better make
+    sure that the signalfd inherited from a postmaster is not duplicated and
+    then leaked in the child.
+    
+    Reviewed-by: Andres Freund <andres@anarazel.de>
+    Reviewed-by: Justin Pryzby <pryzby@telsasoft.com>
+    Discussion: https://postgr.es/m/CA%2BhUKG%2BZ-HpOj1JsO9eWUP%2Bar7npSVinsC_npxSy%2BjdOMsx%3DGg%40mail.gmail.com
+
+diff --git a/src/backend/storage/ipc/latch.c b/src/backend/storage/ipc/latch.c
+index 7ced8264f00..b32c96b63d3 100644
+--- a/src/backend/storage/ipc/latch.c
++++ b/src/backend/storage/ipc/latch.c
+@@ -281,10 +281,26 @@ InitializeLatchSupport(void)
+ #endif
+ 
+ #ifdef WAIT_USE_SIGNALFD
+ 	sigset_t	signalfd_mask;
+ 
++	if (IsUnderPostmaster)
++	{
++		/*
++		 * It would probably be safe to re-use the inherited signalfd since
++		 * signalfds only see the current process's pending signals, but it
++		 * seems less surprising to close it and create our own.
++		 */
++		if (signal_fd != -1)
++		{
++			/* Release postmaster's signal FD; ignore any error */
++			(void) close(signal_fd);
++			signal_fd = -1;
++			ReleaseExternalFD();
++		}
++	}
++
+ 	/* Block SIGURG, because we'll receive it through a signalfd. */
+ 	sigaddset(&UnBlockSig, SIGURG);
+ 
+ 	/* Set up the signalfd to receive SIGURG notifications. */
+ 	sigemptyset(&signalfd_mask);

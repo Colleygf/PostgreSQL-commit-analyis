@@ -1,0 +1,55 @@
+commit 39f67d9b554fcd6dfb6c4f02a4af757eecd1fecf
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Sep 17 10:15:13 2025 +0900
+
+    injection_points: Fix incrementation of variable-numbered stats
+    
+    The pending entry was not used when incrementing its data, directly
+    manipulating the shared memory pointer, without even locking it.  This
+    could mean losing statistics under concurrent activity.  The flush
+    callback was a no-op.
+    
+    This code serves as a base template for extensions for the custom
+    cumulative statistics, so let's be clean and use a pending entry for the
+    incrementations, whose data is then flushed to the corresponding entry
+    in the shared hashtable when all the stats are reported, in its own
+    flush callback.
+    
+    Author: Sami Imseih <samimseih@gmail.com>
+    Discussion: https://postgr.es/m/CAA5RZ0v0U0yhPbY+bqChomkPbyUrRQ3rQXnZf_SB-svDiQOpgQ@mail.gmail.com
+    Backpatch-through: 18
+
+diff --git a/src/test/modules/injection_points/injection_stats.c b/src/test/modules/injection_points/injection_stats.c
+index e3947b23ba5..ca8df4ad217 100644
+--- a/src/test/modules/injection_points/injection_stats.c
++++ b/src/test/modules/injection_points/injection_stats.c
+@@ -162,25 +162,23 @@ pgstat_drop_inj(const char *name)
+  */
+ void
+ pgstat_report_inj(const char *name)
+ {
+ 	PgStat_EntryRef *entry_ref;
+-	PgStatShared_InjectionPoint *shstatent;
+-	PgStat_StatInjEntry *statent;
++	PgStat_StatInjEntry *pending;
+ 
+ 	/* leave if disabled */
+ 	if (!inj_stats_loaded || !inj_stats_enabled)
+ 		return;
+ 
+ 	entry_ref = pgstat_prep_pending_entry(PGSTAT_KIND_INJECTION, InvalidOid,
+ 										  PGSTAT_INJ_IDX(name), NULL);
+ 
+-	shstatent = (PgStatShared_InjectionPoint *) entry_ref->shared_stats;
+-	statent = &shstatent->stats;
++	pending = (PgStat_StatInjEntry *) entry_ref->pending;
+ 
+-	/* Update the injection point statistics */
+-	statent->numcalls++;
++	/* Update the injection point pending statistics */
++	pending->numcalls++;
+ }
+ 
+ /*
+  * SQL function returning the number of times an injection point
+  * has been called.

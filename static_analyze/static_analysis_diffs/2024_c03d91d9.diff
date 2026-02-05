@@ -1,0 +1,74 @@
+commit c03d91d9be378975bcdbfa3e5d40e17288e6f13f
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Sun Jan 21 23:26:41 2024 +0200
+
+    Fix table name collision in tests in 0452b461bc
+
+diff --git a/src/test/regress/expected/aggregates.out b/src/test/regress/expected/aggregates.out
+index 67dd20f3751..ac42b94ef10 100644
+--- a/src/test/regress/expected/aggregates.out
++++ b/src/test/regress/expected/aggregates.out
+@@ -2874,30 +2874,30 @@ SELECT y,x,array_agg(distinct w) FROM btg WHERE y < 0 GROUP BY x,y;
+ 
+ RESET enable_incremental_sort;
+ DROP TABLE btg;
+ -- The case, when scanning sort order correspond to aggregate sort order but
+ -- can not be found in the group-by list
+-CREATE TABLE t1 (c1 int PRIMARY KEY, c2 int);
+-CREATE UNIQUE INDEX ON t1(c2);
++CREATE TABLE agg_sort_order (c1 int PRIMARY KEY, c2 int);
++CREATE UNIQUE INDEX ON agg_sort_order(c2);
+ explain (costs off)
+ SELECT array_agg(c1 ORDER BY c2),c2
+-FROM t1 WHERE c2 < 100 GROUP BY c1 ORDER BY 2;
+-                       QUERY PLAN                       
+---------------------------------------------------------
++FROM agg_sort_order WHERE c2 < 100 GROUP BY c1 ORDER BY 2;
++                             QUERY PLAN                             
++--------------------------------------------------------------------
+  Sort
+    Sort Key: c2
+    ->  GroupAggregate
+          Group Key: c1
+          ->  Sort
+                Sort Key: c1, c2
+-               ->  Bitmap Heap Scan on t1
++               ->  Bitmap Heap Scan on agg_sort_order
+                      Recheck Cond: (c2 < 100)
+-                     ->  Bitmap Index Scan on t1_c2_idx
++                     ->  Bitmap Index Scan on agg_sort_order_c2_idx
+                            Index Cond: (c2 < 100)
+ (10 rows)
+ 
+-DROP TABLE t1 CASCADE;
++DROP TABLE agg_sort_order CASCADE;
+ -- Check, that GROUP-BY reordering optimization can operate with pathkeys, built
+ -- by planner itself. For example, by MergeJoin.
+ SET enable_hashjoin = off;
+ SET enable_nestloop = off;
+ explain (COSTS OFF)
+diff --git a/src/test/regress/sql/aggregates.sql b/src/test/regress/sql/aggregates.sql
+index 524bdfa67d6..c2b3e162267 100644
+--- a/src/test/regress/sql/aggregates.sql
++++ b/src/test/regress/sql/aggregates.sql
+@@ -1231,16 +1231,16 @@ RESET enable_incremental_sort;
+ 
+ DROP TABLE btg;
+ 
+ -- The case, when scanning sort order correspond to aggregate sort order but
+ -- can not be found in the group-by list
+-CREATE TABLE t1 (c1 int PRIMARY KEY, c2 int);
+-CREATE UNIQUE INDEX ON t1(c2);
++CREATE TABLE agg_sort_order (c1 int PRIMARY KEY, c2 int);
++CREATE UNIQUE INDEX ON agg_sort_order(c2);
+ explain (costs off)
+ SELECT array_agg(c1 ORDER BY c2),c2
+-FROM t1 WHERE c2 < 100 GROUP BY c1 ORDER BY 2;
+-DROP TABLE t1 CASCADE;
++FROM agg_sort_order WHERE c2 < 100 GROUP BY c1 ORDER BY 2;
++DROP TABLE agg_sort_order CASCADE;
+ 
+ -- Check, that GROUP-BY reordering optimization can operate with pathkeys, built
+ -- by planner itself. For example, by MergeJoin.
+ SET enable_hashjoin = off;
+ SET enable_nestloop = off;

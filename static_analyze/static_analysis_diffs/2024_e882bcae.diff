@@ -1,0 +1,72 @@
+commit e882bcae032d5e89777e2a1f3d78dfb77c17c192
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri Aug 16 06:41:17 2024 +0200
+
+    libpq: Fix minor TOCTOU violation
+    
+    libpq checks the permissions of the password file before opening it.
+    The way this is done in two separate operations, a static analyzer
+    would flag as a time-of-check-time-of-use violation.  In practice, you
+    can't do anything with that, but it still seems better style to fix
+    it.
+    
+    To fix it, open the file first and then check the permissions on the
+    opened file handle.
+    
+    Reviewed-by: Aleksander Alekseev <aleksander@timescale.com>
+    Reviewed-by: Andreas Karlsson <andreas@proxel.se>
+    Discussion: https://www.postgresql.org/message-id/flat/a3356054-14ae-4e7a-acc6-249d19dac20b%40eisentraut.org
+
+diff --git a/src/interfaces/libpq/fe-connect.c b/src/interfaces/libpq/fe-connect.c
+index a5055271ae3..246055df960 100644
+--- a/src/interfaces/libpq/fe-connect.c
++++ b/src/interfaces/libpq/fe-connect.c
+@@ -7450,11 +7450,13 @@ pwdfMatchesString(char *buf, const char *token)
+ static char *
+ passwordFromFile(const char *hostname, const char *port, const char *dbname,
+ 				 const char *username, const char *pgpassfile)
+ {
+ 	FILE	   *fp;
++#ifndef WIN32
+ 	struct stat stat_buf;
++#endif
+ 	PQExpBufferData buf;
+ 
+ 	if (dbname == NULL || dbname[0] == '\0')
+ 		return NULL;
+ 
+@@ -7475,14 +7477,18 @@ passwordFromFile(const char *hostname, const char *port, const char *dbname,
+ 
+ 	if (port == NULL || port[0] == '\0')
+ 		port = DEF_PGPORT_STR;
+ 
+ 	/* If password file cannot be opened, ignore it. */
+-	if (stat(pgpassfile, &stat_buf) != 0)
++	fp = fopen(pgpassfile, "r");
++	if (fp == NULL)
+ 		return NULL;
+ 
+ #ifndef WIN32
++	if (fstat(fileno(fp), &stat_buf) != 0)
++		return NULL;
++
+ 	if (!S_ISREG(stat_buf.st_mode))
+ 	{
+ 		fprintf(stderr,
+ 				libpq_gettext("WARNING: password file \"%s\" is not a plain file\n"),
+ 				pgpassfile);
+@@ -7503,14 +7509,10 @@ passwordFromFile(const char *hostname, const char *port, const char *dbname,
+ 	 * On Win32, the directory is protected, so we don't have to check the
+ 	 * file.
+ 	 */
+ #endif
+ 
+-	fp = fopen(pgpassfile, "r");
+-	if (fp == NULL)
+-		return NULL;
+-
+ 	/* Use an expansible buffer to accommodate any reasonable line length */
+ 	initPQExpBuffer(&buf);
+ 
+ 	while (!feof(fp) && !ferror(fp))
+ 	{

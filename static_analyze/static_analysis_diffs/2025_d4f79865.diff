@@ -1,0 +1,96 @@
+commit d4f79865d4207bd93fa00f521638c289f036e276
+Author: Amit Langote <amitlan@postgresql.org>
+Date:   Thu Mar 13 09:56:36 2025 +0900
+
+    Fix copy-paste error in datum_to_jsonb_internal()
+    
+    Commit 3c152a27b06 mistakenly repeated JSONTYPE_JSON in a condition,
+    omitting JSONTYPE_CAST. As a result, datum_to_jsonb_internal() failed
+    to reject inputs that were casts (e.g., from an enum to json as in the
+    example below) when used as keys in JSON constructors.
+    
+    This led to a crash in cases like:
+    
+      SELECT JSON_OBJECT('happy'::mood: '123'::jsonb);
+    
+    where 'happy'::mood is implicitly cast to json. The missing check
+    meant such casted values weren’t properly rejected as invalid
+    (non-scalar) JSON keys.
+    
+    Reported-by: Maciek Sakrejda <maciek@pganalyze.com>
+    Reviewed-by: Tender Wang <tndrwang@gmail.com>
+    Reviewed-by: Alvaro Herrera <alvherre@alvh.no-ip.org>
+    Reviewed-by: Maciek Sakrejda <maciek@pganalyze.com>
+    Discussion: https://postgr.es/m/CADXhmgTJtJZK9A3Na_ry+Xrq-ghjcejBRhcRMzWZvbd__QdgJA@mail.gmail.com
+    Backpatch-through: 17
+
+diff --git a/src/backend/utils/adt/jsonb.c b/src/backend/utils/adt/jsonb.c
+index 8394a20e0e5..da94d424d61 100644
+--- a/src/backend/utils/adt/jsonb.c
++++ b/src/backend/utils/adt/jsonb.c
+@@ -655,11 +655,11 @@ datum_to_jsonb_internal(Datum val, bool is_null, JsonbInState *result,
+ 	else if (key_scalar &&
+ 			 (tcategory == JSONTYPE_ARRAY ||
+ 			  tcategory == JSONTYPE_COMPOSITE ||
+ 			  tcategory == JSONTYPE_JSON ||
+ 			  tcategory == JSONTYPE_JSONB ||
+-			  tcategory == JSONTYPE_JSON))
++			  tcategory == JSONTYPE_CAST))
+ 	{
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+ 				 errmsg("key value must be scalar, not array, composite, or json")));
+ 	}
+diff --git a/src/test/regress/expected/sqljson.out b/src/test/regress/expected/sqljson.out
+index 7c3e673e5ea..eb320f003f5 100644
+--- a/src/test/regress/expected/sqljson.out
++++ b/src/test/regress/expected/sqljson.out
+@@ -571,10 +571,22 @@ SELECT JSON_OBJECT(1: 1, '2': NULL, '3': 1, 4: NULL, '5': 'a' ABSENT ON NULL WIT
+         json_object         
+ ----------------------------
+  {"1": 1, "3": 1, "5": "a"}
+ (1 row)
+ 
++-- BUG: https://postgr.es/m/CADXhmgTJtJZK9A3Na_ry%2BXrq-ghjcejBRhcRMzWZvbd__QdgJA%40mail.gmail.com
++-- datum_to_jsonb_internal() didn't catch keys that are casts instead of a simple scalar
++CREATE TYPE mood AS ENUM ('happy', 'sad', 'neutral');
++CREATE FUNCTION mood_to_json(mood) RETURNS json AS $$
++  SELECT to_json($1::text);
++$$ LANGUAGE sql IMMUTABLE;
++CREATE CAST (mood AS json) WITH FUNCTION mood_to_json(mood) AS IMPLICIT;
++SELECT JSON_OBJECT('happy'::mood: '123'::jsonb);
++ERROR:  key value must be scalar, not array, composite, or json
++DROP CAST (mood AS json);
++DROP FUNCTION mood_to_json;
++DROP TYPE mood;
+ -- JSON_ARRAY()
+ SELECT JSON_ARRAY();
+  json_array 
+ ------------
+  []
+diff --git a/src/test/regress/sql/sqljson.sql b/src/test/regress/sql/sqljson.sql
+index 9b5d82602d0..3fd6ac260b8 100644
+--- a/src/test/regress/sql/sqljson.sql
++++ b/src/test/regress/sql/sqljson.sql
+@@ -150,10 +150,21 @@ SELECT JSON_OBJECT(1: 1, '2': NULL, '1': 1 ABSENT ON NULL WITH UNIQUE);
+ SELECT JSON_OBJECT(1: 1, '2': NULL, '1': 1 ABSENT ON NULL WITHOUT UNIQUE);
+ SELECT JSON_OBJECT(1: 1, '2': NULL, '1': 1 ABSENT ON NULL WITH UNIQUE RETURNING jsonb);
+ SELECT JSON_OBJECT(1: 1, '2': NULL, '1': 1 ABSENT ON NULL WITHOUT UNIQUE RETURNING jsonb);
+ SELECT JSON_OBJECT(1: 1, '2': NULL, '3': 1, 4: NULL, '5': 'a' ABSENT ON NULL WITH UNIQUE RETURNING jsonb);
+ 
++-- BUG: https://postgr.es/m/CADXhmgTJtJZK9A3Na_ry%2BXrq-ghjcejBRhcRMzWZvbd__QdgJA%40mail.gmail.com
++-- datum_to_jsonb_internal() didn't catch keys that are casts instead of a simple scalar
++CREATE TYPE mood AS ENUM ('happy', 'sad', 'neutral');
++CREATE FUNCTION mood_to_json(mood) RETURNS json AS $$
++  SELECT to_json($1::text);
++$$ LANGUAGE sql IMMUTABLE;
++CREATE CAST (mood AS json) WITH FUNCTION mood_to_json(mood) AS IMPLICIT;
++SELECT JSON_OBJECT('happy'::mood: '123'::jsonb);
++DROP CAST (mood AS json);
++DROP FUNCTION mood_to_json;
++DROP TYPE mood;
+ 
+ -- JSON_ARRAY()
+ SELECT JSON_ARRAY();
+ SELECT JSON_ARRAY(RETURNING json);
+ SELECT JSON_ARRAY(RETURNING json FORMAT JSON);

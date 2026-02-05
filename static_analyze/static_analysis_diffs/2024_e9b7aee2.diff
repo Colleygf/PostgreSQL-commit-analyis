@@ -1,0 +1,95 @@
+commit e9b7aee27283e65bd8819cd7a081dbe79eb1c1a3
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri May 17 13:48:31 2024 +0200
+
+    A few follow-up fixes for GUC name quoting
+    
+    Fixups for 17974ec259: Some messages were missed (and some were new
+    since the patch was originally proposed), and there was a typo
+    introduced.
+
+diff --git a/src/backend/libpq/be-secure-openssl.c b/src/backend/libpq/be-secure-openssl.c
+index 0caad6bed3d..39b1a66236b 100644
+--- a/src/backend/libpq/be-secure-openssl.c
++++ b/src/backend/libpq/be-secure-openssl.c
+@@ -222,11 +222,11 @@ be_tls_init(bool isServerStart)
+ 
+ 		if (ssl_ver_max == -1)
+ 		{
+ 			ereport(isServerStart ? FATAL : LOG,
+ 			/*- translator: first %s is a GUC option name, second %s is its value */
+-					(errmsg("%s setting \"%s\" not supported by this build",
++					(errmsg("\"%s\" setting \"%s\" not supported by this build",
+ 							"ssl_max_protocol_version",
+ 							GetConfigOption("ssl_max_protocol_version",
+ 											false, false))));
+ 			goto error;
+ 		}
+diff --git a/src/backend/postmaster/bgworker.c b/src/backend/postmaster/bgworker.c
+index 97f9f28424a..fa52b6dfa83 100644
+--- a/src/backend/postmaster/bgworker.c
++++ b/src/backend/postmaster/bgworker.c
+@@ -926,11 +926,11 @@ RegisterBackgroundWorker(BackgroundWorker *worker)
+ 				 errmsg("too many background workers"),
+ 				 errdetail_plural("Up to %d background worker can be registered with the current settings.",
+ 								  "Up to %d background workers can be registered with the current settings.",
+ 								  max_worker_processes,
+ 								  max_worker_processes),
+-				 errhint("Consider increasing the configuration parameter max_worker_processes.")));
++				 errhint("Consider increasing the configuration parameter \"max_worker_processes\".")));
+ 		return;
+ 	}
+ 
+ 	/*
+ 	 * Copy the registration data into the registered workers list.
+diff --git a/src/backend/postmaster/pgarch.c b/src/backend/postmaster/pgarch.c
+index 3fc8fe7d105..02f91431f5f 100644
+--- a/src/backend/postmaster/pgarch.c
++++ b/src/backend/postmaster/pgarch.c
+@@ -893,11 +893,11 @@ HandlePgArchInterrupts(void)
+ 			 * new archiver process starts up.  Note that this triggers the
+ 			 * module's shutdown callback, if defined.
+ 			 */
+ 			ereport(LOG,
+ 					(errmsg("restarting archiver process because value of "
+-							"archive_library was changed")));
++							"\"archive_library\" was changed")));
+ 
+ 			proc_exit(0);
+ 		}
+ 	}
+ }
+diff --git a/src/backend/replication/logical/slotsync.c b/src/backend/replication/logical/slotsync.c
+index f1f44d41eff..56d3fb5d0e5 100644
+--- a/src/backend/replication/logical/slotsync.c
++++ b/src/backend/replication/logical/slotsync.c
+@@ -1045,11 +1045,11 @@ ValidateSlotSyncParams(int elevel)
+ 	 * this case regardless of elevel provided by caller.
+ 	 */
+ 	if (wal_level < WAL_LEVEL_LOGICAL)
+ 		ereport(ERROR,
+ 				errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+-				errmsg("slot synchronization requires wal_level >= \"logical\""));
++				errmsg("slot synchronization requires \"wal_level\" >= \"logical\""));
+ 
+ 	/*
+ 	 * A physical replication slot(primary_slot_name) is required on the
+ 	 * primary to ensure that the rows needed by the standby are not removed
+ 	 * after restarting, so that the synchronized slot on the standby will not
+diff --git a/src/backend/utils/misc/guc_tables.c b/src/backend/utils/misc/guc_tables.c
+index 85c8d54d4fc..46c258be282 100644
+--- a/src/backend/utils/misc/guc_tables.c
++++ b/src/backend/utils/misc/guc_tables.c
+@@ -1112,11 +1112,11 @@ struct config_bool ConfigureNamesBool[] =
+ 	{
+ 		{"zero_damaged_pages", PGC_SUSET, DEVELOPER_OPTIONS,
+ 			gettext_noop("Continues processing past damaged page headers."),
+ 			gettext_noop("Detection of a damaged page header normally causes PostgreSQL to "
+ 						 "report an error, aborting the current transaction. Setting "
+-						 "\"zero_damaged_page\" to true causes the system to instead report a "
++						 "\"zero_damaged_pages\" to true causes the system to instead report a "
+ 						 "warning, zero out the damaged page, and continue processing. This "
+ 						 "behavior will destroy data, namely all the rows on the damaged page."),
+ 			GUC_NOT_IN_SAMPLE
+ 		},
+ 		&zero_damaged_pages,

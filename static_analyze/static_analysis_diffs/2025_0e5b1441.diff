@@ -1,0 +1,84 @@
+commit 0e5b14410e2bb54d191bbb7bb21a674ccabe768e
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Tue Jan 7 20:07:32 2025 +0100
+
+    Fix error message wording
+    
+    The originals are ambiguous and a bit out of style.
+    
+    Reviewed-by: Amit Langote <amitlangote09@gmail.com>
+    Discussion: https://postgr.es/m/202412141243.efesjyyvzxsz@alvherre.pgsql
+
+diff --git a/src/backend/parser/parse_expr.c b/src/backend/parser/parse_expr.c
+index 84d214f5c74..d1f64f8f0a5 100644
+--- a/src/backend/parser/parse_expr.c
++++ b/src/backend/parser/parse_expr.c
+@@ -4111,12 +4111,13 @@ transformJsonReturning(ParseState *pstate, JsonOutput *output, const char *fname
+ 		Assert(OidIsValid(returning->typid));
+ 
+ 		if (returning->typid != JSONOID && returning->typid != JSONBOID)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_DATATYPE_MISMATCH),
+-					 errmsg("cannot use RETURNING type %s in %s",
++					 errmsg("cannot use type %s in RETURNING clause of %s",
+ 							format_type_be(returning->typid), fname),
++					 errhint("Try returning json or jsonb."),
+ 					 parser_errposition(pstate, output->typeName->location)));
+ 	}
+ 	else
+ 	{
+ 		/* Output type is JSON by default. */
+@@ -4231,11 +4232,11 @@ transformJsonSerializeExpr(ParseState *pstate, JsonSerializeExpr *expr)
+ 			get_type_category_preferred(returning->typid, &typcategory,
+ 										&typispreferred);
+ 			if (typcategory != TYPCATEGORY_STRING)
+ 				ereport(ERROR,
+ 						(errcode(ERRCODE_DATATYPE_MISMATCH),
+-						 errmsg("cannot use RETURNING type %s in %s",
++						 errmsg("cannot use type %s in RETURNING clause of %s",
+ 								format_type_be(returning->typid),
+ 								"JSON_SERIALIZE()"),
+ 						 errhint("Try returning a string type or bytea.")));
+ 		}
+ 	}
+diff --git a/src/interfaces/ecpg/test/expected/sql-sqljson.stderr b/src/interfaces/ecpg/test/expected/sql-sqljson.stderr
+index c030fe3a986..e55a95dd711 100644
+--- a/src/interfaces/ecpg/test/expected/sql-sqljson.stderr
++++ b/src/interfaces/ecpg/test/expected/sql-sqljson.stderr
+@@ -238,16 +238,16 @@ SQL error: null value without indicator on line 84
+ [NO_PID]: sqlca: code: 0, state: 00000
+ [NO_PID]: ecpg_execute on line 99: query: select json_serialize ( '{ "a" : 1 } ' returning jsonb ); with 0 parameter(s) on connection ecpg1_regression
+ [NO_PID]: sqlca: code: 0, state: 00000
+ [NO_PID]: ecpg_execute on line 99: using PQexec
+ [NO_PID]: sqlca: code: 0, state: 00000
+-[NO_PID]: ecpg_check_PQresult on line 99: bad response - ERROR:  cannot use RETURNING type jsonb in JSON_SERIALIZE()
++[NO_PID]: ecpg_check_PQresult on line 99: bad response - ERROR:  cannot use type jsonb in RETURNING clause of JSON_SERIALIZE()
+ HINT:  Try returning a string type or bytea.
+ [NO_PID]: sqlca: code: 0, state: 00000
+-[NO_PID]: raising sqlstate 42804 (sqlcode -400): cannot use RETURNING type jsonb in JSON_SERIALIZE() on line 99
++[NO_PID]: raising sqlstate 42804 (sqlcode -400): cannot use type jsonb in RETURNING clause of JSON_SERIALIZE() on line 99
+ [NO_PID]: sqlca: code: -400, state: 42804
+-SQL error: cannot use RETURNING type jsonb in JSON_SERIALIZE() on line 99
++SQL error: cannot use type jsonb in RETURNING clause of JSON_SERIALIZE() on line 99
+ [NO_PID]: ecpg_execute on line 102: query: with val ( js ) as ( values ( '{ "a": 1, "b": [{ "a": 1, "b": 0, "a": 2 }] }' ) ) select js is json "IS JSON" , js is not json "IS NOT JSON" , js is json value "IS VALUE" , js is json object "IS OBJECT" , js is json array "IS ARRAY" , js is json scalar "IS SCALAR" , js is json without unique keys "WITHOUT UNIQUE" , js is json with unique keys "WITH UNIQUE" from val; with 0 parameter(s) on connection ecpg1_regression
+ [NO_PID]: sqlca: code: 0, state: 00000
+ [NO_PID]: ecpg_execute on line 102: using PQexec
+ [NO_PID]: sqlca: code: 0, state: 00000
+ [NO_PID]: ecpg_process_output on line 102: correctly got 1 tuples with 8 fields
+diff --git a/src/test/regress/expected/sqljson.out b/src/test/regress/expected/sqljson.out
+index 435d61dd4a3..5e664fae084 100644
+--- a/src/test/regress/expected/sqljson.out
++++ b/src/test/regress/expected/sqljson.out
+@@ -270,11 +270,11 @@ SELECT pg_typeof(JSON_SERIALIZE(NULL));
+  text
+ (1 row)
+ 
+ -- only string types or bytea allowed
+ SELECT JSON_SERIALIZE('{ "a" : 1 } ' RETURNING jsonb);
+-ERROR:  cannot use RETURNING type jsonb in JSON_SERIALIZE()
++ERROR:  cannot use type jsonb in RETURNING clause of JSON_SERIALIZE()
+ HINT:  Try returning a string type or bytea.
+ EXPLAIN (VERBOSE, COSTS OFF) SELECT JSON_SERIALIZE('{}');
+                      QUERY PLAN                      
+ -----------------------------------------------------
+  Result

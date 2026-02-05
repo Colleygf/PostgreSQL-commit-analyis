@@ -1,0 +1,147 @@
+commit 4019285c064028fbf613f0e43766416a63b826db
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sun Apr 28 13:42:13 2024 -0400
+
+    Detect more overflows in timestamp[tz]_pl_interval.
+    
+    In commit 25cd2d640 I (tgl) opined that "The additions of the months
+    and microseconds fields could also overflow, of course.  However,
+    I believe we need no additional checks there; the existing range
+    checks should catch such cases".  This is demonstrably wrong however
+    for the microseconds field, and given that discovery it seems prudent
+    to be paranoid about the months addition as well.
+    
+    Report and patch by Joseph Koshakow.  As before, back-patch to all
+    supported branches.  (However, the test case doesn't work before
+    v15 because we didn't allow wider-than-int32 numbers in interval
+    literals.  A variant test could probably be built that fits within
+    that restriction, but it didn't seem worth the trouble.)
+    
+    Discussion: https://postgr.es/m/CAAvxfHf77sRHKoEzUw9_cMYSpbpNS2C+J_+8Dq4+0oi8iKopeA@mail.gmail.com
+
+diff --git a/src/backend/utils/adt/timestamp.c b/src/backend/utils/adt/timestamp.c
+index 963f2ec74a1..e4715605a2d 100644
+--- a/src/backend/utils/adt/timestamp.c
++++ b/src/backend/utils/adt/timestamp.c
+@@ -3089,11 +3089,14 @@ timestamp_pl_interval(PG_FUNCTION_ARGS)
+ 			if (timestamp2tm(timestamp, NULL, tm, &fsec, NULL, NULL) != 0)
+ 				ereport(ERROR,
+ 						(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+ 						 errmsg("timestamp out of range")));
+ 
+-			tm->tm_mon += span->month;
++			if (pg_add_s32_overflow(tm->tm_mon, span->month, &tm->tm_mon))
++				ereport(ERROR,
++						(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
++						 errmsg("timestamp out of range")));
+ 			if (tm->tm_mon > MONTHS_PER_YEAR)
+ 			{
+ 				tm->tm_year += (tm->tm_mon - 1) / MONTHS_PER_YEAR;
+ 				tm->tm_mon = ((tm->tm_mon - 1) % MONTHS_PER_YEAR) + 1;
+ 			}
+@@ -3141,11 +3144,14 @@ timestamp_pl_interval(PG_FUNCTION_ARGS)
+ 				ereport(ERROR,
+ 						(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+ 						 errmsg("timestamp out of range")));
+ 		}
+ 
+-		timestamp += span->time;
++		if (pg_add_s64_overflow(timestamp, span->time, &timestamp))
++			ereport(ERROR,
++					(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
++					 errmsg("timestamp out of range")));
+ 
+ 		if (!IS_VALID_TIMESTAMP(timestamp))
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+ 					 errmsg("timestamp out of range")));
+@@ -3231,11 +3237,14 @@ timestamptz_pl_interval_internal(TimestampTz timestamp,
+ 			if (timestamp2tm(timestamp, &tz, tm, &fsec, NULL, attimezone) != 0)
+ 				ereport(ERROR,
+ 						(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+ 						 errmsg("timestamp out of range")));
+ 
+-			tm->tm_mon += span->month;
++			if (pg_add_s32_overflow(tm->tm_mon, span->month, &tm->tm_mon))
++				ereport(ERROR,
++						(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
++						 errmsg("timestamp out of range")));
+ 			if (tm->tm_mon > MONTHS_PER_YEAR)
+ 			{
+ 				tm->tm_year += (tm->tm_mon - 1) / MONTHS_PER_YEAR;
+ 				tm->tm_mon = ((tm->tm_mon - 1) % MONTHS_PER_YEAR) + 1;
+ 			}
+@@ -3290,11 +3299,14 @@ timestamptz_pl_interval_internal(TimestampTz timestamp,
+ 				ereport(ERROR,
+ 						(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+ 						 errmsg("timestamp out of range")));
+ 		}
+ 
+-		timestamp += span->time;
++		if (pg_add_s64_overflow(timestamp, span->time, &timestamp))
++			ereport(ERROR,
++					(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
++					 errmsg("timestamp out of range")));
+ 
+ 		if (!IS_VALID_TIMESTAMP(timestamp))
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_DATETIME_VALUE_OUT_OF_RANGE),
+ 					 errmsg("timestamp out of range")));
+diff --git a/src/test/regress/expected/horology.out b/src/test/regress/expected/horology.out
+index aa976123e0e..195fe726449 100644
+--- a/src/test/regress/expected/horology.out
++++ b/src/test/regress/expected/horology.out
+@@ -482,10 +482,12 @@ SELECT timestamp without time zone 'Jan 1, 4713 BC' + interval '109203489 days'
+  Sun Dec 31 00:00:00 294276
+ (1 row)
+ 
+ SELECT timestamp without time zone '2000-01-01' - interval '2483590 days' AS "out of range";
+ ERROR:  timestamp out of range
++SELECT timestamp without time zone '294276-12-31 23:59:59' + interval '9223372036854775807 microseconds' AS "out of range";
++ERROR:  timestamp out of range
+ SELECT timestamp without time zone '12/31/294276' - timestamp without time zone '12/23/1999' AS "106751991 Days";
+   106751991 Days  
+ ------------------
+  @ 106751991 days
+ (1 row)
+@@ -744,10 +746,12 @@ SELECT timestamp with time zone '1999-12-01' + interval '1 month - 1 second' AS
+  Fri Dec 31 23:59:59 1999 PST
+ (1 row)
+ 
+ SELECT timestamp with time zone '2000-01-01' - interval '2483590 days' AS "out of range";
+ ERROR:  timestamp out of range
++SELECT timestamp with time zone '294276-12-31 23:59:59 UTC' + interval '9223372036854775807 microseconds' AS "out of range";
++ERROR:  timestamp out of range
+ SELECT (timestamp with time zone 'today' = (timestamp with time zone 'yesterday' + interval '1 day')) as "True";
+  True 
+ ------
+  t
+ (1 row)
+diff --git a/src/test/regress/sql/horology.sql b/src/test/regress/sql/horology.sql
+index dcc596633ab..2aa4a49b3fd 100644
+--- a/src/test/regress/sql/horology.sql
++++ b/src/test/regress/sql/horology.sql
+@@ -119,10 +119,11 @@ SELECT timestamp without time zone '2000-03-01' - interval '1 second' AS "Feb 29
+ SELECT timestamp without time zone '1999-12-01' + interval '1 month - 1 second' AS "Dec 31";
+ SELECT timestamp without time zone 'Jan 1, 4713 BC' + interval '106000000 days' AS "Feb 23, 285506";
+ SELECT timestamp without time zone 'Jan 1, 4713 BC' + interval '107000000 days' AS "Jan 20, 288244";
+ SELECT timestamp without time zone 'Jan 1, 4713 BC' + interval '109203489 days' AS "Dec 31, 294276";
+ SELECT timestamp without time zone '2000-01-01' - interval '2483590 days' AS "out of range";
++SELECT timestamp without time zone '294276-12-31 23:59:59' + interval '9223372036854775807 microseconds' AS "out of range";
+ SELECT timestamp without time zone '12/31/294276' - timestamp without time zone '12/23/1999' AS "106751991 Days";
+ 
+ -- Shorthand values
+ -- Not directly usable for regression testing since these are not constants.
+ -- So, just try to test parser and hope for the best - thomas 97/04/26
+@@ -151,10 +152,11 @@ SELECT d1 - interval '1 year' AS one_year FROM TIMESTAMP_TBL;
+ SELECT timestamp with time zone '1996-03-01' - interval '1 second' AS "Feb 29";
+ SELECT timestamp with time zone '1999-03-01' - interval '1 second' AS "Feb 28";
+ SELECT timestamp with time zone '2000-03-01' - interval '1 second' AS "Feb 29";
+ SELECT timestamp with time zone '1999-12-01' + interval '1 month - 1 second' AS "Dec 31";
+ SELECT timestamp with time zone '2000-01-01' - interval '2483590 days' AS "out of range";
++SELECT timestamp with time zone '294276-12-31 23:59:59 UTC' + interval '9223372036854775807 microseconds' AS "out of range";
+ 
+ SELECT (timestamp with time zone 'today' = (timestamp with time zone 'yesterday' + interval '1 day')) as "True";
+ SELECT (timestamp with time zone 'today' = (timestamp with time zone 'tomorrow' - interval '1 day')) as "True";
+ SELECT (timestamp with time zone 'tomorrow' = (timestamp with time zone 'yesterday' + interval '2 days')) as "True";
+ SELECT (timestamp with time zone 'tomorrow' > 'now') as "True";

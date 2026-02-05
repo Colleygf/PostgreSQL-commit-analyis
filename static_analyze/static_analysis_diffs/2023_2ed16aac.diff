@@ -1,0 +1,90 @@
+commit 2ed16aacf1af1e1a26bffb121a19d1ad5f5177f0
+Author: Andres Freund <andres@anarazel.de>
+Date:   Fri Apr 7 22:25:46 2023 -0700
+
+    Fix underspecified sort order in inherit.sql
+    
+    Introduced in e056c557aef4.
+    
+    Per buildfarm member prion.
+
+diff --git a/src/test/regress/expected/inherit.out b/src/test/regress/expected/inherit.out
+index b3fd089acc9..166b4c922fd 100644
+--- a/src/test/regress/expected/inherit.out
++++ b/src/test/regress/expected/inherit.out
+@@ -1995,11 +1995,12 @@ create table inh_child (a int not null) inherits (inh_parent);
+ NOTICE:  merging column "a" with inherited definition
+ select conrelid::regclass, conname, contype, conkey,
+  (select attname from pg_attribute where attrelid = conrelid and attnum = conkey[1]),
+  coninhcount, conislocal, connoinherit
+  from pg_constraint where contype in ('n','p') and
+- conrelid in ('inh_child'::regclass, 'inh_parent'::regclass);
++ conrelid in ('inh_child'::regclass, 'inh_parent'::regclass)
++ order by 1, 2;
+   conrelid  |        conname        | contype | conkey | attname | coninhcount | conislocal | connoinherit 
+ ------------+-----------------------+---------+--------+---------+-------------+------------+--------------
+  inh_parent | inh_parent_a_not_null | n       | {1}    | a       |           0 | t          | f
+  inh_child  | inh_child_a_not_null  | n       | {1}    | a       |           1 | t          | f
+ (2 rows)
+@@ -2007,11 +2008,12 @@ select conrelid::regclass, conname, contype, conkey,
+ alter table inh_child alter a drop not null;
+ select conrelid::regclass, conname, contype, conkey,
+  (select attname from pg_attribute where attrelid = conrelid and attnum = conkey[1]),
+  coninhcount, conislocal, connoinherit
+  from pg_constraint where contype in ('n','p') and
+- conrelid in ('inh_child'::regclass, 'inh_parent'::regclass);
++ conrelid in ('inh_child'::regclass, 'inh_parent'::regclass)
++ order by 1, 2;
+   conrelid  |        conname        | contype | conkey | attname | coninhcount | conislocal | connoinherit 
+ ------------+-----------------------+---------+--------+---------+-------------+------------+--------------
+  inh_parent | inh_parent_a_not_null | n       | {1}    | a       |           0 | t          | f
+  inh_child  | inh_child_a_not_null  | n       | {1}    | a       |           1 | f          | f
+ (2 rows)
+@@ -2019,11 +2021,12 @@ select conrelid::regclass, conname, contype, conkey,
+ alter table inh_parent alter a drop not null;
+ select conrelid::regclass, conname, contype, conkey,
+  (select attname from pg_attribute where attrelid = conrelid and attnum = conkey[1]),
+  coninhcount, conislocal, connoinherit
+  from pg_constraint where contype in ('n','p') and
+- conrelid in ('inh_child'::regclass, 'inh_parent'::regclass);
++ conrelid in ('inh_child'::regclass, 'inh_parent'::regclass)
++ order by 1, 2;
+  conrelid | conname | contype | conkey | attname | coninhcount | conislocal | connoinherit 
+ ----------+---------+---------+--------+---------+-------------+------------+--------------
+ (0 rows)
+ 
+ drop table inh_parent, inh_child;
+diff --git a/src/test/regress/sql/inherit.sql b/src/test/regress/sql/inherit.sql
+index 2ec18de4b8d..a8ba2a31a70 100644
+--- a/src/test/regress/sql/inherit.sql
++++ b/src/test/regress/sql/inherit.sql
+@@ -745,23 +745,26 @@ create table inh_parent (a int not null);
+ create table inh_child (a int not null) inherits (inh_parent);
+ select conrelid::regclass, conname, contype, conkey,
+  (select attname from pg_attribute where attrelid = conrelid and attnum = conkey[1]),
+  coninhcount, conislocal, connoinherit
+  from pg_constraint where contype in ('n','p') and
+- conrelid in ('inh_child'::regclass, 'inh_parent'::regclass);
++ conrelid in ('inh_child'::regclass, 'inh_parent'::regclass)
++ order by 1, 2;
+ alter table inh_child alter a drop not null;
+ select conrelid::regclass, conname, contype, conkey,
+  (select attname from pg_attribute where attrelid = conrelid and attnum = conkey[1]),
+  coninhcount, conislocal, connoinherit
+  from pg_constraint where contype in ('n','p') and
+- conrelid in ('inh_child'::regclass, 'inh_parent'::regclass);
++ conrelid in ('inh_child'::regclass, 'inh_parent'::regclass)
++ order by 1, 2;
+ alter table inh_parent alter a drop not null;
+ select conrelid::regclass, conname, contype, conkey,
+  (select attname from pg_attribute where attrelid = conrelid and attnum = conkey[1]),
+  coninhcount, conislocal, connoinherit
+  from pg_constraint where contype in ('n','p') and
+- conrelid in ('inh_child'::regclass, 'inh_parent'::regclass);
++ conrelid in ('inh_child'::regclass, 'inh_parent'::regclass)
++ order by 1, 2;
+ drop table inh_parent, inh_child;
+ 
+ -- NOT NULL NO INHERIT
+ create table inh_parent(a int);
+ create table inh_child() inherits (inh_parent);

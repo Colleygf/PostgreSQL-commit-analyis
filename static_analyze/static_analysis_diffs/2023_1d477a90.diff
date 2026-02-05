@@ -1,0 +1,131 @@
+commit 1d477a907e63941b58508136f92ac0b5058b68ab
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu Apr 6 09:29:03 2023 +0900
+
+    Fix row tracking in pg_stat_statements with extended query protocol
+    
+    pg_stat_statements relies on EState->es_processed to count the number of
+    rows processed by ExecutorRun().  This proves to be a problem under the
+    extended query protocol when the result of a query is fetched through
+    more than one call of ExecutorRun(), as es_processed is reset each time
+    ExecutorRun() is called.  This causes pg_stat_statements to report the
+    number of rows calculated in the last execute fetch, rather than the
+    global sum of all the rows processed.
+    
+    As pquery.c tells, this is a problem when a portal does not use
+    holdStore.  For example, DMLs with RETURNING would report a correct
+    tuple count as these do one execution cycle when the query is first
+    executed to fill in the portal's store with one ExecutorRun(), feeding
+    on the portal's store for each follow-up execute fetch depending on the
+    fetch size requested by the client.
+    
+    The fix proposed for this issue is simple with the addition of an extra
+    counter in EState that's preserved across multiple ExecutorRun() calls,
+    incremented with the value calculated in es_processed.  This approach is
+    not back-patchable, unfortunately.
+    
+    Note that libpq does not currently give any way to control the fetch
+    size when using the extended v3 protocol, meaning that in-core testing
+    is not possible yet.  This issue can be easily verified with the JDBC
+    driver, though, with *autocommit disabled*.  Hence, having in-core tests
+    requires more features, left for future discussion:
+    - At least two new libpq routines splitting PQsendQueryGuts(), one for
+    the bind/describe and a second for a series of execute fetches with a
+    custom fetch size, likely in a fashion similar to what JDBC does.
+    - A psql meta-command for the execute phase.  This part is not strictly
+    mandatory, still it could be handy.
+    
+    Reported-by: Andrew Dunstan (original discovery by Simon Siggs)
+    Author: Sami Imseih
+    Reviewed-by: Tom Lane, Michael Paquier
+    Discussion: https://postgr.es/m/EBE6C507-9EB6-4142-9E4D-38B1673363A7@amazon.com
+    Discussion: https://postgr.es/m/c90890e7-9c89-c34f-d3c5-d5c763a34bd8@dunslane.net
+
+diff --git a/contrib/pg_stat_statements/pg_stat_statements.c b/contrib/pg_stat_statements/pg_stat_statements.c
+index 5285c3f7faa..68215bb2e39 100644
+--- a/contrib/pg_stat_statements/pg_stat_statements.c
++++ b/contrib/pg_stat_statements/pg_stat_statements.c
+@@ -1058,11 +1058,11 @@ pgss_ExecutorEnd(QueryDesc *queryDesc)
+ 				   queryId,
+ 				   queryDesc->plannedstmt->stmt_location,
+ 				   queryDesc->plannedstmt->stmt_len,
+ 				   PGSS_EXEC,
+ 				   queryDesc->totaltime->total * 1000.0,	/* convert to msec */
+-				   queryDesc->estate->es_processed,
++				   queryDesc->estate->es_total_processed,
+ 				   &queryDesc->totaltime->bufusage,
+ 				   &queryDesc->totaltime->walusage,
+ 				   queryDesc->estate->es_jit ? &queryDesc->estate->es_jit->instr : NULL,
+ 				   NULL);
+ 	}
+diff --git a/src/backend/executor/execMain.c b/src/backend/executor/execMain.c
+index 1b007dc32cd..eaf6f31a154 100644
+--- a/src/backend/executor/execMain.c
++++ b/src/backend/executor/execMain.c
+@@ -287,11 +287,12 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
+  *		by a ModifyTable plan node.
+  *
+  *		There is no return value, but output tuples (if any) are sent to
+  *		the destination receiver specified in the QueryDesc; and the number
+  *		of tuples processed at the top level can be found in
+- *		estate->es_processed.
++ *		estate->es_processed.  The total number of tuples processed in all
++ *		the ExecutorRun calls can be found in estate->es_total_processed.
+  *
+  *		We provide a function hook variable that lets loadable plugins
+  *		get control when ExecutorRun is called.  Such a plugin would
+  *		normally call standard_ExecutorRun().
+  *
+@@ -370,10 +371,16 @@ standard_ExecutorRun(QueryDesc *queryDesc,
+ 					direction,
+ 					dest,
+ 					execute_once);
+ 	}
+ 
++	/*
++	 * Update es_total_processed to keep track of the number of tuples
++	 * processed across multiple ExecutorRun() calls.
++	 */
++	estate->es_total_processed += estate->es_processed;
++
+ 	/*
+ 	 * shutdown tuple receiver, if we started it
+ 	 */
+ 	if (sendTuples)
+ 		dest->rShutdown(dest);
+diff --git a/src/backend/executor/execUtils.c b/src/backend/executor/execUtils.c
+index 012dbb69653..5ce8a0831b1 100644
+--- a/src/backend/executor/execUtils.c
++++ b/src/backend/executor/execUtils.c
+@@ -145,10 +145,11 @@ CreateExecutorState(void)
+ 	estate->es_query_cxt = qcontext;
+ 
+ 	estate->es_tupleTable = NIL;
+ 
+ 	estate->es_processed = 0;
++	estate->es_total_processed = 0;
+ 
+ 	estate->es_top_eflags = 0;
+ 	estate->es_instrument = 0;
+ 	estate->es_finished = false;
+ 
+diff --git a/src/include/nodes/execnodes.h b/src/include/nodes/execnodes.h
+index b0def732ca6..695ff056ba8 100644
+--- a/src/include/nodes/execnodes.h
++++ b/src/include/nodes/execnodes.h
+@@ -659,11 +659,14 @@ typedef struct EState
+ 	/* Other working state: */
+ 	MemoryContext es_query_cxt; /* per-query context in which EState lives */
+ 
+ 	List	   *es_tupleTable;	/* List of TupleTableSlots */
+ 
+-	uint64		es_processed;	/* # of tuples processed */
++	uint64		es_processed;	/* # of tuples processed during one
++								 * ExecutorRun() call. */
++	uint64		es_total_processed; /* total # of tuples aggregated across all
++									 * ExecutorRun() calls. */
+ 
+ 	int			es_top_eflags;	/* eflags passed to ExecutorStart */
+ 	int			es_instrument;	/* OR of InstrumentOption flags */
+ 	bool		es_finished;	/* true when ExecutorFinish is done */
+ 

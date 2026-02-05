@@ -1,0 +1,107 @@
+commit f0c569d7151532fbc9c016b01af49f04a9fb5278
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Dec 9 16:41:46 2024 +0900
+
+    Fix memory leak in pgoutput with publication list cache
+    
+    The pgoutput module caches publication names in a list and frees it upon
+    invalidation.  However, the code forgot to free the actual publication
+    names within the list elements, as publication names are pstrdup()'d in
+    GetPublication().  This would cause memory to leak in
+    CacheMemoryContext, bloating it over time as this context is not
+    cleaned.
+    
+    This is a problem for WAL senders running for a long time, as an
+    accumulation of invalidation requests would bloat its cache memory
+    usage.  A second case, where this leak is easier to see, involves a
+    backend calling SQL functions like pg_logical_slot_{get,peek}_changes()
+    which create a new decoding context with each execution.  More
+    publications create more bloat.
+    
+    To address this, this commit adds a new memory context within the
+    logical decoding context and resets it each time the publication names
+    cache is invalidated, based on a suggestion from Amit Kapila.  This
+    ensures that the lifespan of the publication names aligns with that of
+    the logical decoding context.
+    
+    This solution changes PGOutputData, which is fine for HEAD but it could
+    cause an ABI breakage in stable branches as the structure size would
+    change, so these are left out for now.
+    
+    Analyzed-by: Michael Paquier, Jeff Davis
+    Author: Zhijie Hou
+    Reviewed-by: Michael Paquier, Masahiko Sawada, Euler Taveira
+    Discussion: https://postgr.es/m/Z0khf9EVMVLOc_YY@paquier.xyz
+
+diff --git a/src/backend/replication/pgoutput/pgoutput.c b/src/backend/replication/pgoutput/pgoutput.c
+index 5e23453f071..b50b3d62e3d 100644
+--- a/src/backend/replication/pgoutput/pgoutput.c
++++ b/src/backend/replication/pgoutput/pgoutput.c
+@@ -434,10 +434,14 @@ pgoutput_startup(LogicalDecodingContext *ctx, OutputPluginOptions *opt,
+ 
+ 	data->cachectx = AllocSetContextCreate(ctx->context,
+ 										   "logical replication cache context",
+ 										   ALLOCSET_DEFAULT_SIZES);
+ 
++	data->pubctx = AllocSetContextCreate(ctx->context,
++										 "logical replication publication list context",
++										 ALLOCSET_SMALL_SIZES);
++
+ 	ctx->output_plugin_private = data;
+ 
+ 	/* This plugin uses binary protocol. */
+ 	opt->output_type = OUTPUT_PLUGIN_BINARY_OUTPUT;
+ 
+@@ -1732,13 +1736,13 @@ pgoutput_origin_filter(LogicalDecodingContext *ctx,
+ }
+ 
+ /*
+  * Shutdown the output plugin.
+  *
+- * Note, we don't need to clean the data->context and data->cachectx as
+- * they are child contexts of the ctx->context so they will be cleaned up by
+- * logical decoding machinery.
++ * Note, we don't need to clean the data->context, data->cachectx, and
++ * data->pubctx as they are child contexts of the ctx->context so they
++ * will be cleaned up by logical decoding machinery.
+  */
+ static void
+ pgoutput_shutdown(LogicalDecodingContext *ctx)
+ {
+ 	if (RelationSyncCache)
+@@ -2061,16 +2065,13 @@ get_rel_sync_entry(PGOutputData *data, Relation relation)
+ 		List	   *rel_publications = NIL;
+ 
+ 		/* Reload publications if needed before use. */
+ 		if (!publications_valid)
+ 		{
+-			oldctx = MemoryContextSwitchTo(CacheMemoryContext);
+-			if (data->publications)
+-			{
+-				list_free_deep(data->publications);
+-				data->publications = NIL;
+-			}
++			MemoryContextReset(data->pubctx);
++
++			oldctx = MemoryContextSwitchTo(data->pubctx);
+ 			data->publications = LoadPublications(data->publication_names);
+ 			MemoryContextSwitchTo(oldctx);
+ 			publications_valid = true;
+ 		}
+ 
+diff --git a/src/include/replication/pgoutput.h b/src/include/replication/pgoutput.h
+index 89f94e11472..ec7f1aa94e8 100644
+--- a/src/include/replication/pgoutput.h
++++ b/src/include/replication/pgoutput.h
+@@ -18,10 +18,11 @@
+ typedef struct PGOutputData
+ {
+ 	MemoryContext context;		/* private memory context for transient
+ 								 * allocations */
+ 	MemoryContext cachectx;		/* private memory context for cache data */
++	MemoryContext pubctx;		/* private memory context for publication data */
+ 
+ 	bool		in_streaming;	/* true if we are streaming a chunk of
+ 								 * transaction */
+ 
+ 	/* client-supplied info: */

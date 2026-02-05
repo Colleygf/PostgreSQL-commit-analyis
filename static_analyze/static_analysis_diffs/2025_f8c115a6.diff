@@ -1,0 +1,108 @@
+commit f8c115a6cb6531ca86e7b0febd02698135827337
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Wed Apr 30 11:10:27 2025 +0200
+
+    Typo and doc fixups for memory context reporting
+    
+    This fixes comment and docs typos as well as a small documentation
+    change to make it clearer.  Found via post-commit review.
+    
+    Author: Rahila Syed <rahilasyed90@gmail.com>
+    Reviewed-by: Daniel Gustafsson <daniel@yesql.se>
+    Discussion: https://postgr.es/m/CAH2L28vt16C9xTuK+K7QZvtA3kCNWXOEiT=gEekUw3Xxp9LVQw@mail.gmail.com
+
+diff --git a/doc/src/sgml/func.sgml b/doc/src/sgml/func.sgml
+index 574a544d9fa..af3d056b992 100644
+--- a/doc/src/sgml/func.sgml
++++ b/doc/src/sgml/func.sgml
+@@ -28778,12 +28778,11 @@ acl      | {postgres=arwdDxtm/postgres,foo=r/postgres}
+         Statistics for contexts on level 2 and below are aggregates of all
+         child contexts' statistics, where <literal>num_agg_contexts</literal>
+         indicate the number aggregated child contexts.  When
+         <parameter>summary</parameter> is <literal>false</literal>,
+         <literal>the num_agg_contexts</literal> value is <literal>1</literal>,
+-        indicating that individual statistics are being displayed. The levels
+-        are limited to the first 100 contexts.
++        indicating that individual statistics are being displayed.
+        </para>
+        <para>
+         Busy processes can delay reporting memory context statistics,
+         <parameter>timeout</parameter> specifies the number of seconds
+         to wait for updated statistics. <parameter>timeout</parameter> can be
+@@ -28794,11 +28793,11 @@ acl      | {postgres=arwdDxtm/postgres,foo=r/postgres}
+         returns the results as one row per context.  If all the contexts don't
+         fit within the pre-determined size limit, the remaining context
+         statistics are aggregated and a cumulative total is displayed.  The
+         <literal>num_agg_contexts</literal> column indicates the number of
+         contexts aggregated in the displayed statistics.  When
+-        <literal>num_agg_contexts</literal> is <literal>1</literal> is means
++        <literal>num_agg_contexts</literal> is <literal>1</literal> it means
+         that the context statistics are displayed separately.
+        </para></entry>
+       </row>
+ 
+       <row>
+diff --git a/src/backend/utils/mmgr/mcxt.c b/src/backend/utils/mmgr/mcxt.c
+index 786e92039b1..69884701fb4 100644
+--- a/src/backend/utils/mmgr/mcxt.c
++++ b/src/backend/utils/mmgr/mcxt.c
+@@ -1491,12 +1491,12 @@ ProcessGetMemoryContextInterrupt(void)
+ 
+ 	LWLockAcquire(&memCxtArea->lw_lock, LW_EXCLUSIVE);
+ 
+ 	/*
+ 	 * Create a DSA and send handle to the client process after storing the
+-	 * context statistics. If number of contexts exceed a predefined
+-	 * limit(8MB), a cumulative total is stored for such contexts.
++	 * context statistics. If number of contexts exceed a predefined limit
++	 * (1MB), a cumulative total is stored for such contexts.
+ 	 */
+ 	if (memCxtArea->memstats_dsa_handle == DSA_HANDLE_INVALID)
+ 	{
+ 		MemoryContext oldcontext = CurrentMemoryContext;
+ 		dsa_handle	handle;
+@@ -1510,12 +1510,14 @@ ProcessGetMemoryContextInterrupt(void)
+ 
+ 		dsa_pin_mapping(MemoryStatsDsaArea);
+ 
+ 		/*
+ 		 * Pin the DSA area, this is to make sure the area remains attachable
+-		 * even if current backend exits. This is done so that the statistics
+-		 * are published even if the process exits while a client is waiting.
++		 * even if the backend that created it exits. This is done so that the
++		 * statistics are published even if the process exits while a client
++		 * is waiting. Also, other processes that publish statistics will use
++		 * the same area.
+ 		 */
+ 		dsa_pin(MemoryStatsDsaArea);
+ 
+ 		/* Set the handle in shared memory */
+ 		memCxtArea->memstats_dsa_handle = handle;
+@@ -1578,11 +1580,11 @@ ProcessGetMemoryContextInterrupt(void)
+ 		PublishMemoryContext(meminfo, cxt_id, TopMemoryContext, path, stat,
+ 							 1, MemoryStatsDsaArea, 100);
+ 		cxt_id = cxt_id + 1;
+ 
+ 		/*
+-		 * Copy statistics for each of TopMemoryContexts children.	This
++		 * Copy statistics for each of TopMemoryContexts children.  This
+ 		 * includes statistics of at most 100 children per node, with each
+ 		 * child node limited to a depth of 100 in its subtree.
+ 		 */
+ 		for (MemoryContext c = TopMemoryContext->firstchild; c != NULL;
+ 			 c = c->nextchild)
+@@ -1607,13 +1609,13 @@ ProcessGetMemoryContextInterrupt(void)
+ 			PublishMemoryContext(meminfo, cxt_id, c, path,
+ 								 grand_totals, num_contexts, MemoryStatsDsaArea, 100);
+ 		}
+ 		memCxtState[idx].total_stats = cxt_id;
+ 
++		/* Notify waiting backends and return */
+ 		end_memorycontext_reporting();
+ 
+-		/* Notify waiting backends and return */
+ 		hash_destroy(context_id_lookup);
+ 
+ 		return;
+ 	}
+ 

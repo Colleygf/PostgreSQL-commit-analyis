@@ -1,0 +1,69 @@
+commit 3ec8a3bfb5472ecf93aba416e9f384ea16d340d1
+Author: Tomas Vondra <tomas.vondra@postgresql.org>
+Date:   Thu May 18 13:00:31 2023 +0200
+
+    Fix handling of NULLs when merging BRIN summaries
+    
+    When merging BRIN summaries, union_tuples() did not correctly update the
+    target hasnulls/allnulls flags. When merging all-NULL summary into a
+    summary without any NULL values, the result had both flags set to false
+    (instead of having hasnulls=true).
+    
+    This happened because the code only considered the hasnulls flags,
+    ignoring the possibility the source summary has allnulls=true.
+    
+    Discovered while investigating issues with handling empty BRIN ranges
+    and handling of NULL values, but it's a separate problem (has nothing to
+    do with empty ranges).
+    
+    Fixed by considering both flags on the source summary, and updating the
+    hasnulls flag on the target summary.
+    
+    Backpatch to 11. The bug exists since 9.5 (where BRIN indexes were
+    introduced), but those releases are EOL already.
+    
+    Discussion: https://postgr.es/m/9d993d0d-e431-2196-9ccc-0554d0e60154%40enterprisedb.com
+
+diff --git a/src/backend/access/brin/brin.c b/src/backend/access/brin/brin.c
+index 41bf950a4af..fc002d00991 100644
+--- a/src/backend/access/brin/brin.c
++++ b/src/backend/access/brin/brin.c
+@@ -1613,12 +1613,15 @@ union_tuples(BrinDesc *bdesc, BrinMemTuple *a, BrinTuple *b)
+ 		BrinValues *col_b = &db->bt_columns[keyno];
+ 		BrinOpcInfo *opcinfo = bdesc->bd_info[keyno];
+ 
+ 		if (opcinfo->oi_regular_nulls)
+ 		{
++			/* Does the "b" summary represent any NULL values? */
++			bool		b_has_nulls = (col_b->bv_hasnulls || col_b->bv_allnulls);
++
+ 			/* Adjust "hasnulls". */
+-			if (!col_a->bv_hasnulls && col_b->bv_hasnulls)
++			if (!col_a->bv_allnulls && b_has_nulls)
+ 				col_a->bv_hasnulls = true;
+ 
+ 			/* If there are no values in B, there's nothing left to do. */
+ 			if (col_b->bv_allnulls)
+ 				continue;
+@@ -1626,16 +1629,21 @@ union_tuples(BrinDesc *bdesc, BrinMemTuple *a, BrinTuple *b)
+ 			/*
+ 			 * Adjust "allnulls".  If A doesn't have values, just copy the
+ 			 * values from B into A, and we're done.  We cannot run the
+ 			 * operators in this case, because values in A might contain
+ 			 * garbage.  Note we already established that B contains values.
++			 *
++			 * Also adjust "hasnulls" in order not to forget the summary
++			 * represents NULL values. This is not redundant with the earlier
++			 * update, because that only happens when allnulls=false.
+ 			 */
+ 			if (col_a->bv_allnulls)
+ 			{
+ 				int			i;
+ 
+ 				col_a->bv_allnulls = false;
++				col_a->bv_hasnulls = true;
+ 
+ 				for (i = 0; i < opcinfo->oi_nstored; i++)
+ 					col_a->bv_values[i] =
+ 						datumCopy(col_b->bv_values[i],
+ 								  opcinfo->oi_typcache[i]->typbyval,

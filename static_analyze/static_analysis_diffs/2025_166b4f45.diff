@@ -1,0 +1,47 @@
+commit 166b4f4560d68e2bcf0f82eb898ac5ee15147b82
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sun Jun 8 17:06:39 2025 -0400
+
+    pg_restore: fix incompatibility with old directory-format dumps.
+    
+    pg_restore failed to restore large objects (blobs) out of
+    directory-format dumps made by versions before PG v12.
+    That's because, due to a bug fixed in commit 548e50976, those
+    old versions put the wrong filename into the BLOBS TOC entry.
+    Said bug was harmless before v17, because we ignored the
+    incorrect filename field --- but commit a45c78e32 assumed it
+    would be correct.
+    
+    Reported-by: Pavel Stehule <pavel.stehule@gmail.com>
+    Author: Pavel Stehule <pavel.stehule@gmail.com>
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/CAFj8pRCrZ=_e1Rv1N+6vDaH+6gf=9A2mE2J4RvnvKA1bLiXvXA@mail.gmail.com
+    Backpatch-through: 17
+
+diff --git a/src/bin/pg_dump/pg_backup_directory.c b/src/bin/pg_dump/pg_backup_directory.c
+index 21b00792a8a..bc2a2fb4797 100644
+--- a/src/bin/pg_dump/pg_backup_directory.c
++++ b/src/bin/pg_dump/pg_backup_directory.c
+@@ -410,14 +410,19 @@ _LoadLOs(ArchiveHandle *AH, TocEntry *te)
+ 
+ 	StartRestoreLOs(AH);
+ 
+ 	/*
+ 	 * Note: before archive v16, there was always only one BLOBS TOC entry,
+-	 * now there can be multiple.  We don't need to worry what version we are
+-	 * reading though, because tctx->filename should be correct either way.
++	 * now there can be multiple.  Furthermore, although the actual filename
++	 * was always "blobs.toc" before v16, the value of tctx->filename did not
++	 * match that before commit 548e50976 fixed it.  For simplicity we assume
++	 * it must be "blobs.toc" in all archives before v16.
+ 	 */
+-	setFilePath(AH, tocfname, tctx->filename);
++	if (AH->version < K_VERS_1_16)
++		setFilePath(AH, tocfname, "blobs.toc");
++	else
++		setFilePath(AH, tocfname, tctx->filename);
+ 
+ 	CFH = ctx->LOsTocFH = InitDiscoverCompressFileHandle(tocfname, PG_BINARY_R);
+ 
+ 	if (ctx->LOsTocFH == NULL)
+ 		pg_fatal("could not open large object TOC file \"%s\" for input: %m",

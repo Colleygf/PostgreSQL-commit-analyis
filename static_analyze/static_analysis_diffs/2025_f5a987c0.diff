@@ -1,0 +1,88 @@
+commit f5a987c0e5f6bbf0cc0420228dc57e7aae4d7e8f
+Author: Masahiko Sawada <msawada@postgresql.org>
+Date:   Wed Jul 9 05:45:34 2025 -0700
+
+    Fix tab-completion for COPY and \copy options.
+    
+    Commit c273d9d8ce4 reworked tab-completion of COPY and \copy in psql
+    and added support for completing options within WITH clauses. However,
+    the same COPY options were suggested for both COPY TO and COPY FROM
+    commands, even though some options are only valid for one or the
+    other.
+    
+    This commit separates the COPY options for COPY FROM and COPY TO
+    commands to provide more accurate auto-completion suggestions.
+    
+    Back-patch to v14 where tab-completion for COPY and \copy options
+    within WITH clauses was first supported.
+    
+    Author: Atsushi Torikoshi <torikoshia@oss.nttdata.com>
+    Reviewed-by: Yugo Nagata <nagata@sraoss.co.jp>
+    Discussion: https://postgr.es/m/079e7a2c801f252ae8d522b772790ed7@oss.nttdata.com
+    Backpatch-through: 14
+
+diff --git a/src/bin/psql/tab-complete.in.c b/src/bin/psql/tab-complete.in.c
+index 13db6523448..5ba45a0bcb3 100644
+--- a/src/bin/psql/tab-complete.in.c
++++ b/src/bin/psql/tab-complete.in.c
+@@ -1196,10 +1196,23 @@ Alter_procedure_options, "COST", "IMMUTABLE", "LEAKPROOF", "NOT LEAKPROOF", \
+ /* ALTER FUNCTION options */
+ #define Alter_function_options \
+ Alter_routine_options, "CALLED ON NULL INPUT", "RETURNS NULL ON NULL INPUT", \
+ "STRICT", "SUPPORT"
+ 
++/* COPY options shared between FROM and TO */
++#define Copy_common_options \
++"DELIMITER", "ENCODING", "ESCAPE", "FORMAT", "HEADER", "NULL", "QUOTE"
++
++/* COPY FROM options */
++#define Copy_from_options \
++Copy_common_options, "DEFAULT", "FORCE_NOT_NULL", "FORCE_NULL", "FREEZE", \
++"LOG_VERBOSITY", "ON_ERROR", "REJECT_LIMIT"
++
++/* COPY TO options */
++#define Copy_to_options \
++Copy_common_options, "FORCE_QUOTE"
++
+ /*
+  * These object types were introduced later than our support cutoff of
+  * server version 9.2.  We use the VersionedQuery infrastructure so that
+  * we don't send certain-to-fail queries to older servers.
+  */
+@@ -3297,27 +3310,28 @@ match_previous_words(int pattern_id,
+ 
+ 	/* Complete COPY <sth> FROM <sth> */
+ 	else if (Matches("COPY|\\copy", MatchAny, "FROM", MatchAny))
+ 		COMPLETE_WITH("WITH (", "WHERE");
+ 
+-	/* Complete COPY <sth> FROM|TO filename WITH ( */
+-	else if (Matches("COPY|\\copy", MatchAny, "FROM|TO", MatchAny, "WITH", "("))
+-		COMPLETE_WITH("FORMAT", "FREEZE", "DELIMITER", "NULL",
+-					  "HEADER", "QUOTE", "ESCAPE", "FORCE_QUOTE",
+-					  "FORCE_NOT_NULL", "FORCE_NULL", "ENCODING", "DEFAULT",
+-					  "ON_ERROR", "LOG_VERBOSITY", "REJECT_LIMIT");
++	/* Complete COPY <sth> FROM filename WITH ( */
++	else if (Matches("COPY|\\copy", MatchAny, "FROM", MatchAny, "WITH", "("))
++		COMPLETE_WITH(Copy_from_options);
++
++	/* Complete COPY <sth> TO filename WITH ( */
++	else if (Matches("COPY|\\copy", MatchAny, "TO", MatchAny, "WITH", "("))
++		COMPLETE_WITH(Copy_to_options);
+ 
+ 	/* Complete COPY <sth> FROM|TO filename WITH (FORMAT */
+ 	else if (Matches("COPY|\\copy", MatchAny, "FROM|TO", MatchAny, "WITH", "(", "FORMAT"))
+ 		COMPLETE_WITH("binary", "csv", "text");
+ 
+ 	/* Complete COPY <sth> FROM filename WITH (ON_ERROR */
+-	else if (Matches("COPY|\\copy", MatchAny, "FROM|TO", MatchAny, "WITH", "(", "ON_ERROR"))
++	else if (Matches("COPY|\\copy", MatchAny, "FROM", MatchAny, "WITH", "(", "ON_ERROR"))
+ 		COMPLETE_WITH("stop", "ignore");
+ 
+ 	/* Complete COPY <sth> FROM filename WITH (LOG_VERBOSITY */
+-	else if (Matches("COPY|\\copy", MatchAny, "FROM|TO", MatchAny, "WITH", "(", "LOG_VERBOSITY"))
++	else if (Matches("COPY|\\copy", MatchAny, "FROM", MatchAny, "WITH", "(", "LOG_VERBOSITY"))
+ 		COMPLETE_WITH("silent", "default", "verbose");
+ 
+ 	/* Complete COPY <sth> FROM <sth> WITH (<options>) */
+ 	else if (Matches("COPY|\\copy", MatchAny, "FROM", MatchAny, "WITH", MatchAny))
+ 		COMPLETE_WITH("WHERE");

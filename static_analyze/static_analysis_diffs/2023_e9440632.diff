@@ -1,0 +1,105 @@
+commit e944063294fb9e85190f03948f5ce20331231e2f
+Author: Peter Geoghegan <pg@bowt.ie>
+Date:   Tue Apr 11 14:07:54 2023 -0700
+
+    Fix xl_heap_lock WAL record field's data type.
+    
+    Make xl_heap_lock's infobits_set field of type uint8, not int8.  Using
+    int8 isn't appropriate given that the field just holds status bits.
+    This fixes an oversight in commit 0ac5ad5134.
+    
+    In passing rename the nearby TransactionId field to "xmax" to make
+    things consistency with related records, such as xl_heap_lock_updated.
+    
+    Deliberately avoid a bump in XLOG_PAGE_MAGIC.  No backpatch, either.
+    
+    Author: Peter Geoghegan <pg@bowt.ie>
+    Discussion: https://postgr.es/m/CAH2-WzkCd3kOS8b7Rfxw7Mh1_6jvX=Nzo-CWR1VBTiOtVZkWHA@mail.gmail.com
+
+diff --git a/src/backend/access/heap/heapam.c b/src/backend/access/heap/heapam.c
+index f389ceee1ea..b300a4675e8 100644
+--- a/src/backend/access/heap/heapam.c
++++ b/src/backend/access/heap/heapam.c
+@@ -3565,11 +3565,11 @@ l2:
+ 
+ 			XLogBeginInsert();
+ 			XLogRegisterBuffer(0, buffer, REGBUF_STANDARD);
+ 
+ 			xlrec.offnum = ItemPointerGetOffsetNumber(&oldtup.t_self);
+-			xlrec.locking_xid = xmax_lock_old_tuple;
++			xlrec.xmax = xmax_lock_old_tuple;
+ 			xlrec.infobits_set = compute_infobits(oldtup.t_data->t_infomask,
+ 												  oldtup.t_data->t_infomask2);
+ 			xlrec.flags =
+ 				cleared_all_frozen ? XLH_LOCK_ALL_FROZEN_CLEARED : 0;
+ 			XLogRegisterData((char *) &xlrec, SizeOfHeapLock);
+@@ -4775,11 +4775,11 @@ failed:
+ 
+ 		XLogBeginInsert();
+ 		XLogRegisterBuffer(0, *buffer, REGBUF_STANDARD);
+ 
+ 		xlrec.offnum = ItemPointerGetOffsetNumber(&tuple->t_self);
+-		xlrec.locking_xid = xid;
++		xlrec.xmax = xid;
+ 		xlrec.infobits_set = compute_infobits(new_infomask,
+ 											  tuple->t_data->t_infomask2);
+ 		xlrec.flags = cleared_all_frozen ? XLH_LOCK_ALL_FROZEN_CLEARED : 0;
+ 		XLogRegisterData((char *) &xlrec, SizeOfHeapLock);
+ 
+@@ -9846,11 +9846,11 @@ heap_xlog_lock(XLogReaderState *record)
+ 			/* Make sure there is no forward chain link in t_ctid */
+ 			ItemPointerSet(&htup->t_ctid,
+ 						   BufferGetBlockNumber(buffer),
+ 						   offnum);
+ 		}
+-		HeapTupleHeaderSetXmax(htup, xlrec->locking_xid);
++		HeapTupleHeaderSetXmax(htup, xlrec->xmax);
+ 		HeapTupleHeaderSetCmax(htup, FirstCommandId, false);
+ 		PageSetLSN(page, lsn);
+ 		MarkBufferDirty(buffer);
+ 	}
+ 	if (BufferIsValid(buffer))
+diff --git a/src/backend/access/rmgrdesc/heapdesc.c b/src/backend/access/rmgrdesc/heapdesc.c
+index 3bd08387520..ce6d2ade55b 100644
+--- a/src/backend/access/rmgrdesc/heapdesc.c
++++ b/src/backend/access/rmgrdesc/heapdesc.c
+@@ -137,12 +137,12 @@ heap_desc(StringInfo buf, XLogReaderState *record)
+ 	}
+ 	else if (info == XLOG_HEAP_LOCK)
+ 	{
+ 		xl_heap_lock *xlrec = (xl_heap_lock *) rec;
+ 
+-		appendStringInfo(buf, "off: %u, xid: %u, flags: 0x%02X",
+-						 xlrec->offnum, xlrec->locking_xid, xlrec->flags);
++		appendStringInfo(buf, "off: %u, xmax: %u, flags: 0x%02X",
++						 xlrec->offnum, xlrec->xmax, xlrec->flags);
+ 		out_infobits(buf, xlrec->infobits_set);
+ 	}
+ 	else if (info == XLOG_HEAP_INPLACE)
+ 	{
+ 		xl_heap_inplace *xlrec = (xl_heap_inplace *) rec;
+diff --git a/src/include/access/heapam_xlog.h b/src/include/access/heapam_xlog.h
+index e71d8489522..a038450787e 100644
+--- a/src/include/access/heapam_xlog.h
++++ b/src/include/access/heapam_xlog.h
+@@ -277,17 +277,17 @@ typedef struct xl_heap_vacuum
+ #define XLH_LOCK_ALL_FROZEN_CLEARED		0x01
+ 
+ /* This is what we need to know about lock */
+ typedef struct xl_heap_lock
+ {
+-	TransactionId locking_xid;	/* might be a MultiXactId not xid */
++	TransactionId xmax;			/* might be a MultiXactId */
+ 	OffsetNumber offnum;		/* locked tuple's offset on page */
+-	int8		infobits_set;	/* infomask and infomask2 bits to set */
++	uint8		infobits_set;	/* infomask and infomask2 bits to set */
+ 	uint8		flags;			/* XLH_LOCK_* flag bits */
+ } xl_heap_lock;
+ 
+-#define SizeOfHeapLock	(offsetof(xl_heap_lock, flags) + sizeof(int8))
++#define SizeOfHeapLock	(offsetof(xl_heap_lock, flags) + sizeof(uint8))
+ 
+ /* This is what we need to know about locking an updated version of a row */
+ typedef struct xl_heap_lock_updated
+ {
+ 	TransactionId xmax;

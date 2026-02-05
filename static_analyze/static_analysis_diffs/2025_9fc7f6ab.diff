@@ -1,0 +1,114 @@
+commit 9fc7f6ab7226d7c9dbe4ff333130c82f92749f69
+Author: David Rowley <drowley@postgresql.org>
+Date:   Mon Sep 22 13:32:36 2025 +1200
+
+    Fix various incorrect filename references
+    
+    Author: Chao Li <li.evan.chao@gmail.com>
+    Author: David Rowley <dgrowleyml@gmail.com>
+    Discussion: https://postgr.es/m/CAEoWx2=hOBCPm-Z=F15twr_23XjHeoXSbifP5GdEdtWona97wQ@mail.gmail.com
+
+diff --git a/contrib/amcheck/verify_common.h b/contrib/amcheck/verify_common.h
+index 3f4c57f963d..3fa63d2121a 100644
+--- a/contrib/amcheck/verify_common.h
++++ b/contrib/amcheck/verify_common.h
+@@ -1,14 +1,14 @@
+ /*-------------------------------------------------------------------------
+  *
+- * amcheck.h
++ * verify_common.h
+  *		Shared routines for amcheck verifications.
+  *
+  * Copyright (c) 2016-2025, PostgreSQL Global Development Group
+  *
+  * IDENTIFICATION
+- *	  contrib/amcheck/amcheck.h
++ *	  contrib/amcheck/verify_common.h
+  *
+  *-------------------------------------------------------------------------
+  */
+ #include "storage/bufpage.h"
+ #include "storage/lmgr.h"
+diff --git a/contrib/isn/UPC.h b/contrib/isn/UPC.h
+index 01b9f155925..9af19a369c7 100644
+--- a/contrib/isn/UPC.h
++++ b/contrib/isn/UPC.h
+@@ -1,7 +1,7 @@
+ /*
+- * ISSN.h
++ * UPC.h
+  *	  PostgreSQL type definitions for ISNs (ISBN, ISMN, ISSN, EAN13, UPC)
+  *
+  * No information available for UPC prefixes
+  *
+  *
+diff --git a/src/backend/commands/explain_dr.c b/src/backend/commands/explain_dr.c
+index 5715546cf43..d6084077be7 100644
+--- a/src/backend/commands/explain_dr.c
++++ b/src/backend/commands/explain_dr.c
+@@ -5,11 +5,11 @@
+  *
+  * Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
+  * Portions Copyright (c) 1994-5, Regents of the University of California
+  *
+  * IDENTIFICATION
+- *	  src/backend/commands/explain.c
++ *	  src/backend/commands/explain_dr.c
+  *
+  *-------------------------------------------------------------------------
+  */
+ #include "postgres.h"
+ 
+diff --git a/src/bin/pg_combinebackup/copy_file.c b/src/bin/pg_combinebackup/copy_file.c
+index db6c86223bb..8f791c802cd 100644
+--- a/src/bin/pg_combinebackup/copy_file.c
++++ b/src/bin/pg_combinebackup/copy_file.c
+@@ -2,11 +2,11 @@
+  * Copy entire files.
+  *
+  * Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
+  * Portions Copyright (c) 1994, Regents of the University of California
+  *
+- * src/bin/pg_combinebackup/copy_file.h
++ * src/bin/pg_combinebackup/copy_file.c
+  *
+  *-------------------------------------------------------------------------
+  */
+ #include "postgres_fe.h"
+ 
+diff --git a/src/include/access/gin_tuple.h b/src/include/access/gin_tuple.h
+index b4f103dec9a..15d39226dde 100644
+--- a/src/include/access/gin_tuple.h
++++ b/src/include/access/gin_tuple.h
+@@ -1,12 +1,12 @@
+ /*--------------------------------------------------------------------------
+- * gin.h
++ * gin_tuple.h
+  *	  Public header file for Generalized Inverted Index access method.
+  *
+  *	Copyright (c) 2006-2025, PostgreSQL Global Development Group
+  *
+- *	src/include/access/gin.h
++ *	src/include/access/gin_tuple.h
+  *--------------------------------------------------------------------------
+  */
+ #ifndef GIN_TUPLE_H
+ #define GIN_TUPLE_H
+ 
+diff --git a/src/include/storage/io_worker.h b/src/include/storage/io_worker.h
+index 7bde7e89c8a..87ef905dd13 100644
+--- a/src/include/storage/io_worker.h
++++ b/src/include/storage/io_worker.h
+@@ -5,11 +5,11 @@
+  *
+  *
+  * Portions Copyright (c) 1996-2025, PostgreSQL Global Development Group
+  * Portions Copyright (c) 1994, Regents of the University of California
+  *
+- * src/include/storage/io.h
++ * src/include/storage/io_worker.h
+  *
+  *-------------------------------------------------------------------------
+  */
+ #ifndef IO_WORKER_H
+ #define IO_WORKER_H

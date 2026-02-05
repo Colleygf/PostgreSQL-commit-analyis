@@ -1,0 +1,87 @@
+commit e3584258154fac40e16f757fadd3361688a166d2
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Mon Dec 30 08:06:07 2024 +0900
+
+    Fix handling of orphaned 2PC files in the future at recovery
+    
+    Before 728bd991c3c4, that has improved the support for 2PC files during
+    recovery, the initial logic scanning files in pg_twophase was done so as
+    files in the future of the transaction ID horizon were checked first,
+    followed by a check if a transaction ID is aborted or committed which
+    could involve a pg_xact lookup.  After this commit, these checks have
+    been done in reverse order.
+    
+    Files detected as in the future do not have a state that can be checked
+    in pg_xact, hence this caused recovery to fail abruptly should an
+    orphaned 2PC file in the future of the transaction ID horizon exist in
+    pg_twophase at the beginning of recovery.
+    
+    A test is added to check for this scenario, using an empty 2PC with a
+    transaction ID large enough to be in the future when running the test.
+    This test is added in 16 and older versions for now.  17 and newer
+    versions are impacted by a second bug caused by the addition of the
+    epoch in the 2PC file names.  An equivalent test will be added in these
+    branches in a follow-up commit, once the second set of issues reported
+    are fixed.
+    
+    Author: Vitaly Davydov, Michael Paquier
+    Discussion: https://postgr.es/m/11e597-676ab680-8d-374f23c0@145466129
+    Backpatch-through: 13
+
+diff --git a/src/backend/access/transam/twophase.c b/src/backend/access/transam/twophase.c
+index 885c9b513e9..b3e2c51fb90 100644
+--- a/src/backend/access/transam/twophase.c
++++ b/src/backend/access/transam/twophase.c
+@@ -2204,44 +2204,44 @@ ProcessTwoPhaseBuffer(TransactionId xid,
+ 	Assert(LWLockHeldByMeInMode(TwoPhaseStateLock, LW_EXCLUSIVE));
+ 
+ 	if (!fromdisk)
+ 		Assert(prepare_start_lsn != InvalidXLogRecPtr);
+ 
+-	/* Already processed? */
+-	if (TransactionIdDidCommit(xid) || TransactionIdDidAbort(xid))
++	/* Reject XID if too new */
++	if (TransactionIdFollowsOrEquals(xid, origNextXid))
+ 	{
+ 		if (fromdisk)
+ 		{
+ 			ereport(WARNING,
+-					(errmsg("removing stale two-phase state file for transaction %u",
++					(errmsg("removing future two-phase state file for transaction %u",
+ 							xid)));
+ 			RemoveTwoPhaseFile(xid, true);
+ 		}
+ 		else
+ 		{
+ 			ereport(WARNING,
+-					(errmsg("removing stale two-phase state from memory for transaction %u",
++					(errmsg("removing future two-phase state from memory for transaction %u",
+ 							xid)));
+ 			PrepareRedoRemove(xid, true);
+ 		}
+ 		return NULL;
+ 	}
+ 
+-	/* Reject XID if too new */
+-	if (TransactionIdFollowsOrEquals(xid, origNextXid))
++	/* Already processed? */
++	if (TransactionIdDidCommit(xid) || TransactionIdDidAbort(xid))
+ 	{
+ 		if (fromdisk)
+ 		{
+ 			ereport(WARNING,
+-					(errmsg("removing future two-phase state file for transaction %u",
++					(errmsg("removing stale two-phase state file for transaction %u",
+ 							xid)));
+ 			RemoveTwoPhaseFile(xid, true);
+ 		}
+ 		else
+ 		{
+ 			ereport(WARNING,
+-					(errmsg("removing future two-phase state from memory for transaction %u",
++					(errmsg("removing stale two-phase state from memory for transaction %u",
+ 							xid)));
+ 			PrepareRedoRemove(xid, true);
+ 		}
+ 		return NULL;
+ 	}

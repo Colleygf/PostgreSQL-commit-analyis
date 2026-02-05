@@ -1,0 +1,116 @@
+commit 3811ca3600a31f999e4709de4a9c64c789992e14
+Author: Masahiko Sawada <msawada@postgresql.org>
+Date:   Tue Jul 1 23:25:20 2025 -0700
+
+    Fix missing FSM vacuum opportunities on tables without indexes.
+    
+    Commit c120550edb86 optimized the vacuuming of relations without
+    indexes (a.k.a. one-pass strategy) by directly marking dead item IDs
+    as LP_UNUSED. However, the periodic FSM vacuum was still checking if
+    dead item IDs had been marked as LP_DEAD when attempting to vacuum the
+    FSM every VACUUM_FSM_EVERY_PAGES blocks. This condition was never met
+    due to the optimization, resulting in missed FSM vacuum
+    opportunities.
+    
+    This commit modifies the periodic FSM vacuum condition to use the
+    number of tuples deleted during HOT pruning. This count includes items
+    marked as either LP_UNUSED or LP_REDIRECT, both of which are expected
+    to result in new free space to report.
+    
+    Back-patch to v17 where the vacuum optimization for tables with no
+    indexes was introduced.
+    
+    Reviewed-by: Melanie Plageman <melanieplageman@gmail.com>
+    Discussion: https://postgr.es/m/CAD21AoBL8m6B9GSzQfYxVaEgvD7-Kr3AJaS-hJPHC+avm-29zw@mail.gmail.com
+    Backpatch-through: 17
+
+diff --git a/src/backend/access/heap/vacuumlazy.c b/src/backend/access/heap/vacuumlazy.c
+index 75979530897..14036c27e87 100644
+--- a/src/backend/access/heap/vacuumlazy.c
++++ b/src/backend/access/heap/vacuumlazy.c
+@@ -429,11 +429,11 @@ static BlockNumber heap_vac_scan_next_block(ReadStream *stream,
+ 											void *per_buffer_data);
+ static void find_next_unskippable_block(LVRelState *vacrel, bool *skipsallvis);
+ static bool lazy_scan_new_or_empty(LVRelState *vacrel, Buffer buf,
+ 								   BlockNumber blkno, Page page,
+ 								   bool sharelock, Buffer vmbuffer);
+-static void lazy_scan_prune(LVRelState *vacrel, Buffer buf,
++static int	lazy_scan_prune(LVRelState *vacrel, Buffer buf,
+ 							BlockNumber blkno, Page page,
+ 							Buffer vmbuffer, bool all_visible_according_to_vm,
+ 							bool *has_lpdead_items, bool *vm_page_frozen);
+ static bool lazy_scan_noprune(LVRelState *vacrel, Buffer buf,
+ 							  BlockNumber blkno, Page page,
+@@ -1243,10 +1243,11 @@ lazy_scan_heap(LVRelState *vacrel)
+ 	while (true)
+ 	{
+ 		Buffer		buf;
+ 		Page		page;
+ 		uint8		blk_info = 0;
++		int			ndeleted = 0;
+ 		bool		has_lpdead_items;
+ 		void	   *per_buffer_data = NULL;
+ 		bool		vm_page_frozen = false;
+ 		bool		got_cleanup_lock = false;
+ 
+@@ -1385,14 +1386,14 @@ lazy_scan_heap(LVRelState *vacrel)
+ 		 * remaining LP_DEAD line pointers on the page into dead_items. These
+ 		 * dead items include those pruned by lazy_scan_prune() as well as
+ 		 * line pointers previously marked LP_DEAD.
+ 		 */
+ 		if (got_cleanup_lock)
+-			lazy_scan_prune(vacrel, buf, blkno, page,
+-							vmbuffer,
+-							blk_info & VAC_BLK_ALL_VISIBLE_ACCORDING_TO_VM,
+-							&has_lpdead_items, &vm_page_frozen);
++			ndeleted = lazy_scan_prune(vacrel, buf, blkno, page,
++									   vmbuffer,
++									   blk_info & VAC_BLK_ALL_VISIBLE_ACCORDING_TO_VM,
++									   &has_lpdead_items, &vm_page_frozen);
+ 
+ 		/*
+ 		 * Count an eagerly scanned page as a failure or a success.
+ 		 *
+ 		 * Only lazy_scan_prune() freezes pages, so if we didn't get the
+@@ -1479,11 +1480,11 @@ lazy_scan_heap(LVRelState *vacrel)
+ 			 * Periodically perform FSM vacuuming to make newly-freed space
+ 			 * visible on upper FSM pages. This is done after vacuuming if the
+ 			 * table has indexes. There will only be newly-freed space if we
+ 			 * held the cleanup lock and lazy_scan_prune() was called.
+ 			 */
+-			if (got_cleanup_lock && vacrel->nindexes == 0 && has_lpdead_items &&
++			if (got_cleanup_lock && vacrel->nindexes == 0 && ndeleted > 0 &&
+ 				blkno - next_fsm_block_to_vacuum >= VACUUM_FSM_EVERY_PAGES)
+ 			{
+ 				FreeSpaceMapVacuumRange(vacrel->rel, next_fsm_block_to_vacuum,
+ 										blkno);
+ 				next_fsm_block_to_vacuum = blkno;
+@@ -1934,12 +1935,14 @@ cmpOffsetNumbers(const void *a, const void *b)
+  * from this function, any LP_DEAD items are still present on the page.
+  *
+  * *vm_page_frozen is set to true if the page is newly set all-frozen in the
+  * VM. The caller currently only uses this for determining whether an eagerly
+  * scanned page was successfully set all-frozen.
++ *
++ * Returns the number of tuples deleted from the page during HOT pruning.
+  */
+-static void
++static int
+ lazy_scan_prune(LVRelState *vacrel,
+ 				Buffer buf,
+ 				BlockNumber blkno,
+ 				Page page,
+ 				Buffer vmbuffer,
+@@ -2206,10 +2209,12 @@ lazy_scan_prune(LVRelState *vacrel,
+ 		{
+ 			vacrel->vm_new_frozen_pages++;
+ 			*vm_page_frozen = true;
+ 		}
+ 	}
++
++	return presult.ndeleted;
+ }
+ 
+ /*
+  *	lazy_scan_noprune() -- lazy_scan_prune() without pruning or freezing
+  *

@@ -1,0 +1,282 @@
+commit f959bf9a5b9cecd2f6e6bdd24a34a7b269b00827
+Author: David Rowley <drowley@postgresql.org>
+Date:   Wed Aug 24 22:04:28 2022 +1200
+
+    Further -Wshadow=compatible-local warning fixes
+    
+    These should have been included in 421892a19 as these shadowed variable
+    warnings can also be fixed by adjusting the scope of the shadowed variable
+    to put the declaration for it in an inner scope.
+    
+    This is part of the same effort as f01592f91.
+    
+    By my count, this takes the warning count from 114 down to 106.
+    
+    Author: David Rowley and Justin Pryzby
+    Discussion: https://postgr.es/m/CAApHDvrwLGBP%2BYw9vriayyf%3DXR4uPWP5jr6cQhP9au_kaDUhbA%40mail.gmail.com
+
+diff --git a/src/backend/access/spgist/spgdoinsert.c b/src/backend/access/spgist/spgdoinsert.c
+index e84b5edc035..f6aced03d37 100644
+--- a/src/backend/access/spgist/spgdoinsert.c
++++ b/src/backend/access/spgist/spgdoinsert.c
+@@ -393,11 +393,10 @@ moveLeafs(Relation index, SpGistState *state,
+ 				nDelete,
+ 				nInsert,
+ 				size;
+ 	Buffer		nbuf;
+ 	Page		npage;
+-	SpGistLeafTuple it;
+ 	OffsetNumber r = InvalidOffsetNumber,
+ 				startOffset = InvalidOffsetNumber;
+ 	bool		replaceDead = false;
+ 	OffsetNumber *toDelete;
+ 	OffsetNumber *toInsert;
+@@ -465,10 +464,12 @@ moveLeafs(Relation index, SpGistState *state,
+ 	nInsert = 0;
+ 	if (!replaceDead)
+ 	{
+ 		for (i = 0; i < nDelete; i++)
+ 		{
++			SpGistLeafTuple it;
++
+ 			it = (SpGistLeafTuple) PageGetItem(current->page,
+ 											   PageGetItemId(current->page, toDelete[i]));
+ 			Assert(it->tupstate == SPGIST_LIVE);
+ 
+ 			/*
+diff --git a/src/backend/commands/trigger.c b/src/backend/commands/trigger.c
+index 62a09fb131b..7661e004a93 100644
+--- a/src/backend/commands/trigger.c
++++ b/src/backend/commands/trigger.c
+@@ -1147,11 +1147,10 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
+ 	if (partition_recurse)
+ 	{
+ 		PartitionDesc partdesc = RelationGetPartitionDesc(rel, true);
+ 		List	   *idxs = NIL;
+ 		List	   *childTbls = NIL;
+-		ListCell   *l;
+ 		int			i;
+ 		MemoryContext oldcxt,
+ 					perChildCxt;
+ 
+ 		perChildCxt = AllocSetContextCreate(CurrentMemoryContext,
+@@ -1179,10 +1178,11 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
+ 
+ 		/* Iterate to create the trigger on each existing partition */
+ 		for (i = 0; i < partdesc->nparts; i++)
+ 		{
+ 			Oid			indexOnChild = InvalidOid;
++			ListCell   *l;
+ 			ListCell   *l2;
+ 			CreateTrigStmt *childStmt;
+ 			Relation	childTbl;
+ 			Node	   *qual;
+ 
+diff --git a/src/backend/executor/nodeHash.c b/src/backend/executor/nodeHash.c
+index c48d92259f9..841896c7781 100644
+--- a/src/backend/executor/nodeHash.c
++++ b/src/backend/executor/nodeHash.c
+@@ -1078,11 +1078,10 @@ ExecHashIncreaseNumBatches(HashJoinTable hashtable)
+  */
+ static void
+ ExecParallelHashIncreaseNumBatches(HashJoinTable hashtable)
+ {
+ 	ParallelHashJoinState *pstate = hashtable->parallel_state;
+-	int			i;
+ 
+ 	Assert(BarrierPhase(&pstate->build_barrier) == PHJ_BUILD_HASHING_INNER);
+ 
+ 	/*
+ 	 * It's unlikely, but we need to be prepared for new participants to show
+@@ -1242,11 +1241,11 @@ ExecParallelHashIncreaseNumBatches(HashJoinTable hashtable)
+ 				/* Make sure that we have the current dimensions and buckets. */
+ 				ExecParallelHashEnsureBatchAccessors(hashtable);
+ 				ExecParallelHashTableSetCurrentBatch(hashtable, 0);
+ 
+ 				/* Are any of the new generation of batches exhausted? */
+-				for (i = 0; i < hashtable->nbatch; ++i)
++				for (int i = 0; i < hashtable->nbatch; ++i)
+ 				{
+ 					ParallelHashJoinBatch *batch = hashtable->batches[i].shared;
+ 
+ 					if (batch->space_exhausted ||
+ 						batch->estimated_size > pstate->space_allowed)
+diff --git a/src/backend/optimizer/plan/planner.c b/src/backend/optimizer/plan/planner.c
+index cf9e0a74dbf..d929ce34171 100644
+--- a/src/backend/optimizer/plan/planner.c
++++ b/src/backend/optimizer/plan/planner.c
+@@ -1979,11 +1979,10 @@ static grouping_sets_data *
+ preprocess_grouping_sets(PlannerInfo *root)
+ {
+ 	Query	   *parse = root->parse;
+ 	List	   *sets;
+ 	int			maxref = 0;
+-	ListCell   *lc;
+ 	ListCell   *lc_set;
+ 	grouping_sets_data *gd = palloc0(sizeof(grouping_sets_data));
+ 
+ 	parse->groupingSets = expand_grouping_sets(parse->groupingSets, parse->groupDistinct, -1);
+ 
+@@ -2022,10 +2021,11 @@ preprocess_grouping_sets(PlannerInfo *root)
+ 	 * here.
+ 	 */
+ 	if (!bms_is_empty(gd->unsortable_refs))
+ 	{
+ 		List	   *sortable_sets = NIL;
++		ListCell   *lc;
+ 
+ 		foreach(lc, parse->groupingSets)
+ 		{
+ 			List	   *gset = (List *) lfirst(lc);
+ 
+diff --git a/src/backend/tsearch/ts_typanalyze.c b/src/backend/tsearch/ts_typanalyze.c
+index e771a7cd62d..e2d2ec18c90 100644
+--- a/src/backend/tsearch/ts_typanalyze.c
++++ b/src/backend/tsearch/ts_typanalyze.c
+@@ -159,11 +159,10 @@ compute_tsvector_stats(VacAttrStats *stats,
+ 	/* This is 'w' from the LC algorithm */
+ 	int			bucket_width;
+ 	int			vector_no,
+ 				lexeme_no;
+ 	LexemeHashKey hash_key;
+-	TrackItem  *item;
+ 
+ 	/*
+ 	 * We want statistics_target * 10 lexemes in the MCELEM array.  This
+ 	 * multiplier is pretty arbitrary, but is meant to reflect the fact that
+ 	 * the number of individual lexeme values tracked in pg_statistic ought to
+@@ -238,10 +237,11 @@ compute_tsvector_stats(VacAttrStats *stats,
+ 		 */
+ 		lexemesptr = STRPTR(vector);
+ 		curentryptr = ARRPTR(vector);
+ 		for (j = 0; j < vector->size; j++)
+ 		{
++			TrackItem  *item;
+ 			bool		found;
+ 
+ 			/*
+ 			 * Construct a hash key.  The key points into the (detoasted)
+ 			 * tsvector value at this point, but if a new entry is created, we
+@@ -294,10 +294,11 @@ compute_tsvector_stats(VacAttrStats *stats,
+ 	if (null_cnt < samplerows)
+ 	{
+ 		int			nonnull_cnt = samplerows - null_cnt;
+ 		int			i;
+ 		TrackItem **sort_table;
++		TrackItem  *item;
+ 		int			track_len;
+ 		int			cutoff_freq;
+ 		int			minfreq,
+ 					maxfreq;
+ 
+diff --git a/src/backend/utils/adt/levenshtein.c b/src/backend/utils/adt/levenshtein.c
+index 3026cc24311..2fdb3b808bd 100644
+--- a/src/backend/utils/adt/levenshtein.c
++++ b/src/backend/utils/adt/levenshtein.c
+@@ -79,12 +79,11 @@ varstr_levenshtein(const char *source, int slen,
+ 	int			m,
+ 				n;
+ 	int		   *prev;
+ 	int		   *curr;
+ 	int		   *s_char_len = NULL;
+-	int			i,
+-				j;
++	int			j;
+ 	const char *y;
+ 
+ 	/*
+ 	 * For varstr_levenshtein_less_equal, we have real variables called
+ 	 * start_column and stop_column; otherwise it's just short-hand for 0 and
+@@ -215,19 +214,20 @@ varstr_levenshtein(const char *source, int slen,
+ 
+ 	/*
+ 	 * To transform the first i characters of s into the first 0 characters of
+ 	 * t, we must perform i deletions.
+ 	 */
+-	for (i = START_COLUMN; i < STOP_COLUMN; i++)
++	for (int i = START_COLUMN; i < STOP_COLUMN; i++)
+ 		prev[i] = i * del_c;
+ 
+ 	/* Loop through rows of the notional array */
+ 	for (y = target, j = 1; j < n; j++)
+ 	{
+ 		int		   *temp;
+ 		const char *x = source;
+ 		int			y_char_len = n != tlen + 1 ? pg_mblen(y) : 1;
++		int			i;
+ 
+ #ifdef LEVENSHTEIN_LESS_EQUAL
+ 
+ 		/*
+ 		 * In the best case, values percolate down the diagonal unchanged, so
+diff --git a/src/backend/utils/adt/rangetypes_gist.c b/src/backend/utils/adt/rangetypes_gist.c
+index fbf39dbf303..777fdf0e2e9 100644
+--- a/src/backend/utils/adt/rangetypes_gist.c
++++ b/src/backend/utils/adt/rangetypes_gist.c
+@@ -1320,12 +1320,11 @@ range_gist_double_sorting_split(TypeCacheEntry *typcache,
+ 								GIST_SPLITVEC *v)
+ {
+ 	ConsiderSplitContext context;
+ 	OffsetNumber i,
+ 				maxoff;
+-	RangeType  *range,
+-			   *left_range = NULL,
++	RangeType  *left_range = NULL,
+ 			   *right_range = NULL;
+ 	int			common_entries_count;
+ 	NonEmptyRange *by_lower,
+ 			   *by_upper;
+ 	CommonEntry *common_entries;
+@@ -1516,10 +1515,11 @@ range_gist_double_sorting_split(TypeCacheEntry *typcache,
+ 	 * Distribute entries which can be distributed unambiguously, and collect
+ 	 * common entries.
+ 	 */
+ 	for (i = FirstOffsetNumber; i <= maxoff; i = OffsetNumberNext(i))
+ 	{
++		RangeType  *range;
+ 		RangeBound	lower,
+ 					upper;
+ 		bool		empty;
+ 
+ 		/*
+@@ -1591,10 +1591,11 @@ range_gist_double_sorting_split(TypeCacheEntry *typcache,
+ 		/*
+ 		 * Distribute "common entries" between groups according to sorting.
+ 		 */
+ 		for (i = 0; i < common_entries_count; i++)
+ 		{
++			RangeType  *range;
+ 			int			idx = common_entries[i].index;
+ 
+ 			range = DatumGetRangeTypeP(entryvec->vector[idx].key);
+ 
+ 			/*
+diff --git a/src/backend/utils/adt/ruleutils.c b/src/backend/utils/adt/ruleutils.c
+index 8964f73b929..8280711f7ef 100644
+--- a/src/backend/utils/adt/ruleutils.c
++++ b/src/backend/utils/adt/ruleutils.c
+@@ -1613,11 +1613,10 @@ pg_get_statisticsobj_worker(Oid statextid, bool columns_only, bool missing_ok)
+ 	int			colno;
+ 	char	   *nsp;
+ 	ArrayType  *arr;
+ 	char	   *enabled;
+ 	Datum		datum;
+-	bool		isnull;
+ 	bool		ndistinct_enabled;
+ 	bool		dependencies_enabled;
+ 	bool		mcv_enabled;
+ 	int			i;
+ 	List	   *context;
+@@ -1666,10 +1665,12 @@ pg_get_statisticsobj_worker(Oid statextid, bool columns_only, bool missing_ok)
+ 
+ 	initStringInfo(&buf);
+ 
+ 	if (!columns_only)
+ 	{
++		bool		isnull;
++
+ 		nsp = get_namespace_name_or_temp(statextrec->stxnamespace);
+ 		appendStringInfo(&buf, "CREATE STATISTICS %s",
+ 						 quote_qualified_identifier(nsp,
+ 													NameStr(statextrec->stxname)));
+ 

@@ -1,0 +1,111 @@
+commit 8741e48e5ddaab1148419ad8a4cd00098de57efc
+Author: Amit Langote <amitlan@postgresql.org>
+Date:   Fri Sep 19 11:38:29 2025 +0900
+
+    Fix EPQ crash from missing partition pruning state in EState
+    
+    Commit bb3ec16e14 moved partition pruning metadata into PlannedStmt.
+    At executor startup this metadata is used to initialize the EState
+    fields es_part_prune_infos, es_part_prune_states, and
+    es_part_prune_results.  EvalPlanQualStart() failed to copy those
+    fields into the child EState, causing NULL dereference when Append
+    ran partition pruning during a recheck. This can occur with DELETE
+    or UPDATE on partitioned tables that use runtime pruning, e.g. with
+    generic plans.
+    
+    Fix by copying all partition pruning state into the EPQ estate.
+    
+    Add an isolation test that reproduces the crash with concurrent
+    UPDATE and DELETE on a partitioned table, where the DELETE session
+    hits the crash during its EPQ recheck after the UPDATE commits.
+    
+    Bug: #19056
+    Reported-by: Fei Changhong <feichanghong@qq.com>
+    Diagnozed-by: Fei Changhong <feichanghong@qq.com>
+    Author: David Rowley <dgrowleyml@gmail.com>
+    Co-authored-by: Amit Langote <amitlangote09@gmail.com>
+    Discussion: https://postgr.es/m/19056-a677cef9b54d76a0%40postgresql.org
+
+diff --git a/src/backend/executor/execMain.c b/src/backend/executor/execMain.c
+index ff12e2e1364..831c55ce787 100644
+--- a/src/backend/executor/execMain.c
++++ b/src/backend/executor/execMain.c
+@@ -3082,10 +3082,19 @@ EvalPlanQualStart(EPQState *epqstate, Plan *planTree)
+ 	 * ExecInitLockRows() and ExecInitModifyTable() when initializing the plan
+ 	 * trees below.
+ 	 */
+ 	rcestate->es_unpruned_relids = parentestate->es_unpruned_relids;
+ 
++	/*
++	 * Also make the PartitionPruneInfo and the results of pruning available.
++	 * These need to match exactly so that we initialize all the same Append
++	 * and MergeAppend subplans as the parent did.
++	 */
++	rcestate->es_part_prune_infos = parentestate->es_part_prune_infos;
++	rcestate->es_part_prune_states = parentestate->es_part_prune_states;
++	rcestate->es_part_prune_results = parentestate->es_part_prune_results;
++
+ 	/*
+ 	 * Initialize private state information for each SubPlan.  We must do this
+ 	 * before running ExecInitNode on the main query tree, since
+ 	 * ExecInitSubPlan expects to be able to find these entries. Some of the
+ 	 * SubPlans might not be used in the part of the plan tree we intend to
+diff --git a/src/test/isolation/expected/eval-plan-qual.out b/src/test/isolation/expected/eval-plan-qual.out
+index 3d31d0f84e5..60eca44b4e3 100644
+--- a/src/test/isolation/expected/eval-plan-qual.out
++++ b/src/test/isolation/expected/eval-plan-qual.out
+@@ -1455,5 +1455,14 @@ step sysmerge2:
+ 	WHEN MATCHED THEN UPDATE SET reltuples = reltuples * 2;
+  <waiting ...>
+ step c1: COMMIT;
+ step sysmerge2: <... completed>
+ step c2: COMMIT;
++
++starting permutation: s1pp1 s2pp1 s2pp2 s2pp3 c1 c2
++step s1pp1: UPDATE another_parttbl SET b = b + 1 WHERE a = 1;
++step s2pp1: SET plan_cache_mode TO force_generic_plan;
++step s2pp2: PREPARE epd AS DELETE FROM another_parttbl WHERE a = $1;
++step s2pp3: EXECUTE epd(1); <waiting ...>
++step c1: COMMIT;
++step s2pp3: <... completed>
++step c2: COMMIT;
+diff --git a/src/test/isolation/specs/eval-plan-qual.spec b/src/test/isolation/specs/eval-plan-qual.spec
+index c6eee685586..64afffb1d83 100644
+--- a/src/test/isolation/specs/eval-plan-qual.spec
++++ b/src/test/isolation/specs/eval-plan-qual.spec
+@@ -202,10 +202,11 @@ step simplepartupdate_noroute {
+ 
+ step sys1	{
+ 	UPDATE pg_class SET reltuples = 123 WHERE oid = 'accounts'::regclass;
+ }
+ 
++step s1pp1 { UPDATE another_parttbl SET b = b + 1 WHERE a = 1; }
+ 
+ session s2
+ setup		{ BEGIN ISOLATION LEVEL READ COMMITTED; }
+ step wx2	{ UPDATE accounts SET balance = balance + 450 WHERE accountid = 'checking' RETURNING balance; }
+ step wy2	{ UPDATE accounts SET balance = balance + 1000 WHERE accountid = 'checking' AND balance < 1000  RETURNING balance; }
+@@ -310,10 +311,14 @@ step sysmerge2	{
+ }
+ 
+ step c2	{ COMMIT; }
+ step r2	{ ROLLBACK; }
+ 
++step s2pp1 { SET plan_cache_mode TO force_generic_plan; }
++step s2pp2 { PREPARE epd AS DELETE FROM another_parttbl WHERE a = $1; }
++step s2pp3 { EXECUTE epd(1); }
++
+ session s3
+ setup		{ BEGIN ISOLATION LEVEL READ COMMITTED; }
+ step read	{ SELECT * FROM accounts ORDER BY accountid; }
+ step read_ext	{ SELECT * FROM accounts_ext ORDER BY accountid; }
+ step read_a		{ SELECT * FROM table_a ORDER BY id; }
+@@ -413,5 +418,8 @@ permutation simplepartupdate_route1to2 complexpartupdate_route_err1 c1 c2 read_p
+ permutation simplepartupdate_noroute complexpartupdate_route c1 c2 read_part
+ permutation simplepartupdate_noroute complexpartupdate_doesnt_route c1 c2 read_part
+ 
+ permutation sys1 sysupd2 c1 c2
+ permutation sys1 sysmerge2 c1 c2
++
++# Exercise run-time partition pruning code in an EPQ recheck
++permutation s1pp1 s2pp1 s2pp2 s2pp3 c1 c2

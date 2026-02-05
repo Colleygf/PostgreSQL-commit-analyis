@@ -1,0 +1,76 @@
+commit d802ff06d0216d59aab3ddba6cb158d1f4b014db
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Fri Mar 15 17:55:12 2024 +0200
+
+    Fix backstop in gin test if injection point is not reached
+    
+    Per Tom Lane's observation that the test got stuck in infinite loop if
+    the injection_points module was not loaded. It was supposed to give up
+    after 10000 iterations, but the backstop was broken.
+    
+    Discussion: https://www.postgresql.org/message-id/2498595.1710511222%40sss.pgh.pa.us
+
+diff --git a/src/test/modules/gin/expected/gin_incomplete_splits.out b/src/test/modules/gin/expected/gin_incomplete_splits.out
+index 9a60f8c128a..822b78cffc4 100644
+--- a/src/test/modules/gin/expected/gin_incomplete_splits.out
++++ b/src/test/modules/gin/expected/gin_incomplete_splits.out
+@@ -43,24 +43,25 @@ $$;
+ create function insert_until_fail(next_i int, step int default 1) returns int language plpgsql as $$
+ declare
+   i integer;
+ begin
+   -- Insert arrays with 'step' elements each, until an error occurs.
++  i := 0;
+   loop
+     begin
+       select insert_n(next_i, step) into next_i;
+     exception when others then
+       raise notice 'failed with: %', sqlerrm;
+       exit;
+     end;
+ 
+-    -- The caller is expected to set an injection point that eventuall
++    -- The caller is expected to set an injection point that eventually
+     -- causes an error. But bail out if still no error after 10000
+     -- attempts, so that we don't get stuck in an infinite loop.
+     i := i + 1;
+     if i = 10000 then
+-      raise 'no error on inserts after ';
++      raise 'no error on inserts after % iterations', i;
+     end if;
+   end loop;
+ 
+   return next_i;
+ end;
+diff --git a/src/test/modules/gin/sql/gin_incomplete_splits.sql b/src/test/modules/gin/sql/gin_incomplete_splits.sql
+index 4e180b25195..71253b71f3d 100644
+--- a/src/test/modules/gin/sql/gin_incomplete_splits.sql
++++ b/src/test/modules/gin/sql/gin_incomplete_splits.sql
+@@ -46,24 +46,25 @@ $$;
+ create function insert_until_fail(next_i int, step int default 1) returns int language plpgsql as $$
+ declare
+   i integer;
+ begin
+   -- Insert arrays with 'step' elements each, until an error occurs.
++  i := 0;
+   loop
+     begin
+       select insert_n(next_i, step) into next_i;
+     exception when others then
+       raise notice 'failed with: %', sqlerrm;
+       exit;
+     end;
+ 
+-    -- The caller is expected to set an injection point that eventuall
++    -- The caller is expected to set an injection point that eventually
+     -- causes an error. But bail out if still no error after 10000
+     -- attempts, so that we don't get stuck in an infinite loop.
+     i := i + 1;
+     if i = 10000 then
+-      raise 'no error on inserts after ';
++      raise 'no error on inserts after % iterations', i;
+     end if;
+   end loop;
+ 
+   return next_i;
+ end;

@@ -1,0 +1,72 @@
+commit 2d7ead85267cc0a41ea4e94ee0ac144d5214d353
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Wed Jul 6 13:05:51 2022 -0400
+
+    pg_stat_statements: Fix test that assumes wal_records = rows.
+    
+    It's not very robust to assume that each inserted row will produce
+    exactly one WAL record and that no other WAL records will be generated
+    in the process, because for example a particular transaction could
+    always be the one that has to extend clog.
+    
+    Because these tests are not run by 'make installcheck' but only by
+    'make check', it may be that in our current testing infrastructure
+    this can't be hit, but it doesn't seem like a good idea to rely on
+    that, since unrelated changes to the regression tests or the way
+    write-ahead logging is done could easily cause it to start happening,
+    and debugging such failures is a pain.
+    
+    Adjust the regression test to be less sensitive.
+    
+    Anton Melnikov, reviewed by Julien Rouhaud
+    
+    Discussion: http://postgr.es/m/1ccd00d9-1723-6b68-ae56-655aab00d406@inbox.ru
+
+diff --git a/contrib/pg_stat_statements/expected/pg_stat_statements.out b/contrib/pg_stat_statements/expected/pg_stat_statements.out
+index 8f7f93172a2..ff0166fb9d2 100644
+--- a/contrib/pg_stat_statements/expected/pg_stat_statements.out
++++ b/contrib/pg_stat_statements/expected/pg_stat_statements.out
+@@ -257,22 +257,22 @@ DROP TABLE pgss_test;
+ SET pg_stat_statements.track_utility = FALSE;
+ -- Check WAL is generated for the above statements
+ SELECT query, calls, rows,
+ wal_bytes > 0 as wal_bytes_generated,
+ wal_records > 0 as wal_records_generated,
+-wal_records = rows as wal_records_as_rows
++wal_records >= rows as wal_records_ge_rows
+ FROM pg_stat_statements ORDER BY query COLLATE "C";
+-                           query                           | calls | rows | wal_bytes_generated | wal_records_generated | wal_records_as_rows 
++                           query                           | calls | rows | wal_bytes_generated | wal_records_generated | wal_records_ge_rows 
+ -----------------------------------------------------------+-------+------+---------------------+-----------------------+---------------------
+  DELETE FROM pgss_test WHERE a > $1                        |     1 |    1 | t                   | t                     | t
+- DROP TABLE pgss_test                                      |     1 |    0 | t                   | t                     | f
++ DROP TABLE pgss_test                                      |     1 |    0 | t                   | t                     | t
+  INSERT INTO pgss_test VALUES(generate_series($1, $2), $3) |     1 |   10 | t                   | t                     | t
+  SELECT pg_stat_statements_reset()                         |     1 |    1 | f                   | f                     | f
+  SELECT query, calls, rows,                               +|     0 |    0 | f                   | f                     | t
+  wal_bytes > $1 as wal_bytes_generated,                   +|       |      |                     |                       | 
+  wal_records > $2 as wal_records_generated,               +|       |      |                     |                       | 
+- wal_records = rows as wal_records_as_rows                +|       |      |                     |                       | 
++ wal_records >= rows as wal_records_ge_rows               +|       |      |                     |                       | 
+  FROM pg_stat_statements ORDER BY query COLLATE "C"        |       |      |                     |                       | 
+  SET pg_stat_statements.track_utility = FALSE              |     1 |    0 | f                   | f                     | t
+  UPDATE pgss_test SET b = $1 WHERE a > $2                  |     1 |    3 | t                   | t                     | t
+ (7 rows)
+ 
+diff --git a/contrib/pg_stat_statements/sql/pg_stat_statements.sql b/contrib/pg_stat_statements/sql/pg_stat_statements.sql
+index dffd2c8c187..a01f1837277 100644
+--- a/contrib/pg_stat_statements/sql/pg_stat_statements.sql
++++ b/contrib/pg_stat_statements/sql/pg_stat_statements.sql
+@@ -120,11 +120,11 @@ SET pg_stat_statements.track_utility = FALSE;
+ 
+ -- Check WAL is generated for the above statements
+ SELECT query, calls, rows,
+ wal_bytes > 0 as wal_bytes_generated,
+ wal_records > 0 as wal_records_generated,
+-wal_records = rows as wal_records_as_rows
++wal_records >= rows as wal_records_ge_rows
+ FROM pg_stat_statements ORDER BY query COLLATE "C";
+ 
+ --
+ -- pg_stat_statements.track = none
+ --

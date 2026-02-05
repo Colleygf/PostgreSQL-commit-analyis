@@ -1,0 +1,119 @@
+commit cc7401d5ca498a84d9b47fd2e01cebd8e830e558
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sun Mar 27 18:32:40 2022 -0400
+
+    Fix up compiler warnings/errors from f4fb45d15.
+    
+    Per early buildfarm returns.
+
+diff --git a/src/backend/parser/parse_expr.c b/src/backend/parser/parse_expr.c
+index 6b93a76bca6..781c9709e6d 100644
+--- a/src/backend/parser/parse_expr.c
++++ b/src/backend/parser/parse_expr.c
+@@ -3413,19 +3413,17 @@ transformJsonConstructorOutput(ParseState *pstate, JsonOutput *output,
+ 	JsonReturning *returning = transformJsonOutput(pstate, output, true);
+ 
+ 	if (!OidIsValid(returning->typid))
+ 	{
+ 		ListCell   *lc;
+-		bool		have_json = false;
+ 		bool		have_jsonb = false;
+ 
+ 		foreach(lc, args)
+ 		{
+ 			Node	   *expr = lfirst(lc);
+ 			Oid			typid = exprType(expr);
+ 
+-			have_json |= typid == JSONOID;
+ 			have_jsonb |= typid == JSONBOID;
+ 
+ 			if (have_jsonb)
+ 				break;
+ 		}
+@@ -3435,12 +3433,10 @@ transformJsonConstructorOutput(ParseState *pstate, JsonOutput *output,
+ 			returning->typid = JSONBOID;
+ 			returning->format->format_type = JS_FORMAT_JSONB;
+ 		}
+ 		else
+ 		{
+-			/* Note: this includes the have_json case */
+-			
+ 			/* XXX TEXT is default by the standard, but we return JSON */
+ 			returning->typid = JSONOID;
+ 			returning->format->format_type = JS_FORMAT_JSON;
+ 		}
+ 
+diff --git a/src/backend/utils/adt/ruleutils.c b/src/backend/utils/adt/ruleutils.c
+index 6db6c008dde..df5c4865014 100644
+--- a/src/backend/utils/adt/ruleutils.c
++++ b/src/backend/utils/adt/ruleutils.c
+@@ -9905,13 +9905,15 @@ get_json_constructor(JsonConstructorExpr *ctor, deparse_context *context,
+ 			break;
+ 		case JSCTOR_JSON_ARRAY:
+ 			funcname = "JSON_ARRAY";
+ 			break;
+ 		case JSCTOR_JSON_OBJECTAGG:
+-			return get_json_agg_constructor(ctor, context, "JSON_OBJECTAGG", true);
++			get_json_agg_constructor(ctor, context, "JSON_OBJECTAGG", true);
++			return;
+ 		case JSCTOR_JSON_ARRAYAGG:
+-			return get_json_agg_constructor(ctor, context, "JSON_ARRAYAGG", false);
++			get_json_agg_constructor(ctor, context, "JSON_ARRAYAGG", false);
++			return;
+ 		default:
+ 			elog(ERROR, "invalid JsonConstructorExprType %d", ctor->type);
+ 	}
+ 
+ 	appendStringInfo(buf, "%s(", funcname);
+@@ -10062,12 +10064,12 @@ get_agg_expr_helper(Aggref *aggref, deparse_context *context,
+  * get_agg_expr			- Parse back an Aggref node
+  */
+ static void
+ get_agg_expr(Aggref *aggref, deparse_context *context, Aggref *original_aggref)
+ {
+-	return get_agg_expr_helper(aggref, context, original_aggref, NULL, NULL,
+-							   false);
++	get_agg_expr_helper(aggref, context, original_aggref, NULL, NULL,
++						false);
+ }
+ 
+ /*
+  * This is a helper function for get_agg_expr().  It's used when we deparse
+  * a combining Aggref; resolve_special_varno locates the corresponding partial
+@@ -10180,11 +10182,11 @@ get_windowfunc_expr_helper(WindowFunc *wfunc, deparse_context *context,
+  * get_windowfunc_expr	- Parse back a WindowFunc node
+  */
+ static void
+ get_windowfunc_expr(WindowFunc *wfunc, deparse_context *context)
+ {
+-	return get_windowfunc_expr_helper(wfunc, context, NULL, NULL, false);
++	get_windowfunc_expr_helper(wfunc, context, NULL, NULL, false);
+ }
+ 
+ /*
+  * get_func_sql_syntax		- Parse back a SQL-syntax function call
+  *
+@@ -10436,17 +10438,17 @@ get_json_agg_constructor(JsonConstructorExpr *ctor, deparse_context *context,
+ 
+ 	initStringInfo(&options);
+ 	get_json_constructor_options(ctor, &options);
+ 
+ 	if (IsA(ctor->func, Aggref))
+-		return get_agg_expr_helper((Aggref *) ctor->func, context,
+-								   (Aggref *) ctor->func,
+-								   funcname, options.data, is_json_objectagg);
++		get_agg_expr_helper((Aggref *) ctor->func, context,
++							(Aggref *) ctor->func,
++							funcname, options.data, is_json_objectagg);
+ 	else if (IsA(ctor->func, WindowFunc))
+-		return get_windowfunc_expr_helper((WindowFunc *) ctor->func, context,
+-										  funcname, options.data,
+-										  is_json_objectagg);
++		get_windowfunc_expr_helper((WindowFunc *) ctor->func, context,
++								   funcname, options.data,
++								   is_json_objectagg);
+ 	else
+ 		elog(ERROR, "invalid JsonConstructorExpr underlying node type: %d",
+ 			 nodeTag(ctor->func));
+ }
+ 

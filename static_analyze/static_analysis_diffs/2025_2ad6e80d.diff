@@ -1,0 +1,121 @@
+commit 2ad6e80de9a6300daffcc0987667e45012fbecde
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Tue Aug 5 11:38:34 2025 +0200
+
+    Fix various hash function uses
+    
+    These instances were using Datum-returning functions where a
+    lower-level function returning uint32 would be more appropriate.
+    
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://www.postgresql.org/message-id/flat/8246d7ff-f4b7-4363-913e-827dadfeb145%40eisentraut.org
+
+diff --git a/contrib/sepgsql/uavc.c b/contrib/sepgsql/uavc.c
+index 65ea8e7946a..d9ccbc38bc5 100644
+--- a/contrib/sepgsql/uavc.c
++++ b/contrib/sepgsql/uavc.c
+@@ -64,12 +64,12 @@ static char *avc_unlabeled;		/* system 'unlabeled' label */
+  * Hash function
+  */
+ static uint32
+ sepgsql_avc_hash(const char *scontext, const char *tcontext, uint16 tclass)
+ {
+-	return hash_any((const unsigned char *) scontext, strlen(scontext))
+-		^ hash_any((const unsigned char *) tcontext, strlen(tcontext))
++	return hash_bytes((const unsigned char *) scontext, strlen(scontext))
++		^ hash_bytes((const unsigned char *) tcontext, strlen(tcontext))
+ 		^ tclass;
+ }
+ 
+ /*
+  * Reset all the avc caches
+diff --git a/src/backend/access/common/tupdesc.c b/src/backend/access/common/tupdesc.c
+index 020d00cd01c..be60005ae46 100644
+--- a/src/backend/access/common/tupdesc.c
++++ b/src/backend/access/common/tupdesc.c
+@@ -813,14 +813,14 @@ uint32
+ hashRowType(TupleDesc desc)
+ {
+ 	uint32		s;
+ 	int			i;
+ 
+-	s = hash_combine(0, hash_uint32(desc->natts));
+-	s = hash_combine(s, hash_uint32(desc->tdtypeid));
++	s = hash_combine(0, hash_bytes_uint32(desc->natts));
++	s = hash_combine(s, hash_bytes_uint32(desc->tdtypeid));
+ 	for (i = 0; i < desc->natts; ++i)
+-		s = hash_combine(s, hash_uint32(TupleDescAttr(desc, i)->atttypid));
++		s = hash_combine(s, hash_bytes_uint32(TupleDescAttr(desc, i)->atttypid));
+ 
+ 	return s;
+ }
+ 
+ /*
+diff --git a/src/backend/storage/file/fileset.c b/src/backend/storage/file/fileset.c
+index 64141c7cb91..4d5ee353fd7 100644
+--- a/src/backend/storage/file/fileset.c
++++ b/src/backend/storage/file/fileset.c
+@@ -183,11 +183,11 @@ FileSetPath(char *path, FileSet *fileset, Oid tablespace)
+  * Sorting has to determine which tablespace a given temporary file belongs in.
+  */
+ static Oid
+ ChooseTablespace(const FileSet *fileset, const char *name)
+ {
+-	uint32		hash = hash_any((const unsigned char *) name, strlen(name));
++	uint32		hash = hash_bytes((const unsigned char *) name, strlen(name));
+ 
+ 	return fileset->tablespaces[hash % fileset->ntablespaces];
+ }
+ 
+ /*
+diff --git a/src/backend/utils/adt/multirangetypes.c b/src/backend/utils/adt/multirangetypes.c
+index cd84ced5b48..626b5513fe7 100644
+--- a/src/backend/utils/adt/multirangetypes.c
++++ b/src/backend/utils/adt/multirangetypes.c
+@@ -2831,11 +2831,11 @@ hash_multirange(PG_FUNCTION_ARGS)
+ 														  upper.val));
+ 		else
+ 			upper_hash = 0;
+ 
+ 		/* Merge hashes of flags and bounds */
+-		range_hash = hash_uint32((uint32) flags);
++		range_hash = hash_bytes_uint32((uint32) flags);
+ 		range_hash ^= lower_hash;
+ 		range_hash = pg_rotate_left32(range_hash, 1);
+ 		range_hash ^= upper_hash;
+ 
+ 		/*
+diff --git a/src/backend/utils/adt/rangetypes.c b/src/backend/utils/adt/rangetypes.c
+index 66cc0acf4a7..691679388df 100644
+--- a/src/backend/utils/adt/rangetypes.c
++++ b/src/backend/utils/adt/rangetypes.c
+@@ -1442,11 +1442,11 @@ hash_range(PG_FUNCTION_ARGS)
+ 													  upper.val));
+ 	else
+ 		upper_hash = 0;
+ 
+ 	/* Merge hashes of flags and bounds */
+-	result = hash_uint32((uint32) flags);
++	result = hash_bytes_uint32((uint32) flags);
+ 	result ^= lower_hash;
+ 	result = pg_rotate_left32(result, 1);
+ 	result ^= upper_hash;
+ 
+ 	PG_RETURN_INT32(result);
+diff --git a/src/backend/utils/cache/catcache.c b/src/backend/utils/cache/catcache.c
+index d1b25214376..e2cd3feaf81 100644
+--- a/src/backend/utils/cache/catcache.c
++++ b/src/backend/utils/cache/catcache.c
+@@ -211,11 +211,11 @@ nameeqfast(Datum a, Datum b)
+ static uint32
+ namehashfast(Datum datum)
+ {
+ 	char	   *key = NameStr(*DatumGetName(datum));
+ 
+-	return hash_any((unsigned char *) key, strlen(key));
++	return hash_bytes((unsigned char *) key, strlen(key));
+ }
+ 
+ static bool
+ int2eqfast(Datum a, Datum b)
+ {

@@ -1,0 +1,85 @@
+commit 49fe1c83ecf3474776ea9d0db47ae5644d29b67b
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Tue Jun 24 11:30:49 2025 +0200
+
+    Fix virtual generated column type checking for ALTER TABLE
+    
+    Virtual generated columns have some special checks in
+    CheckAttributeType(), mainly to check that domains are not used.  But
+    this check was only applied during CREATE TABLE, not during ALTER
+    TABLE.  This fixes that.
+    
+    Reported-by: jian he <jian.universality@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/CACJufxE0KHR__-h=zHXbhSNZXMMs4LYo4-dbj8H3YoStYBok1Q@mail.gmail.com
+
+diff --git a/src/backend/commands/tablecmds.c b/src/backend/commands/tablecmds.c
+index ea96947d813..074ddb6b9cd 100644
+--- a/src/backend/commands/tablecmds.c
++++ b/src/backend/commands/tablecmds.c
+@@ -7372,11 +7372,11 @@ ATExecAddColumn(List **wqueue, AlteredTableInfo *tab, Relation rel,
+ 	attribute->attnum = newattnum;
+ 
+ 	/* make sure datatype is legal for a column */
+ 	CheckAttributeType(NameStr(attribute->attname), attribute->atttypid, attribute->attcollation,
+ 					   list_make1_oid(rel->rd_rel->reltype),
+-					   0);
++					   (attribute->attgenerated == ATTRIBUTE_GENERATED_VIRTUAL ? CHKATYPE_IS_VIRTUAL : 0));
+ 
+ 	InsertPgAttributeTuples(attrdesc, tupdesc, myrelid, NULL, NULL);
+ 
+ 	table_close(attrdesc, RowExclusiveLock);
+ 
+@@ -14424,11 +14424,11 @@ ATPrepAlterColumnType(List **wqueue,
+ 	targetcollid = GetColumnDefCollation(pstate, def, targettype);
+ 
+ 	/* make sure datatype is legal for a column */
+ 	CheckAttributeType(colName, targettype, targetcollid,
+ 					   list_make1_oid(rel->rd_rel->reltype),
+-					   0);
++					   (attTup->attgenerated == ATTRIBUTE_GENERATED_VIRTUAL ? CHKATYPE_IS_VIRTUAL : 0));
+ 
+ 	if (attTup->attgenerated == ATTRIBUTE_GENERATED_VIRTUAL)
+ 	{
+ 		/* do nothing */
+ 	}
+diff --git a/src/test/regress/expected/generated_virtual.out b/src/test/regress/expected/generated_virtual.out
+index 6300e7c1d96..ab35a774774 100644
+--- a/src/test/regress/expected/generated_virtual.out
++++ b/src/test/regress/expected/generated_virtual.out
+@@ -798,10 +798,16 @@ ERROR:  virtual generated column "b" cannot have a domain type
+ CREATE TYPE gtestdomain1range AS range (subtype = gtestdomain1);
+ CREATE TABLE gtest24r (a int PRIMARY KEY, b gtestdomain1range GENERATED ALWAYS AS (gtestdomain1range(a, a + 5)) VIRTUAL);
+ ERROR:  virtual generated column "b" cannot have a domain type
+ --INSERT INTO gtest24r (a) VALUES (4);  -- ok
+ --INSERT INTO gtest24r (a) VALUES (6);  -- error
++CREATE TABLE gtest24at (a int PRIMARY KEY);
++ALTER TABLE gtest24at ADD COLUMN b gtestdomain1 GENERATED ALWAYS AS (a * 2) VIRTUAL;  -- error
++ERROR:  virtual generated column "b" cannot have a domain type
++CREATE TABLE gtest24ata (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) VIRTUAL);
++ALTER TABLE gtest24ata ALTER COLUMN b TYPE gtestdomain1;  -- error
++ERROR:  virtual generated column "b" cannot have a domain type
+ CREATE DOMAIN gtestdomainnn AS int CHECK (VALUE IS NOT NULL);
+ CREATE TABLE gtest24nn (a int, b gtestdomainnn GENERATED ALWAYS AS (a * 2) VIRTUAL);
+ ERROR:  virtual generated column "b" cannot have a domain type
+ --INSERT INTO gtest24nn (a) VALUES (4);  -- ok
+ --INSERT INTO gtest24nn (a) VALUES (NULL);  -- error
+diff --git a/src/test/regress/sql/generated_virtual.sql b/src/test/regress/sql/generated_virtual.sql
+index b4eedeee2fb..9011c9d2674 100644
+--- a/src/test/regress/sql/generated_virtual.sql
++++ b/src/test/regress/sql/generated_virtual.sql
+@@ -451,10 +451,15 @@ CREATE TABLE gtest24 (a int PRIMARY KEY, b gtestdomain1 GENERATED ALWAYS AS (a *
+ CREATE TYPE gtestdomain1range AS range (subtype = gtestdomain1);
+ CREATE TABLE gtest24r (a int PRIMARY KEY, b gtestdomain1range GENERATED ALWAYS AS (gtestdomain1range(a, a + 5)) VIRTUAL);
+ --INSERT INTO gtest24r (a) VALUES (4);  -- ok
+ --INSERT INTO gtest24r (a) VALUES (6);  -- error
+ 
++CREATE TABLE gtest24at (a int PRIMARY KEY);
++ALTER TABLE gtest24at ADD COLUMN b gtestdomain1 GENERATED ALWAYS AS (a * 2) VIRTUAL;  -- error
++CREATE TABLE gtest24ata (a int PRIMARY KEY, b int GENERATED ALWAYS AS (a * 2) VIRTUAL);
++ALTER TABLE gtest24ata ALTER COLUMN b TYPE gtestdomain1;  -- error
++
+ CREATE DOMAIN gtestdomainnn AS int CHECK (VALUE IS NOT NULL);
+ CREATE TABLE gtest24nn (a int, b gtestdomainnn GENERATED ALWAYS AS (a * 2) VIRTUAL);
+ --INSERT INTO gtest24nn (a) VALUES (4);  -- ok
+ --INSERT INTO gtest24nn (a) VALUES (NULL);  -- error
+ 

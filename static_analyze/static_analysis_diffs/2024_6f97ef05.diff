@@ -1,0 +1,48 @@
+commit 6f97ef05d62a9c4ed5c53e98ac8a44cf3e0a2780
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Thu Jan 11 08:56:27 2024 +0530
+
+    Fix an intermetant BF failure in 003_logical_slots.
+    
+    During upgrade, when pg_restore performs CREATE DATABASE, bgwriter or
+    checkpointer may flush buffers and hold a file handle for pg_largeobject,
+    so later TRUNCATE pg_largeobject command will fail if OS (such as older
+    Windows versions) doesn't remove an unlinked file completely till it's
+    open. The probability of seeing this behavior is higher in this test
+    because we use wal_level as logical via allows_streaming => 'logical'
+    which in turn set shared_buffers as 1MB and make it more probable for
+    bgwriter to hold the file handle.
+    
+    Diagnosed-by: Alexander Lakhin
+    Author: Hayato Kuroda, Amit Kapila
+    Reviewed-by: Alexander Lakhin
+    Discussion: https://postgr.es/m/TYAPR01MB5866AB7FD922CE30A2565B8BF5A8A@TYAPR01MB5866.jpnprd01.prod.outlook.com
+
+diff --git a/src/bin/pg_upgrade/t/003_logical_slots.pl b/src/bin/pg_upgrade/t/003_logical_slots.pl
+index 0e7014ecce3..0ab368247b0 100644
+--- a/src/bin/pg_upgrade/t/003_logical_slots.pl
++++ b/src/bin/pg_upgrade/t/003_logical_slots.pl
+@@ -21,10 +21,23 @@ $oldpub->append_conf('postgresql.conf', 'autovacuum = off');
+ 
+ # Initialize new cluster
+ my $newpub = PostgreSQL::Test::Cluster->new('newpub');
+ $newpub->init(allows_streaming => 'logical');
+ 
++# During upgrade, when pg_restore performs CREATE DATABASE, bgwriter or
++# checkpointer may flush buffers and hold a file handle for the system table.
++# So, if later due to some reason we need to re-create the file with the same
++# name like a TRUNCATE command on the same table, then the command will fail
++# if OS (such as older Windows versions) doesn't remove an unlinked file
++# completely till it is open. The probability of seeing this behavior is
++# higher in this test because we use wal_level as logical via
++# allows_streaming => 'logical' which in turn set shared_buffers as 1MB.
++$newpub->append_conf('postgresql.conf', q{
++bgwriter_lru_maxpages = 0
++checkpoint_timeout = 1h
++});
++
+ # Setup a common pg_upgrade command to be used by all the test cases
+ my @pg_upgrade_cmd = (
+ 	'pg_upgrade', '--no-sync',
+ 	'-d', $oldpub->data_dir,
+ 	'-D', $newpub->data_dir,

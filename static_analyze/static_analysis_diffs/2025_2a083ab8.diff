@@ -1,0 +1,61 @@
+commit 2a083ab807db6d9e2e0e3aa82ee8f6ff9fc44c8d
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Fri Feb 28 10:15:29 2025 +0900
+
+    pg_upgrade: Fix inconsistency in memory freeing
+    
+    The function in charge of freeing the memory from a result created by
+    PQescapeIdentifier() has to be PQfreemem(), to ensure that both
+    allocation and free come from libpq.
+    
+    One spot in pg_upgrade was not respecting that for pg_database's
+    datlocale (daticulocale in v16) when the collation provider is libc (aka
+    datlocale/daticulocale is NULL) with an allocation done using
+    pg_strdup() and a free with PQfreemem().  The code is changed to always
+    use PQescapeLiteral() when processing the input.
+    
+    Oversight in 9637badd9f92.  This commit is similar to 48e4ae9a0707 and
+    5b94e2753439.
+    
+    Author: Michael Paquier <michael@paquier.xyz>
+    Co-authored-by: Ranier Vilela <ranier.vf@gmail.com>
+    Discussion: https://postgr.es/m/Z601RQxTmIUohdkV@paquier.xyz
+    Backpatch-through: 16
+
+diff --git a/src/bin/pg_upgrade/pg_upgrade.c b/src/bin/pg_upgrade/pg_upgrade.c
+index d95c491fb57..174cd920840 100644
+--- a/src/bin/pg_upgrade/pg_upgrade.c
++++ b/src/bin/pg_upgrade/pg_upgrade.c
+@@ -435,10 +435,11 @@ set_locale_and_encoding(void)
+ {
+ 	PGconn	   *conn_new_template1;
+ 	char	   *datcollate_literal;
+ 	char	   *datctype_literal;
+ 	char	   *datlocale_literal = NULL;
++	char	   *datlocale_src;
+ 	DbLocaleInfo *locale = old_cluster.template0;
+ 
+ 	prep_status("Setting locale and encoding for new cluster");
+ 
+ 	/* escape literals with respect to new cluster */
+@@ -448,16 +449,14 @@ set_locale_and_encoding(void)
+ 										 locale->db_collate,
+ 										 strlen(locale->db_collate));
+ 	datctype_literal = PQescapeLiteral(conn_new_template1,
+ 									   locale->db_ctype,
+ 									   strlen(locale->db_ctype));
+-	if (locale->db_locale)
+-		datlocale_literal = PQescapeLiteral(conn_new_template1,
+-											locale->db_locale,
+-											strlen(locale->db_locale));
+-	else
+-		datlocale_literal = pg_strdup("NULL");
++	datlocale_src = locale->db_locale ? locale->db_locale : "NULL";
++	datlocale_literal = PQescapeLiteral(conn_new_template1,
++										datlocale_src,
++										strlen(datlocale_src));
+ 
+ 	/* update template0 in new cluster */
+ 	if (GET_MAJOR_VERSION(new_cluster.major_version) >= 1700)
+ 		PQclear(executeQueryOrDie(conn_new_template1,
+ 								  "UPDATE pg_catalog.pg_database "

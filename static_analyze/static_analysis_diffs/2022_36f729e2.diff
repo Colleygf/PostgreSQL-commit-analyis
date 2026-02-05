@@ -1,0 +1,58 @@
+commit 36f729e2bc3539e777cda698dc441b8ccec42142
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Mon Aug 22 15:31:50 2022 +0200
+
+    Fix assertion failure in CREATE DATABASE
+    
+    An assertion would fail when creating a database with libc locale
+    provider from a template database with icu locale provider.
+    
+    Reported-by: Marina Polyakova <m.polyakova@postgrespro.ru>
+    Reviewed-by: Julien Rouhaud <rjuju123@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/f385ba25e7f8be427b8c582e5cca7d79%40postgrespro.ru#515a31c5429d6d37ad1d5c9d66962a1e
+
+diff --git a/src/backend/commands/dbcommands.c b/src/backend/commands/dbcommands.c
+index b31a30550b0..883f381f345 100644
+--- a/src/backend/commands/dbcommands.c
++++ b/src/backend/commands/dbcommands.c
+@@ -1010,14 +1010,14 @@ createdb(ParseState *pstate, const CreatedbStmt *stmt)
+ 		encoding = src_encoding;
+ 	if (dbcollate == NULL)
+ 		dbcollate = src_collate;
+ 	if (dbctype == NULL)
+ 		dbctype = src_ctype;
+-	if (dbiculocale == NULL)
+-		dbiculocale = src_iculocale;
+ 	if (dblocprovider == '\0')
+ 		dblocprovider = src_locprovider;
++	if (dbiculocale == NULL && dblocprovider == COLLPROVIDER_ICU)
++		dbiculocale = src_iculocale;
+ 
+ 	/* Some encodings are client only */
+ 	if (!PG_VALID_BE_ENCODING(encoding))
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+diff --git a/src/bin/scripts/t/020_createdb.pl b/src/bin/scripts/t/020_createdb.pl
+index 78733f64d25..e91c1d013d0 100644
+--- a/src/bin/scripts/t/020_createdb.pl
++++ b/src/bin/scripts/t/020_createdb.pl
+@@ -47,10 +47,19 @@ if ($ENV{with_icu} eq 'yes')
+ 		[
+ 			'createdb', '-T', 'template0', '--locale-provider=icu',
+ 			'--icu-locale=@colNumeric=lower', 'foobarX'
+ 		],
+ 		'fails for invalid ICU locale');
++
++	# additional node, which uses the icu provider
++	my $node2 = PostgreSQL::Test::Cluster->new('icu');
++	$node2->init(extra => ['--locale-provider=icu', '--icu-locale=en']);
++	$node2->start;
++
++	$node2->command_ok(
++		[ 'createdb', '-T', 'template0', '--locale-provider=libc', 'foobar55' ],
++		'create database with libc provider from template database with icu provider');
+ }
+ else
+ {
+ 	$node->command_fails(
+ 		[ 'createdb', '-T', 'template0', '--locale-provider=icu', 'foobar4' ],

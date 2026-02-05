@@ -1,0 +1,55 @@
+commit 2a67b5a60ee68892bb028587ddc6de7650822480
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Sun Jan 7 09:03:55 2024 +0200
+
+    Fix oversized memory allocation in Parallel Hash Join
+    
+    During the calculations of the maximum for the number of buckets, take into
+    account that later we round that to the next power of 2.
+    
+    Reported-by: Karen Talarico
+    Bug: #16925
+    Discussion: https://postgr.es/m/16925-ec96d83529d0d629%40postgresql.org
+    Author: Thomas Munro, Andrei Lepikhov, Alexander Korotkov
+    Reviewed-by: Alena Rybakina
+    Backpatch-through: 12
+
+diff --git a/src/backend/executor/nodeHash.c b/src/backend/executor/nodeHash.c
+index 42099b6d751..6e5297a159b 100644
+--- a/src/backend/executor/nodeHash.c
++++ b/src/backend/executor/nodeHash.c
+@@ -1153,10 +1153,11 @@ ExecParallelHashIncreaseNumBatches(HashJoinTable hashtable)
+ 				if (pstate->old_nbatch == 1)
+ 				{
+ 					double		dtuples;
+ 					double		dbuckets;
+ 					int			new_nbuckets;
++					uint32		max_buckets;
+ 
+ 					/*
+ 					 * We probably also need a smaller bucket array.  How many
+ 					 * tuples do we expect per batch, assuming we have only
+ 					 * half of them so far?  Normally we don't need to change
+@@ -1165,13 +1166,20 @@ ExecParallelHashIncreaseNumBatches(HashJoinTable hashtable)
+ 					 * special case we move from a large batch to many smaller
+ 					 * batches and it would be wasteful to keep the large
+ 					 * array.
+ 					 */
+ 					dtuples = (old_batch0->ntuples * 2.0) / new_nbatch;
++					/*
++					 * We need to calculate the maximum number of buckets to
++					 * stay within the MaxAllocSize boundary.  Round the
++					 * maximum number to the previous power of 2 given that
++					 * later we round the number to the next power of 2.
++					 */
++					max_buckets = pg_prevpower2_32((uint32)
++												   (MaxAllocSize / sizeof(dsa_pointer_atomic)));
+ 					dbuckets = ceil(dtuples / NTUP_PER_BUCKET);
+-					dbuckets = Min(dbuckets,
+-								   MaxAllocSize / sizeof(dsa_pointer_atomic));
++					dbuckets = Min(dbuckets, max_buckets);
+ 					new_nbuckets = (int) dbuckets;
+ 					new_nbuckets = Max(new_nbuckets, 1024);
+ 					new_nbuckets = pg_nextpower2_32(new_nbuckets);
+ 					dsa_free(hashtable->area, old_batch0->buckets);
+ 					hashtable->batches[0].shared->buckets =

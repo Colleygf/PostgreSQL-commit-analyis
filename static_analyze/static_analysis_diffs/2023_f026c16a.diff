@@ -1,0 +1,72 @@
+commit f026c16a2c5a3ee5d7aa6f85333ec80c905913ba
+Author: Dean Rasheed <dean.a.rasheed@gmail.com>
+Date:   Tue Jan 10 14:17:47 2023 +0000
+
+    Fix MERGE's test for unreachable WHEN clauses.
+    
+    The former code would only detect an unreachable WHEN clause if it had
+    an AND condition. Fix, so that unreachable unconditional WHEN clauses
+    are also detected.
+    
+    Back-patch to v15, where MERGE was added.
+    
+    Discussion: https://postgr.es/m/CAEZATCVQ=7E2z4cSBB49jjeGGsB6WeoYQY32NDeSvcHiLUZ=ow@mail.gmail.com
+
+diff --git a/src/backend/parser/parse_merge.c b/src/backend/parser/parse_merge.c
+index 611dfce1d6b..d8866373b8f 100644
+--- a/src/backend/parser/parse_merge.c
++++ b/src/backend/parser/parse_merge.c
+@@ -153,16 +153,16 @@ transformMergeStmt(ParseState *pstate, MergeStmt *stmt)
+ 		}
+ 
+ 		/*
+ 		 * Check for unreachable WHEN clauses
+ 		 */
+-		if (mergeWhenClause->condition == NULL)
+-			is_terminal[when_type] = true;
+-		else if (is_terminal[when_type])
++		if (is_terminal[when_type])
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_SYNTAX_ERROR),
+ 					 errmsg("unreachable WHEN clause specified after unconditional WHEN clause")));
++		if (mergeWhenClause->condition == NULL)
++			is_terminal[when_type] = true;
+ 	}
+ 
+ 	/*
+ 	 * Set up the MERGE target table.  The target table is added to the
+ 	 * namespace below and to joinlist in transform_MERGE_to_join, so don't
+diff --git a/src/test/regress/expected/merge.out b/src/test/regress/expected/merge.out
+index 6c8a18f7b54..bc53b2105b4 100644
+--- a/src/test/regress/expected/merge.out
++++ b/src/test/regress/expected/merge.out
+@@ -657,11 +657,11 @@ BEGIN;
+ MERGE INTO target t
+ USING source AS s
+ ON t.tid = s.sid
+ WHEN MATCHED THEN /* Terminal WHEN clause for MATCHED */
+ 	DELETE
+-WHEN MATCHED AND s.delta > 0 THEN
++WHEN MATCHED THEN
+ 	UPDATE SET balance = t.balance - s.delta;
+ ERROR:  unreachable WHEN clause specified after unconditional WHEN clause
+ ROLLBACK;
+ -- conditional WHEN clause
+ CREATE TABLE wq_target (tid integer not null, balance integer DEFAULT -1)
+diff --git a/src/test/regress/sql/merge.sql b/src/test/regress/sql/merge.sql
+index 98fe1040bd4..fdbcd708823 100644
+--- a/src/test/regress/sql/merge.sql
++++ b/src/test/regress/sql/merge.sql
+@@ -436,11 +436,11 @@ BEGIN;
+ MERGE INTO target t
+ USING source AS s
+ ON t.tid = s.sid
+ WHEN MATCHED THEN /* Terminal WHEN clause for MATCHED */
+ 	DELETE
+-WHEN MATCHED AND s.delta > 0 THEN
++WHEN MATCHED THEN
+ 	UPDATE SET balance = t.balance - s.delta;
+ ROLLBACK;
+ 
+ -- conditional WHEN clause
+ CREATE TABLE wq_target (tid integer not null, balance integer DEFAULT -1)

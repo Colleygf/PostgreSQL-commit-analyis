@@ -1,0 +1,67 @@
+commit f73fa5a470b4cf850ad404b63c3e352d179d40b0
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Mon Sep 18 14:27:47 2023 -0400
+
+    Don't crash if cursor_to_xmlschema is used on a non-data-returning Portal.
+    
+    cursor_to_xmlschema() assumed that any Portal must have a tupDesc,
+    which is not so.  Add a defensive check.
+    
+    It's plausible that this mistake occurred because of the rather
+    poorly chosen name of the lookup function SPI_cursor_find(),
+    which in such cases is returning something that isn't very much
+    like a cursor.  Add some documentation to try to forestall future
+    errors of the same ilk.
+    
+    Report and patch by Boyu Yang (docs changes by me).  Back-patch
+    to all supported branches.
+    
+    Discussion: https://postgr.es/m/dd343010-c637-434c-a8cb-418f53bda3b8.yangboyu.yby@alibaba-inc.com
+
+diff --git a/doc/src/sgml/spi.sgml b/doc/src/sgml/spi.sgml
+index 16c3ab71e85..47f4b5b4317 100644
+--- a/doc/src/sgml/spi.sgml
++++ b/doc/src/sgml/spi.sgml
+@@ -2725,10 +2725,23 @@ Portal SPI_cursor_find(const char * <parameter>name</parameter>)
+   <para>
+    pointer to the portal with the specified name, or
+    <symbol>NULL</symbol> if none was found
+   </para>
+  </refsect1>
++
++ <refsect1>
++  <title>Notes</title>
++
++  <para>
++   Beware that this function can return a <type>Portal</type> object
++   that does not have cursor-like properties; for example it might not
++   return tuples.  If you simply pass the <type>Portal</type> pointer
++   to other SPI functions, they can defend themselves against such
++   cases, but caution is appropriate when directly inspecting
++   the <type>Portal</type>.
++  </para>
++ </refsect1>
+ </refentry>
+ 
+ <!-- *********************************************** -->
+ 
+ <refentry id="spi-spi-cursor-fetch">
+diff --git a/src/backend/utils/adt/xml.c b/src/backend/utils/adt/xml.c
+index 866d0d649a4..2300c7ebf34 100644
+--- a/src/backend/utils/adt/xml.c
++++ b/src/backend/utils/adt/xml.c
+@@ -3010,10 +3010,14 @@ cursor_to_xmlschema(PG_FUNCTION_ARGS)
+ 	portal = SPI_cursor_find(name);
+ 	if (portal == NULL)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_UNDEFINED_CURSOR),
+ 				 errmsg("cursor \"%s\" does not exist", name)));
++	if (portal->tupDesc == NULL)
++		ereport(ERROR,
++				(errcode(ERRCODE_INVALID_CURSOR_STATE),
++				 errmsg("portal \"%s\" does not return tuples", name)));
+ 
+ 	xmlschema = _SPI_strdup(map_sql_table_to_xmlschema(portal->tupDesc,
+ 													   InvalidOid, nulls,
+ 													   tableforest, targetns));
+ 	SPI_finish();

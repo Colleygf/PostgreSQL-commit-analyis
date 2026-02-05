@@ -1,0 +1,79 @@
+commit b3bd18294ee471c5a6f1db69be57f08c1e00f1a6
+Author: Jeff Davis <jdavis@postgresql.org>
+Date:   Tue Jul 9 11:27:17 2024 -0700
+
+    Fix missing invalidations for search_path cache.
+    
+    Reported-by: Noah Misch
+    Discussion: https://postgr.es/m/20240630223047.1f.nmisch@google.com
+    Backpatch-through: 17
+
+diff --git a/src/backend/catalog/namespace.c b/src/backend/catalog/namespace.c
+index a2510cf80c6..43b707699d7 100644
+--- a/src/backend/catalog/namespace.c
++++ b/src/backend/catalog/namespace.c
+@@ -228,11 +228,11 @@ static bool TSConfigIsVisibleExt(Oid cfgid, bool *is_missing);
+ static void recomputeNamespacePath(void);
+ static void AccessTempTableNamespace(bool force);
+ static void InitTempTableNamespace(void);
+ static void RemoveTempRelations(Oid tempNamespaceId);
+ static void RemoveTempRelationsCallback(int code, Datum arg);
+-static void NamespaceCallback(Datum arg, int cacheid, uint32 hashvalue);
++static void InvalidationCallback(Datum arg, int cacheid, uint32 hashvalue);
+ static bool MatchNamedCall(HeapTuple proctup, int nargs, List *argnames,
+ 						   bool include_out_arguments, int pronargs,
+ 						   int **argnumbers);
+ 
+ /*
+@@ -4747,31 +4747,45 @@ InitializeSearchPath(void)
+ 													   "search_path processing cache",
+ 													   ALLOCSET_DEFAULT_SIZES);
+ 
+ 		/*
+ 		 * In normal mode, arrange for a callback on any syscache invalidation
+-		 * of pg_namespace or pg_authid rows. (Changing a role name may affect
+-		 * the meaning of the special string $user.)
++		 * that will affect the search_path cache.
+ 		 */
++
++		/* namespace name or ACLs may have changed */
+ 		CacheRegisterSyscacheCallback(NAMESPACEOID,
+-									  NamespaceCallback,
++									  InvalidationCallback,
+ 									  (Datum) 0);
++
++		/* role name may affect the meaning of "$user" */
+ 		CacheRegisterSyscacheCallback(AUTHOID,
+-									  NamespaceCallback,
++									  InvalidationCallback,
++									  (Datum) 0);
++
++		/* role membership may affect ACLs */
++		CacheRegisterSyscacheCallback(AUTHMEMROLEMEM,
++									  InvalidationCallback,
+ 									  (Datum) 0);
++
++		/* database owner may affect ACLs */
++		CacheRegisterSyscacheCallback(DATABASEOID,
++									  InvalidationCallback,
++									  (Datum) 0);
++
+ 		/* Force search path to be recomputed on next use */
+ 		baseSearchPathValid = false;
+ 		searchPathCacheValid = false;
+ 	}
+ }
+ 
+ /*
+- * NamespaceCallback
++ * InvalidationCallback
+  *		Syscache inval callback function
+  */
+ static void
+-NamespaceCallback(Datum arg, int cacheid, uint32 hashvalue)
++InvalidationCallback(Datum arg, int cacheid, uint32 hashvalue)
+ {
+ 	/*
+ 	 * Force search path to be recomputed on next use, also invalidating the
+ 	 * search path cache (because namespace names, ACLs, or role names may
+ 	 * have changed).

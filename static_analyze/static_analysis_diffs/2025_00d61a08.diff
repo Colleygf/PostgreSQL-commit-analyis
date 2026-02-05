@@ -1,0 +1,63 @@
+commit 00d61a08c5fadca869c66a988b722e543d8e7100
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sat Mar 1 14:22:56 2025 -0500
+
+    Fix pg_strtof() to not crash on NULL endptr.
+    
+    We had managed not to notice this simple oversight because none
+    of our calls exercised the case --- until commit 8f427187d.
+    That led to pg_dump crashing on any platform that uses this code
+    (currently Cygwin and Mingw).
+    
+    Even though there's no immediate bug in the back branches, backpatch,
+    because a non-POSIX-compliant strtof() substitute is trouble waiting
+    to happen for extensions or future back-patches.
+    
+    Diagnosed-by: Alexander Lakhin <exclusion@gmail.com>
+    Author: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/339b3902-4e98-4e31-a744-94e43b7b9292@gmail.com
+    Backpatch-through: 13
+
+diff --git a/src/port/strtof.c b/src/port/strtof.c
+index 37dad9ebbc8..e7258b3d6db 100644
+--- a/src/port/strtof.c
++++ b/src/port/strtof.c
+@@ -29,19 +29,22 @@
+ float
+ pg_strtof(const char *nptr, char **endptr)
+ {
+ 	int			caller_errno = errno;
+ 	float		fresult;
++	char	   *myendptr;
+ 
+ 	errno = 0;
+-	fresult = (strtof) (nptr, endptr);
++	fresult = (strtof) (nptr, &myendptr);
++	if (endptr)
++		*endptr = myendptr;
+ 	if (errno)
+ 	{
+ 		/* On error, just return the error to the caller. */
+ 		return fresult;
+ 	}
+-	else if ((*endptr == nptr) || isnan(fresult) ||
++	else if ((myendptr == nptr) || isnan(fresult) ||
+ 			 ((fresult >= FLT_MIN || fresult <= -FLT_MIN) && !isinf(fresult)))
+ 	{
+ 		/*
+ 		 * If we got nothing parseable, or if we got a non-0 non-subnormal
+ 		 * finite value (or NaN) without error, then return that to the caller
+@@ -51,11 +54,12 @@ pg_strtof(const char *nptr, char **endptr)
+ 		return fresult;
+ 	}
+ 	else
+ 	{
+ 		/*
+-		 * Try again. errno is already 0 here.
++		 * Try again.  errno is already 0 here, and we assume that the endptr
++		 * won't be any different.
+ 		 */
+ 		double		dresult = strtod(nptr, NULL);
+ 
+ 		if (errno)
+ 		{

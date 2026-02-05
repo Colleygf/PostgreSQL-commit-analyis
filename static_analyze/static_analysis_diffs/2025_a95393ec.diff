@@ -1,0 +1,93 @@
+commit a95393ecdb23563bd47eeb2c943640c88592d82b
+Author: Noah Misch <noah@leadboat.com>
+Date:   Mon Sep 29 11:15:44 2025 -0700
+
+    Fix StatisticsObjIsVisibleExt() for pg_temp.
+    
+    Neighbor get_statistics_object_oid() ignores objects in pg_temp, as has
+    been the standard for non-relation, non-type namespace searches since
+    CVE-2007-2138.  Hence, most operations that name a statistics object
+    correctly decline to map an unqualified name to a statistics object in
+    pg_temp.  StatisticsObjIsVisibleExt() did not.  Consequently,
+    pg_statistics_obj_is_visible() wrongly returned true for such objects,
+    psql \dX wrongly listed them, and getObjectDescription()-based ereport()
+    and pg_describe_object() wrongly omitted namespace qualification.  Any
+    malfunction beyond that would depend on how a human or application acts
+    on those wrong indications.  Commit
+    d99d58cdc8c0b5b50ee92995e8575c100b1a458a introduced this.  Back-patch to
+    v13 (all supported versions).
+    
+    Reviewed-by: Nathan Bossart <nathandbossart@gmail.com>
+    Discussion: https://postgr.es/m/20250920162116.2e.nmisch@google.com
+    Backpatch-through: 13
+
+diff --git a/src/backend/catalog/namespace.c b/src/backend/catalog/namespace.c
+index ed9aeee24bc..d23474da4fb 100644
+--- a/src/backend/catalog/namespace.c
++++ b/src/backend/catalog/namespace.c
+@@ -2751,10 +2751,13 @@ StatisticsObjIsVisibleExt(Oid stxid, bool *is_missing)
+ 		visible = false;
+ 		foreach(l, activeSearchPath)
+ 		{
+ 			Oid			namespaceId = lfirst_oid(l);
+ 
++			if (namespaceId == myTempNamespace)
++				continue;		/* do not look in temp namespace */
++
+ 			if (namespaceId == stxnamespace)
+ 			{
+ 				/* Found it first in path */
+ 				visible = true;
+ 				break;
+diff --git a/src/test/regress/expected/stats_ext.out b/src/test/regress/expected/stats_ext.out
+index 9f378a6abdf..73a7ef97355 100644
+--- a/src/test/regress/expected/stats_ext.out
++++ b/src/test/regress/expected/stats_ext.out
+@@ -120,10 +120,24 @@ DROP STATISTICS ab1_a_b_stats;
+ ERROR:  must be owner of statistics object ab1_a_b_stats
+ ALTER STATISTICS ab1_a_b_stats RENAME TO ab1_a_b_stats_new;
+ ERROR:  must be owner of statistics object ab1_a_b_stats
+ RESET SESSION AUTHORIZATION;
+ DROP ROLE regress_stats_ext;
++CREATE STATISTICS pg_temp.stats_ext_temp ON a, b FROM ab1;
++SELECT regexp_replace(pg_describe_object(tableoid, oid, 0),
++                      'pg_temp_[0-9]*', 'pg_temp_REDACTED') AS descr,
++       pg_statistics_obj_is_visible(oid) AS visible
++  FROM pg_statistic_ext
++ WHERE stxname = 'stats_ext_temp';
++                       descr                       | visible 
++---------------------------------------------------+---------
++ statistics object pg_temp_REDACTED.stats_ext_temp | f
++(1 row)
++
++DROP STATISTICS stats_ext_temp;  -- shall fail
++ERROR:  statistics object "stats_ext_temp" does not exist
++DROP STATISTICS pg_temp.stats_ext_temp;
+ CREATE STATISTICS IF NOT EXISTS ab1_a_b_stats ON a, b FROM ab1;
+ NOTICE:  statistics object "ab1_a_b_stats" already exists, skipping
+ DROP STATISTICS ab1_a_b_stats;
+ CREATE SCHEMA regress_schema_2;
+ CREATE STATISTICS regress_schema_2.ab1_a_b_stats ON a, b FROM ab1;
+diff --git a/src/test/regress/sql/stats_ext.sql b/src/test/regress/sql/stats_ext.sql
+index d7e5c0c893a..96771600d57 100644
+--- a/src/test/regress/sql/stats_ext.sql
++++ b/src/test/regress/sql/stats_ext.sql
+@@ -81,10 +81,18 @@ SET SESSION AUTHORIZATION regress_stats_ext;
+ COMMENT ON STATISTICS ab1_a_b_stats IS 'changed comment';
+ DROP STATISTICS ab1_a_b_stats;
+ ALTER STATISTICS ab1_a_b_stats RENAME TO ab1_a_b_stats_new;
+ RESET SESSION AUTHORIZATION;
+ DROP ROLE regress_stats_ext;
++CREATE STATISTICS pg_temp.stats_ext_temp ON a, b FROM ab1;
++SELECT regexp_replace(pg_describe_object(tableoid, oid, 0),
++                      'pg_temp_[0-9]*', 'pg_temp_REDACTED') AS descr,
++       pg_statistics_obj_is_visible(oid) AS visible
++  FROM pg_statistic_ext
++ WHERE stxname = 'stats_ext_temp';
++DROP STATISTICS stats_ext_temp;  -- shall fail
++DROP STATISTICS pg_temp.stats_ext_temp;
+ 
+ CREATE STATISTICS IF NOT EXISTS ab1_a_b_stats ON a, b FROM ab1;
+ DROP STATISTICS ab1_a_b_stats;
+ 
+ CREATE SCHEMA regress_schema_2;

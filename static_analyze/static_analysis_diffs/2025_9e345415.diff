@@ -1,0 +1,63 @@
+commit 9e345415bcd3c4358350b89edfd710469b8bfaf9
+Author: Tomas Vondra <tomas.vondra@postgresql.org>
+Date:   Tue Jul 1 15:20:26 2025 +0200
+
+    Fix indentation in pg_numa code
+    
+    Broken by commits 7fe2f67c7c9f, 81f287dc923f and bf1119d74a79. Backpatch
+    to 18, same as the offending commits.
+    
+    Backpatch-through: 18
+
+diff --git a/src/include/port/pg_numa.h b/src/include/port/pg_numa.h
+index 6c8b7103cc3..9d1ea6d0db8 100644
+--- a/src/include/port/pg_numa.h
++++ b/src/include/port/pg_numa.h
+@@ -26,10 +26,11 @@ extern PGDLLIMPORT int pg_numa_get_max_node(void);
+  */
+ static inline void
+ pg_numa_touch_mem_if_required(void *ptr)
+ {
+ 	volatile uint64 touch pg_attribute_unused();
++
+ 	touch = *(volatile uint64 *) ptr;
+ }
+ 
+ #else
+ 
+diff --git a/src/port/pg_numa.c b/src/port/pg_numa.c
+index c65f22020ea..3368a43a338 100644
+--- a/src/port/pg_numa.c
++++ b/src/port/pg_numa.c
+@@ -63,12 +63,12 @@ pg_numa_init(void)
+  * take a lot of time).
+  */
+ int
+ pg_numa_query_pages(int pid, unsigned long count, void **pages, int *status)
+ {
+-	unsigned long	next = 0;
+-	int				ret = 0;
++	unsigned long next = 0;
++	int			ret = 0;
+ 
+ 	/*
+ 	 * Chunk pointers passed to numa_move_pages to NUMA_QUERY_CHUNK_SIZE
+ 	 * items, to work around a kernel bug in do_pages_stat().
+ 	 */
+@@ -78,13 +78,13 @@ pg_numa_query_pages(int pid, unsigned long count, void **pages, int *status)
+ 										NUMA_QUERY_CHUNK_SIZE);
+ 
+ 		CHECK_FOR_INTERRUPTS();
+ 
+ 		/*
+-		 * Bail out if any of the chunks errors out (ret<0). We ignore
+-		 * (ret>0) which is used to return number of nonmigrated pages,
+-		 * but we're not migrating any pages here.
++		 * Bail out if any of the chunks errors out (ret<0). We ignore (ret>0)
++		 * which is used to return number of nonmigrated pages, but we're not
++		 * migrating any pages here.
+ 		 */
+ 		ret = numa_move_pages(pid, count_chunk, &pages[next], NULL, &status[next], 0);
+ 		if (ret < 0)
+ 		{
+ 			/* plain error, return as is */

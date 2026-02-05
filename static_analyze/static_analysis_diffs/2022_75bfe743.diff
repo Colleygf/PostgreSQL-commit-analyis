@@ -1,0 +1,51 @@
+commit 75bfe7434d415fcd7e879a187f9e8dfcd3e0b017
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Tue Jun 21 15:39:35 2022 +0530
+
+    Fix stale values in partition map entries on subscribers.
+    
+    We build the partition map entries on subscribers while applying the
+    changes for update/delete on partitions. The component relation in each
+    entry is closed after its use so we need to update it on successive use of
+    cache entries.
+    
+    This problem was there since the original commit f1ac27bfda that
+    introduced this code but we didn't notice it till the recent commit
+    26b3455afa started to use the component relation of partition map cache
+    entry.
+    
+    Reported-by: Tom Lane, as per buildfarm
+    Author: Amit Langote, Hou Zhijie
+    Reviewed-by: Amit Kapila, Shi Yu
+    Backpatch-through: 13, where it was introduced
+    Discussion: https://postgr.es/m/OSZPR01MB6310F46CD425A967E4AEF736FDA49@OSZPR01MB6310.jpnprd01.prod.outlook.com
+
+diff --git a/src/backend/replication/logical/relation.c b/src/backend/replication/logical/relation.c
+index 5f511701d97..46475f32482 100644
+--- a/src/backend/replication/logical/relation.c
++++ b/src/backend/replication/logical/relation.c
+@@ -594,12 +594,24 @@ logicalrep_partition_open(LogicalRepRelMapEntry *root,
+ 														(void *) &partOid,
+ 														HASH_ENTER, &found);
+ 
+ 	entry = &part_entry->relmapentry;
+ 
++	/*
++	 * We must always overwrite entry->localrel with the latest partition
++	 * Relation pointer, because the Relation pointed to by the old value may
++	 * have been cleared after the caller would have closed the partition
++	 * relation after the last use of this entry.  Note that localrelvalid is
++	 * only updated by the relcache invalidation callback, so it may still be
++	 * true irrespective of whether the Relation pointed to by localrel has
++	 * been cleared or not.
++	 */
+ 	if (found && entry->localrelvalid)
++	{
++		entry->localrel = partrel;
+ 		return entry;
++	}
+ 
+ 	/* Switch to longer-lived context. */
+ 	oldctx = MemoryContextSwitchTo(LogicalRepPartMapContext);
+ 
+ 	if (!found)

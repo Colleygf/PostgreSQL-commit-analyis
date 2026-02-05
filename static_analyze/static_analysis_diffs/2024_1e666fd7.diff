@@ -1,0 +1,70 @@
+commit 1e666fd7c6d3bff658cdbad02b4e7bb77dde391d
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Sun Jul 28 09:12:00 2024 +0200
+
+    libpq: Use strerror_r instead of strerror
+    
+    Commit 453c4687377 introduced a use of strerror() into libpq, but that
+    is not thread-safe.  Fix by using strerror_r() instead.
+    
+    In passing, update some of the code comments added by 453c4687377, as
+    we have learned more about the reason for the change in OpenSSL that
+    started this.
+    
+    Reviewed-by: Daniel Gustafsson <daniel@yesql.se>
+    Discussion: Discussion: https://postgr.es/m/b6fb018b-f05c-4afd-abd3-318c649faf18@highgo.ca
+
+diff --git a/src/backend/libpq/be-secure-openssl.c b/src/backend/libpq/be-secure-openssl.c
+index eed7ec7ce56..7e056abd5a2 100644
+--- a/src/backend/libpq/be-secure-openssl.c
++++ b/src/backend/libpq/be-secure-openssl.c
+@@ -1464,14 +1464,15 @@ SSLerrmessage(unsigned long ecode)
+ 	errreason = ERR_reason_error_string(ecode);
+ 	if (errreason != NULL)
+ 		return errreason;
+ 
+ 	/*
+-	 * In OpenSSL 3.0.0 and later, ERR_reason_error_string randomly refuses to
+-	 * map system errno values.  We can cover that shortcoming with this bit
+-	 * of code.  Older OpenSSL versions don't have the ERR_SYSTEM_ERROR macro,
+-	 * but that's okay because they don't have the shortcoming either.
++	 * In OpenSSL 3.0.0 and later, ERR_reason_error_string does not map system
++	 * errno values anymore.  (See OpenSSL source code for the explanation.)
++	 * We can cover that shortcoming with this bit of code.  Older OpenSSL
++	 * versions don't have the ERR_SYSTEM_ERROR macro, but that's okay because
++	 * they don't have the shortcoming either.
+ 	 */
+ #ifdef ERR_SYSTEM_ERROR
+ 	if (ERR_SYSTEM_ERROR(ecode))
+ 		return strerror(ERR_GET_REASON(ecode));
+ #endif
+diff --git a/src/interfaces/libpq/fe-secure-openssl.c b/src/interfaces/libpq/fe-secure-openssl.c
+index 5c867106fb0..b6fffd7b9b0 100644
+--- a/src/interfaces/libpq/fe-secure-openssl.c
++++ b/src/interfaces/libpq/fe-secure-openssl.c
+@@ -1757,19 +1757,20 @@ SSLerrmessage(unsigned long ecode)
+ 		return errbuf;
+ 	}
+ #endif
+ 
+ 	/*
+-	 * In OpenSSL 3.0.0 and later, ERR_reason_error_string randomly refuses to
+-	 * map system errno values.  We can cover that shortcoming with this bit
+-	 * of code.  Older OpenSSL versions don't have the ERR_SYSTEM_ERROR macro,
+-	 * but that's okay because they don't have the shortcoming either.
++	 * In OpenSSL 3.0.0 and later, ERR_reason_error_string does not map system
++	 * errno values anymore.  (See OpenSSL source code for the explanation.)
++	 * We can cover that shortcoming with this bit of code.  Older OpenSSL
++	 * versions don't have the ERR_SYSTEM_ERROR macro, but that's okay because
++	 * they don't have the shortcoming either.
+ 	 */
+ #ifdef ERR_SYSTEM_ERROR
+ 	if (ERR_SYSTEM_ERROR(ecode))
+ 	{
+-		strlcpy(errbuf, strerror(ERR_GET_REASON(ecode)), SSL_ERR_LEN);
++		strerror_r(ERR_GET_REASON(ecode), errbuf, SSL_ERR_LEN);
+ 		return errbuf;
+ 	}
+ #endif
+ 
+ 	/* No choice but to report the numeric ecode */

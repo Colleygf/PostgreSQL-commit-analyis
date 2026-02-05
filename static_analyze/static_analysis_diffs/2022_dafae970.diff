@@ -1,0 +1,72 @@
+commit dafae9707ab7e7079ce1ba22cebda4557d0cbaf3
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Fri Apr 8 13:28:04 2022 +1200
+
+    Fix recovery_prefetch docs.
+    
+    Correct a typo and a couple of sentences that weren't updated to reflect
+    recent changes to the code.
+    
+    Reported-by: Justin Pryzby <pryzby@telsasoft.com>
+    Discussion: https://postgr.es/m/20220407125555.GC24419%40telsasoft.com
+
+diff --git a/doc/src/sgml/config.sgml b/doc/src/sgml/config.sgml
+index ac533968a0c..c2c7a95a828 100644
+--- a/doc/src/sgml/config.sgml
++++ b/doc/src/sgml/config.sgml
+@@ -3683,12 +3683,13 @@ include_dir 'conf.d'
+       </term>
+       <listitem>
+        <para>
+         Whether to try to prefetch blocks that are referenced in the WAL that
+         are not yet in the buffer pool, during recovery.  Valid values are
+-        <literal>off</literal> (the default), <literal>on</literal> and
+-        <literal>try</literal>.  The setting <literal>try</literal> enables
++        <literal>off</literal>, <literal>on</literal> and
++        <literal>try</literal> (the default).  The setting
++        <literal>try</literal> enables
+         prefetching only if the operating system provides the
+         <function>posix_fadvise</function> function, which is currently used
+         to implement prefetching.  Note that some operating systems provide the
+         function, but it doesn't do anything.
+        </para>
+diff --git a/doc/src/sgml/monitoring.sgml b/doc/src/sgml/monitoring.sgml
+index 76766d28dd4..8717df060e2 100644
+--- a/doc/src/sgml/monitoring.sgml
++++ b/doc/src/sgml/monitoring.sgml
+@@ -3047,15 +3047,13 @@ SELECT pid, wait_event_type, wait_event FROM pg_stat_activity WHERE wait_event i
+    </tgroup>
+   </table>
+ 
+   <para>
+    The <structname>pg_stat_recovery_prefetch</structname> view will contain
+-   only one row.  It is filled with nulls if recovery has not run or
+-   <xref linkend="guc-recovery-prefetch"/> is not enabled.  The
+-   columns <structfield>wal_distance</structfield>,
+-   <structfield>block_distance</structfield>
+-   and <structfield>io_depth</structfield> show current values, and the
++   only one row.  The columns <structfield>wal_distance</structfield>,
++   <structfield>block_distance</structfield> and
++   <structfield>io_depth</structfield> show current values, and the
+    other columns show cumulative counters that can be reset
+    with the <function>pg_stat_reset_shared</function> function.
+   </para>
+ 
+   <table id="pg-stat-subscription" xreflabel="pg_stat_subscription">
+diff --git a/doc/src/sgml/wal.sgml b/doc/src/sgml/wal.sgml
+index 6b3406b7de6..4b6ef283c1c 100644
+--- a/doc/src/sgml/wal.sgml
++++ b/doc/src/sgml/wal.sgml
+@@ -810,11 +810,11 @@
+    of disk blocks that will soon be needed but are not currently in
+    <productname>PostgreSQL</productname>'s buffer pool.
+    The <xref linkend="guc-maintenance-io-concurrency"/> and
+    <xref linkend="guc-wal-decode-buffer-size"/> settings limit prefetching
+    concurrency and distance, respectively.  By default, it is set to
+-   <literal>try</literal>, which enabled the feature on systems where
++   <literal>try</literal>, which enables the feature on systems where
+    <function>posix_fadvise</function> is available.
+   </para>
+  </sect1>
+ 
+  <sect1 id="wal-internals">

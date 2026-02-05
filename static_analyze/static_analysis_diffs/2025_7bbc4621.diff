@@ -1,0 +1,138 @@
+commit 7bbc46213de9301795da90923a015070239c1fcc
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Tue Mar 4 20:07:30 2025 +0100
+
+    Fix ALTER TABLE error message
+    
+    This bogus error message was introduced in 2013 by commit f177cbfe676d,
+    because of misunderstanding the processCASbits() API; at the time, no
+    test cases were added that would be affected by this change.  Only in
+    ca87c415e2fc was one added (along with a couple of typos), with an XXX
+    note that the error message was bogus.  Fix the whole, add some test
+    cases.
+    
+    Backpatch all the way back.
+    
+    Reviewed-by: Nathan Bossart <nathandbossart@gmail.com>
+    Discussion: https://postgr.es/m/202503041822.aobpqke3igvb@alvherre.pgsql
+
+diff --git a/src/backend/parser/gram.y b/src/backend/parser/gram.y
+index 7d99c9355c6..c11a3beff06 100644
+--- a/src/backend/parser/gram.y
++++ b/src/backend/parser/gram.y
+@@ -2661,11 +2661,11 @@ alter_table_cmd:
+ 
+ 					n->subtype = AT_AlterConstraint;
+ 					n->def = (Node *) c;
+ 					c->conname = $3;
+ 					c->alterDeferrability = true;
+-					processCASbits($4, @4, "ALTER CONSTRAINT statement",
++					processCASbits($4, @4, "FOREIGN KEY",
+ 									&c->deferrable,
+ 									&c->initdeferred,
+ 									NULL, NULL, NULL, yyscanner);
+ 					$$ = (Node *) n;
+ 				}
+diff --git a/src/test/regress/expected/constraints.out b/src/test/regress/expected/constraints.out
+index 692a69fe457..4f39100fcdf 100644
+--- a/src/test/regress/expected/constraints.out
++++ b/src/test/regress/expected/constraints.out
+@@ -733,26 +733,25 @@ SELECT * FROM unique_tbl;
+  4 | two
+  2 | four
+  3 | threex
+ (5 rows)
+ 
+--- enforcibility cannot be specified or set for unique constrain
++-- enforceability cannot be specified or set for unique constraint
+ CREATE TABLE UNIQUE_EN_TBL(i int UNIQUE ENFORCED);
+ ERROR:  misplaced ENFORCED clause
+ LINE 1: CREATE TABLE UNIQUE_EN_TBL(i int UNIQUE ENFORCED);
+                                                 ^
+ CREATE TABLE UNIQUE_NOTEN_TBL(i int UNIQUE NOT ENFORCED);
+ ERROR:  misplaced NOT ENFORCED clause
+ LINE 1: CREATE TABLE UNIQUE_NOTEN_TBL(i int UNIQUE NOT ENFORCED);
+                                                    ^
+--- XXX: error message is misleading here
+ ALTER TABLE unique_tbl ALTER CONSTRAINT unique_tbl_i_key ENFORCED;
+-ERROR:  ALTER CONSTRAINT statement constraints cannot be marked ENFORCED
++ERROR:  FOREIGN KEY constraints cannot be marked ENFORCED
+ LINE 1: ...TABLE unique_tbl ALTER CONSTRAINT unique_tbl_i_key ENFORCED;
+                                                               ^
+ ALTER TABLE unique_tbl ALTER CONSTRAINT unique_tbl_i_key NOT ENFORCED;
+-ERROR:  ALTER CONSTRAINT statement constraints cannot be marked NOT ENFORCED
++ERROR:  FOREIGN KEY constraints cannot be marked NOT ENFORCED
+ LINE 1: ...ABLE unique_tbl ALTER CONSTRAINT unique_tbl_i_key NOT ENFORC...
+                                                              ^
+ DROP TABLE unique_tbl;
+ --
+ -- EXCLUDE constraints
+diff --git a/src/test/regress/expected/foreign_key.out b/src/test/regress/expected/foreign_key.out
+index 374dcb266e7..6a3374d5152 100644
+--- a/src/test/regress/expected/foreign_key.out
++++ b/src/test/regress/expected/foreign_key.out
+@@ -1276,15 +1276,23 @@ INSERT INTO fktable VALUES (0, 20);
+ ERROR:  insert or update on table "fktable" violates foreign key constraint "fktable_fk_fkey"
+ DETAIL:  Key (fk)=(20) is not present in table "pktable".
+ COMMIT;
+ -- try additional syntax
+ ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE;
+--- illegal option
++-- illegal options
+ ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE INITIALLY DEFERRED;
+ ERROR:  constraint declared INITIALLY DEFERRED must be DEFERRABLE
+ LINE 1: ...e ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE INITIALLY ...
+                                                              ^
++ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NO INHERIT;
++ERROR:  FOREIGN KEY constraints cannot be marked NO INHERIT
++LINE 1: ...ER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NO INHERIT...
++                                                             ^
++ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT VALID;
++ERROR:  FOREIGN KEY constraints cannot be marked NOT VALID
++LINE 1: ...ER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT VALID;
++                                                             ^
+ -- test order of firing of FK triggers when several RI-induced changes need to
+ -- be made to the same row.  This was broken by subtransaction-related
+ -- changes in 8.0.
+ CREATE TEMP TABLE users (
+   id INT PRIMARY KEY,
+diff --git a/src/test/regress/sql/constraints.sql b/src/test/regress/sql/constraints.sql
+index d6742f83fb9..21ce4177de4 100644
+--- a/src/test/regress/sql/constraints.sql
++++ b/src/test/regress/sql/constraints.sql
+@@ -529,14 +529,13 @@ SELECT * FROM unique_tbl;
+ 
+ COMMIT;
+ 
+ SELECT * FROM unique_tbl;
+ 
+--- enforcibility cannot be specified or set for unique constrain
++-- enforceability cannot be specified or set for unique constraint
+ CREATE TABLE UNIQUE_EN_TBL(i int UNIQUE ENFORCED);
+ CREATE TABLE UNIQUE_NOTEN_TBL(i int UNIQUE NOT ENFORCED);
+--- XXX: error message is misleading here
+ ALTER TABLE unique_tbl ALTER CONSTRAINT unique_tbl_i_key ENFORCED;
+ ALTER TABLE unique_tbl ALTER CONSTRAINT unique_tbl_i_key NOT ENFORCED;
+ 
+ DROP TABLE unique_tbl;
+ 
+diff --git a/src/test/regress/sql/foreign_key.sql b/src/test/regress/sql/foreign_key.sql
+index bc0adb8cfe9..44945b0453a 100644
+--- a/src/test/regress/sql/foreign_key.sql
++++ b/src/test/regress/sql/foreign_key.sql
+@@ -968,12 +968,14 @@ INSERT INTO fktable VALUES (0, 20);
+ 
+ COMMIT;
+ 
+ -- try additional syntax
+ ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE;
+--- illegal option
++-- illegal options
+ ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT DEFERRABLE INITIALLY DEFERRED;
++ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NO INHERIT;
++ALTER TABLE fktable ALTER CONSTRAINT fktable_fk_fkey NOT VALID;
+ 
+ -- test order of firing of FK triggers when several RI-induced changes need to
+ -- be made to the same row.  This was broken by subtransaction-related
+ -- changes in 8.0.
+ 

@@ -1,0 +1,61 @@
+commit 71cb352904c1833fe067d6f191269710fe2ca06f
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Thu Dec 5 14:27:35 2024 +1300
+
+    Fix header inclusion order in c.h.
+    
+    Commit 962da900a added #include <stdint.h> to postgres_ext.h, which
+    broke c.h's header ordering rule.
+    
+    The system headers on some systems would then lock down off_t's size in
+    private macros, before they'd had a chance to see our definition of
+    _FILE_OFFSET_BITS (and presumably other things).  This was picked up by
+    perl's ABI compatibility checks on some 32 bit systems in the build
+    farm.
+    
+    Move #include "postgres_ext.h" down below the system header section, and
+    make the comments clearer (thanks to Tom for the new wording).
+    
+    Diagnosed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/2397643.1733347237%40sss.pgh.pa.us
+
+diff --git a/src/include/c.h b/src/include/c.h
+index 734626e75a8..13bb39fdef3 100644
+--- a/src/include/c.h
++++ b/src/include/c.h
+@@ -44,15 +44,18 @@
+  *----------------------------------------------------------------
+  */
+ #ifndef C_H
+ #define C_H
+ 
+-#include "postgres_ext.h"
+-
++/*
++ * These headers must be included before any system headers, because on some
++ * platforms they affect the behavior of the system headers (for example, by
++ * defining _FILE_OFFSET_BITS).
++ */
+ #include "pg_config.h"
+ #include "pg_config_manual.h"	/* must be after pg_config.h */
+-#include "pg_config_os.h"		/* must be before any system header files */
++#include "pg_config_os.h"		/* config from include/port/PORTNAME.h */
+ 
+ /* System header files that should be available everywhere in Postgres */
+ #include <inttypes.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -74,10 +77,13 @@
+ #endif
+ #ifdef ENABLE_NLS
+ #include <libintl.h>
+ #endif
+ 
++ /* Pull in fundamental symbols that we also expose to applications */
++#include "postgres_ext.h"
++
+ /* Define before including zlib.h to add const decorations to zlib API. */
+ #ifdef HAVE_LIBZ
+ #define ZLIB_CONST
+ #endif
+ 

@@ -1,0 +1,80 @@
+commit 5ec69b71f17c353b27754deb8d94bb1f5cf7a029
+Author: Andres Freund <andres@anarazel.de>
+Date:   Wed Apr 12 11:00:37 2023 -0700
+
+    Improve error messages introduced in be87200efd9 and 0fdab27ad68
+    
+    Author: Kyotaro Horiguchi <horikyota.ntt@gmail.com>
+    Discussion: https://postgr.es/m/20230411.120301.93333867350615278.horikyota.ntt@gmail.com
+    Discussion: https://postgr.es/m/20230412174244.6njadz4uoiez3l74@awork3.anarazel.de
+
+diff --git a/src/backend/replication/logical/decode.c b/src/backend/replication/logical/decode.c
+index 5508cc21777..beef399b429 100644
+--- a/src/backend/replication/logical/decode.c
++++ b/src/backend/replication/logical/decode.c
+@@ -175,11 +175,11 @@ xlog_decode(LogicalDecodingContext *ctx, XLogRecordBuffer *buf)
+ 					 * if there is pre-existing logical slot.
+ 					 */
+ 					Assert(RecoveryInProgress());
+ 					ereport(ERROR,
+ 							(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+-							 errmsg("logical decoding on a standby requires wal_level to be at least logical on the primary")));
++							 errmsg("logical decoding on standby requires wal_level >= logical on the primary")));
+ 				}
+ 				break;
+ 			}
+ 		case XLOG_NOOP:
+ 		case XLOG_NEXTOID:
+diff --git a/src/backend/replication/logical/logical.c b/src/backend/replication/logical/logical.c
+index 82dae950809..7e1f677f7a0 100644
+--- a/src/backend/replication/logical/logical.c
++++ b/src/backend/replication/logical/logical.c
+@@ -135,11 +135,11 @@ CheckLogicalDecodingRequirements(void)
+ 		 * the slot, and once when logical decoding is initially starting up.
+ 		 */
+ 		if (GetActiveWalLevelOnStandby() < WAL_LEVEL_LOGICAL)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+-					 errmsg("logical decoding on a standby requires wal_level to be at least logical on the primary")));
++					 errmsg("logical decoding on standby requires wal_level >= logical on the primary")));
+ 	}
+ }
+ 
+ /*
+  * Helper function for CreateInitDecodingContext() and
+diff --git a/src/backend/replication/slot.c b/src/backend/replication/slot.c
+index 41848f0ac6d..8021aaa0a8c 100644
+--- a/src/backend/replication/slot.c
++++ b/src/backend/replication/slot.c
+@@ -1272,11 +1272,11 @@ ReportSlotInvalidation(ReplicationSlotInvalidationCause cause,
+ 			appendStringInfo(&err_detail, _("The slot conflicted with xid horizon %u."),
+ 							 snapshotConflictHorizon);
+ 			break;
+ 
+ 		case RS_INVAL_WAL_LEVEL:
+-			appendStringInfo(&err_detail, _("Logical decoding on standby requires wal_level to be at least logical on the primary server"));
++			appendStringInfo(&err_detail, _("Logical decoding on standby requires wal_level >= logical on the primary server."));
+ 			break;
+ 		case RS_INVAL_NONE:
+ 			pg_unreachable();
+ 	}
+ 
+diff --git a/src/test/recovery/t/035_standby_logical_decoding.pl b/src/test/recovery/t/035_standby_logical_decoding.pl
+index 94a8384c31c..20838d49b53 100644
+--- a/src/test/recovery/t/035_standby_logical_decoding.pl
++++ b/src/test/recovery/t/035_standby_logical_decoding.pl
+@@ -594,12 +594,12 @@ check_for_invalidation('wal_level_', $logstart, 'due to wal_level');
+ 
+ # Verify slots are reported as conflicting in pg_replication_slots
+ check_slots_conflicting_status(1);
+ 
+ $handle = make_slot_active($node_standby, 'wal_level_', 0, \$stdout, \$stderr);
+-# We are not able to read from the slot as it requires wal_level at least logical on the primary server
+-check_pg_recvlogical_stderr($handle, "logical decoding on a standby requires wal_level to be at least logical on the primary");
++# We are not able to read from the slot as it requires wal_level >= logical on the primary server
++check_pg_recvlogical_stderr($handle, "logical decoding on standby requires wal_level >= logical on the primary");
+ 
+ # Restore primary wal_level
+ $node_primary->append_conf('postgresql.conf',q[
+ wal_level = 'logical'
+ ]);

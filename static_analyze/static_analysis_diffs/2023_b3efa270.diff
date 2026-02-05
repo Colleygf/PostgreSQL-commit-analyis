@@ -1,0 +1,117 @@
+commit b3efa270b5192f0c72dc26f0ea1bc795ad8516c3
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Thu Nov 30 10:56:53 2023 +0100
+
+    Fix spelling and punctuation
+    
+    Remove trailing periods from pg_log_error emitted strings as only
+    hint and detail level error messages should be punctuated.  Also
+    reword the usage screen which was missing a word.
+    
+    Author: Kyotaro Horiguchi <horikyota.ntt@gmail.com>
+    Discussion: https://postgr.es/m/20231130.105223.554982964895179414.horikyota.ntt@gmail.com
+    Discussion: https://postgr.es/m/20231130.103900.2069212175914114279.horikyota.ntt@gmail.com
+
+diff --git a/src/bin/pg_dump/pg_dump.c b/src/bin/pg_dump/pg_dump.c
+index 57c6836b880..8c0b5486b93 100644
+--- a/src/bin/pg_dump/pg_dump.c
++++ b/src/bin/pg_dump/pg_dump.c
+@@ -1117,11 +1117,11 @@ help(const char *progname)
+ 	printf(_("  --exclude-table-data-and-children=PATTERN\n"
+ 			 "                               do NOT dump data for the specified table(s),\n"
+ 			 "                               including child and partition tables\n"));
+ 	printf(_("  --extra-float-digits=NUM     override default setting for extra_float_digits\n"));
+ 	printf(_("  --filter=FILENAME            include or exclude objects and data from dump\n"
+-			 "                               based expressions in FILENAME\n"));
++			 "                               based on expressions in FILENAME\n"));
+ 	printf(_("  --if-exists                  use IF EXISTS when dropping objects\n"));
+ 	printf(_("  --include-foreign-data=PATTERN\n"
+ 			 "                               include data of foreign tables on foreign\n"
+ 			 "                               servers matching PATTERN\n"));
+ 	printf(_("  --inserts                    dump data as INSERT commands, rather than COPY\n"));
+@@ -18810,11 +18810,11 @@ read_dump_filters(const char *filename, DumpOptions *dopt)
+ 				case FILTER_OBJECT_TYPE_FUNCTION:
+ 				case FILTER_OBJECT_TYPE_INDEX:
+ 				case FILTER_OBJECT_TYPE_TABLE_DATA:
+ 				case FILTER_OBJECT_TYPE_TABLE_DATA_AND_CHILDREN:
+ 				case FILTER_OBJECT_TYPE_TRIGGER:
+-					pg_log_filter_error(&fstate, _("%s filter for \"%s\" is not allowed."),
++					pg_log_filter_error(&fstate, _("%s filter for \"%s\" is not allowed"),
+ 										"include",
+ 										filter_object_type_name(objtype));
+ 					exit_nicely(1);
+ 					break;		/* unreachable */
+ 
+@@ -18849,11 +18849,11 @@ read_dump_filters(const char *filename, DumpOptions *dopt)
+ 				case FILTER_OBJECT_TYPE_FUNCTION:
+ 				case FILTER_OBJECT_TYPE_INDEX:
+ 				case FILTER_OBJECT_TYPE_TRIGGER:
+ 				case FILTER_OBJECT_TYPE_EXTENSION:
+ 				case FILTER_OBJECT_TYPE_FOREIGN_DATA:
+-					pg_log_filter_error(&fstate, _("%s filter for \"%s\" is not allowed."),
++					pg_log_filter_error(&fstate, _("%s filter for \"%s\" is not allowed"),
+ 										"exclude",
+ 										filter_object_type_name(objtype));
+ 					exit_nicely(1);
+ 					break;
+ 
+diff --git a/src/bin/pg_dump/pg_dumpall.c b/src/bin/pg_dump/pg_dumpall.c
+index 1b974cf7e8e..92389353a46 100644
+--- a/src/bin/pg_dump/pg_dumpall.c
++++ b/src/bin/pg_dump/pg_dumpall.c
+@@ -1967,11 +1967,11 @@ read_dumpall_filters(const char *filename, SimpleStringList *pattern)
+ 
+ 	while (filter_read_item(&fstate, &objname, &comtype, &objtype))
+ 	{
+ 		if (comtype == FILTER_COMMAND_TYPE_INCLUDE)
+ 		{
+-			pg_log_filter_error(&fstate, _("%s filter for \"%s\" is not allowed."),
++			pg_log_filter_error(&fstate, _("%s filter for \"%s\" is not allowed"),
+ 								"include",
+ 								filter_object_type_name(objtype));
+ 			exit_nicely(1);
+ 		}
+ 
+@@ -1987,11 +1987,11 @@ read_dumpall_filters(const char *filename, SimpleStringList *pattern)
+ 			case FILTER_OBJECT_TYPE_EXTENSION:
+ 			case FILTER_OBJECT_TYPE_FOREIGN_DATA:
+ 			case FILTER_OBJECT_TYPE_SCHEMA:
+ 			case FILTER_OBJECT_TYPE_TABLE:
+ 			case FILTER_OBJECT_TYPE_TABLE_AND_CHILDREN:
+-				pg_log_filter_error(&fstate, _("unsupported filter object."));
++				pg_log_filter_error(&fstate, _("unsupported filter object"));
+ 				exit_nicely(1);
+ 				break;
+ 
+ 			case FILTER_OBJECT_TYPE_DATABASE:
+ 				simple_string_list_append(pattern, objname);
+diff --git a/src/bin/pg_dump/pg_restore.c b/src/bin/pg_dump/pg_restore.c
+index 1459e02263f..c3beacdec1d 100644
+--- a/src/bin/pg_dump/pg_restore.c
++++ b/src/bin/pg_dump/pg_restore.c
+@@ -533,11 +533,11 @@ read_restore_filters(const char *filename, RestoreOptions *opts)
+ 				case FILTER_OBJECT_TYPE_TABLE_DATA_AND_CHILDREN:
+ 				case FILTER_OBJECT_TYPE_TABLE_AND_CHILDREN:
+ 				case FILTER_OBJECT_TYPE_DATABASE:
+ 				case FILTER_OBJECT_TYPE_EXTENSION:
+ 				case FILTER_OBJECT_TYPE_FOREIGN_DATA:
+-					pg_log_filter_error(&fstate, _("%s filter for \"%s\" is not allowed."),
++					pg_log_filter_error(&fstate, _("%s filter for \"%s\" is not allowed"),
+ 										"include",
+ 										filter_object_type_name(objtype));
+ 					exit_nicely(1);
+ 
+ 				case FILTER_OBJECT_TYPE_FUNCTION:
+@@ -579,11 +579,11 @@ read_restore_filters(const char *filename, RestoreOptions *opts)
+ 				case FILTER_OBJECT_TYPE_FUNCTION:
+ 				case FILTER_OBJECT_TYPE_INDEX:
+ 				case FILTER_OBJECT_TYPE_TABLE:
+ 				case FILTER_OBJECT_TYPE_TABLE_AND_CHILDREN:
+ 				case FILTER_OBJECT_TYPE_TRIGGER:
+-					pg_log_filter_error(&fstate, _("%s filter for \"%s\" is not allowed."),
++					pg_log_filter_error(&fstate, _("%s filter for \"%s\" is not allowed"),
+ 										"exclude",
+ 										filter_object_type_name(objtype));
+ 					exit_nicely(1);
+ 
+ 				case FILTER_OBJECT_TYPE_SCHEMA:

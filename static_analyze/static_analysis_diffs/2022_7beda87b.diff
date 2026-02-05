@@ -1,0 +1,120 @@
+commit 7beda87b6a4e5eae66f06df313581f7f53cab813
+Author: John Naylor <john.naylor@postgresql.org>
+Date:   Thu Sep 15 11:40:17 2022 +0700
+
+    Fix grammar in error message
+    
+    While at it, make ellipses formatting consistent when describing SQL statements.
+    
+    Ekaterina Kiryanova and Alexander Lakhin
+    
+    Reviewed by myself and Álvaro Herrera
+    Discussion: https://www.postgresql.org/message-id/eed5cec0-a542-53da-6a5e-7789c6ed9817%40postgrespro.ru
+    Backpatch only the grammar fix to v15
+
+diff --git a/src/backend/commands/subscriptioncmds.c b/src/backend/commands/subscriptioncmds.c
+index 1024d51dca8..27cc5f0e65a 100644
+--- a/src/backend/commands/subscriptioncmds.c
++++ b/src/backend/commands/subscriptioncmds.c
+@@ -1185,11 +1185,11 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
+ 					 */
+ 					if (sub->twophasestate == LOGICALREP_TWOPHASE_STATE_ENABLED && opts.copy_data)
+ 						ereport(ERROR,
+ 								(errcode(ERRCODE_SYNTAX_ERROR),
+ 								 errmsg("ALTER SUBSCRIPTION with refresh and copy_data is not allowed when two_phase is enabled"),
+-								 errhint("Use ALTER SUBSCRIPTION ...SET PUBLICATION with refresh = false, or with copy_data = false"
++								 errhint("Use ALTER SUBSCRIPTION ... SET PUBLICATION with refresh = false, or with copy_data = false"
+ 										 ", or use DROP/CREATE SUBSCRIPTION.")));
+ 
+ 					PreventInTransactionBlock(isTopLevel, "ALTER SUBSCRIPTION with refresh");
+ 
+ 					/* Make sure refresh sees the new list of publications. */
+@@ -1237,11 +1237,11 @@ AlterSubscription(ParseState *pstate, AlterSubscriptionStmt *stmt,
+ 					 */
+ 					if (sub->twophasestate == LOGICALREP_TWOPHASE_STATE_ENABLED && opts.copy_data)
+ 						ereport(ERROR,
+ 								(errcode(ERRCODE_SYNTAX_ERROR),
+ 								 errmsg("ALTER SUBSCRIPTION with refresh and copy_data is not allowed when two_phase is enabled"),
+-								 errhint("Use ALTER SUBSCRIPTION ...SET PUBLICATION with refresh = false, or with copy_data = false"
++								 errhint("Use ALTER SUBSCRIPTION ... SET PUBLICATION with refresh = false, or with copy_data = false"
+ 										 ", or use DROP/CREATE SUBSCRIPTION.")));
+ 
+ 					PreventInTransactionBlock(isTopLevel, "ALTER SUBSCRIPTION with refresh");
+ 
+ 					/* Refresh the new list of publications. */
+diff --git a/src/backend/postmaster/bgworker.c b/src/backend/postmaster/bgworker.c
+index 40601aefd97..8dd7d64630c 100644
+--- a/src/backend/postmaster/bgworker.c
++++ b/src/backend/postmaster/bgworker.c
+@@ -661,11 +661,11 @@ SanityCheckBackgroundWorker(BackgroundWorker *worker, int elevel)
+ 	 */
+ 	if (!(worker->bgw_flags & BGWORKER_SHMEM_ACCESS))
+ 	{
+ 		ereport(elevel,
+ 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+-				 errmsg("background worker \"%s\": background worker without shared memory access are not supported",
++				 errmsg("background worker \"%s\": background workers without shared memory access are not supported",
+ 						worker->bgw_name)));
+ 		return false;
+ 	}
+ 
+ 	if (worker->bgw_flags & BGWORKER_BACKEND_DATABASE_CONNECTION)
+diff --git a/src/backend/rewrite/rewriteHandler.c b/src/backend/rewrite/rewriteHandler.c
+index 29ae27e5e32..d02fd83c0ae 100644
+--- a/src/backend/rewrite/rewriteHandler.c
++++ b/src/backend/rewrite/rewriteHandler.c
+@@ -576,11 +576,11 @@ rewriteRuleAction(Query *parsetree,
+ 		 * original query.  For now, it doesn't seem worth the trouble.
+ 		 */
+ 		if (sub_action->hasModifyingCTE && rule_action != sub_action)
+ 			ereport(ERROR,
+ 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+-					 errmsg("INSERT...SELECT rule actions are not supported for queries having data-modifying statements in WITH")));
++					 errmsg("INSERT ... SELECT rule actions are not supported for queries having data-modifying statements in WITH")));
+ 	}
+ 
+ 	/*
+ 	 * Event Qualification forces copying of parsetree and splitting into two
+ 	 * queries one w/rule_qual, one w/NOT rule_qual. Also add user query qual
+diff --git a/src/test/regress/expected/with.out b/src/test/regress/expected/with.out
+index 30dd900e114..7f2e32d8b04 100644
+--- a/src/test/regress/expected/with.out
++++ b/src/test/regress/expected/with.out
+@@ -2513,18 +2513,18 @@ SELECT * FROM bug6051_2;
+  1
+  2
+  3
+ (3 rows)
+ 
+--- check INSERT...SELECT rule actions are disallowed on commands
++-- check INSERT ... SELECT rule actions are disallowed on commands
+ -- that have modifyingCTEs
+ CREATE OR REPLACE RULE bug6051_ins AS ON INSERT TO bug6051 DO INSTEAD
+  INSERT INTO bug6051_2
+  SELECT NEW.i;
+ WITH t1 AS ( DELETE FROM bug6051 RETURNING * )
+ INSERT INTO bug6051 SELECT * FROM t1;
+-ERROR:  INSERT...SELECT rule actions are not supported for queries having data-modifying statements in WITH
++ERROR:  INSERT ... SELECT rule actions are not supported for queries having data-modifying statements in WITH
+ -- silly example to verify that hasModifyingCTE flag is propagated
+ CREATE TEMP TABLE bug6051_3 AS
+   SELECT a FROM generate_series(11,13) AS a;
+ CREATE RULE bug6051_3_ins AS ON INSERT TO bug6051_3 DO INSTEAD
+   SELECT i FROM bug6051_2;
+diff --git a/src/test/regress/sql/with.sql b/src/test/regress/sql/with.sql
+index 5c52561a8aa..0f5730797fa 100644
+--- a/src/test/regress/sql/with.sql
++++ b/src/test/regress/sql/with.sql
+@@ -1167,11 +1167,11 @@ WITH t1 AS ( DELETE FROM bug6051 RETURNING * )
+ INSERT INTO bug6051 SELECT * FROM t1;
+ 
+ SELECT * FROM bug6051;
+ SELECT * FROM bug6051_2;
+ 
+--- check INSERT...SELECT rule actions are disallowed on commands
++-- check INSERT ... SELECT rule actions are disallowed on commands
+ -- that have modifyingCTEs
+ CREATE OR REPLACE RULE bug6051_ins AS ON INSERT TO bug6051 DO INSTEAD
+  INSERT INTO bug6051_2
+  SELECT NEW.i;
+ 

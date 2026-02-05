@@ -1,0 +1,78 @@
+commit d43bd090a8fee81fe88eb1e9e15e30d30ee130ed
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu Dec 7 14:27:54 2023 +0900
+
+    Improve some error messages with invalid indexes for REINDEX CONCURRENTLY
+    
+    An invalid index is skipped when doing REINDEX CONCURRENTLY at table
+    level, with INDEX_CORRUPTED used as errcode.  This is confusing,
+    because an invalid index could exist after an interruption.  The errcode
+    is switched to OBJECT_NOT_IN_PREREQUISITE_STATE instead, as per a
+    suggestion from Andres Freund.
+    
+    While on it, the error messages are reworded, and a hint is added,
+    telling how to rebuild an invalid index in this case.  This has been
+    suggested by Noah Misch.
+    
+    Discussion: https://postgr.es/m/20231118230958.4fm3fhk4ypshxopa@awork3.anarazel.de
+
+diff --git a/src/backend/commands/indexcmds.c b/src/backend/commands/indexcmds.c
+index 4ee498d9855..e56205abd8c 100644
+--- a/src/backend/commands/indexcmds.c
++++ b/src/backend/commands/indexcmds.c
+@@ -3524,14 +3524,15 @@ ReindexRelationConcurrently(const ReindexStmt *stmt, Oid relationOid, const Rein
+ 					Relation	indexRelation = index_open(cellOid,
+ 														   ShareUpdateExclusiveLock);
+ 
+ 					if (!indexRelation->rd_index->indisvalid)
+ 						ereport(WARNING,
+-								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+-								 errmsg("cannot reindex invalid index \"%s.%s\" concurrently, skipping",
++								(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
++								 errmsg("skipping reindex of invalid index \"%s.%s\"",
+ 										get_namespace_name(get_rel_namespace(cellOid)),
+-										get_rel_name(cellOid))));
++										get_rel_name(cellOid)),
++								 errhint("Use DROP INDEX or REINDEX INDEX.")));
+ 					else if (indexRelation->rd_index->indisexclusion)
+ 						ereport(WARNING,
+ 								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+ 								 errmsg("cannot reindex exclusion constraint index \"%s.%s\" concurrently, skipping",
+ 										get_namespace_name(get_rel_namespace(cellOid)),
+@@ -3576,14 +3577,15 @@ ReindexRelationConcurrently(const ReindexStmt *stmt, Oid relationOid, const Rein
+ 						Relation	indexRelation = index_open(cellOid,
+ 															   ShareUpdateExclusiveLock);
+ 
+ 						if (!indexRelation->rd_index->indisvalid)
+ 							ereport(WARNING,
+-									(errcode(ERRCODE_INDEX_CORRUPTED),
+-									 errmsg("cannot reindex invalid index \"%s.%s\" concurrently, skipping",
++									(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
++									 errmsg("skipping reindex of invalid index \"%s.%s\"",
+ 											get_namespace_name(get_rel_namespace(cellOid)),
+-											get_rel_name(cellOid))));
++											get_rel_name(cellOid)),
++									 errhint("Use DROP INDEX or REINDEX INDEX.")));
+ 						else
+ 						{
+ 							ReindexIndexInfo *idx;
+ 
+ 							/*
+diff --git a/src/test/regress/expected/create_index.out b/src/test/regress/expected/create_index.out
+index acfd9d1f4f7..446cfa678b7 100644
+--- a/src/test/regress/expected/create_index.out
++++ b/src/test/regress/expected/create_index.out
+@@ -2579,11 +2579,12 @@ Indexes:
+ DROP INDEX concur_reindex_ind5_ccnew;
+ -- This makes the previous failure go away, so the index can become valid.
+ DELETE FROM concur_reindex_tab4 WHERE c1 = 1;
+ -- The invalid index is not processed when running REINDEX TABLE.
+ REINDEX TABLE CONCURRENTLY concur_reindex_tab4;
+-WARNING:  cannot reindex invalid index "public.concur_reindex_ind5" concurrently, skipping
++WARNING:  skipping reindex of invalid index "public.concur_reindex_ind5"
++HINT:  Use DROP INDEX or REINDEX INDEX.
+ NOTICE:  table "concur_reindex_tab4" has no indexes that can be reindexed concurrently
+ \d concur_reindex_tab4
+         Table "public.concur_reindex_tab4"
+  Column |  Type   | Collation | Nullable | Default 
+ --------+---------+-----------+----------+---------

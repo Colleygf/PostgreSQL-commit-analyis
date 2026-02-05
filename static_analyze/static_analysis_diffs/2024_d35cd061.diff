@@ -1,0 +1,99 @@
+commit d35cd061998434747c0d1c0f6f2aa1f736f0edb4
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Tue Jul 2 09:16:36 2024 +0200
+
+    Fix overflow in parsing of positional parameter
+    
+    Replace atol with pg_strtoint32_safe in the backend parser and with
+    strtoint in ECPG to reject overflows when parsing the number of a
+    positional parameter.  With atol from glibc, parameters $2147483648 and
+    $4294967297 turn into $-2147483648 and $1, respectively.
+    
+    Author: Erik Wienhold <ewie@ewie.name>
+    Reviewed-by: Michael Paquier <michael@paquier.xyz>
+    Reviewed-by: Peter Eisentraut <peter@eisentraut.org>
+    Reviewed-by: Alexander Lakhin <exclusion@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/flat/5d216d1c-91f6-4cbe-95e2-b4cbd930520c@ewie.name
+
+diff --git a/src/backend/parser/scan.l b/src/backend/parser/scan.l
+index 3248fb51080..f74059e7b0b 100644
+--- a/src/backend/parser/scan.l
++++ b/src/backend/parser/scan.l
+@@ -990,12 +990,18 @@ other			.
+ 					yylval->str = pstrdup(yytext);
+ 					return Op;
+ 				}
+ 
+ {param}			{
++					ErrorSaveContext escontext = {T_ErrorSaveContext};
++					int32		val;
++
+ 					SET_YYLLOC();
+-					yylval->ival = atol(yytext + 1);
++					val = pg_strtoint32_safe(yytext + 1, (Node *) &escontext);
++					if (escontext.error_occurred)
++						yyerror("parameter number too large");
++					yylval->ival = val;
+ 					return PARAM;
+ 				}
+ {param_junk}	{
+ 					SET_YYLLOC();
+ 					yyerror("trailing junk after parameter");
+diff --git a/src/interfaces/ecpg/preproc/pgc.l b/src/interfaces/ecpg/preproc/pgc.l
+index f9d68a96e79..27261f42d8d 100644
+--- a/src/interfaces/ecpg/preproc/pgc.l
++++ b/src/interfaces/ecpg/preproc/pgc.l
+@@ -936,11 +936,17 @@ cppline			{space}*#([^i][A-Za-z]*|{if}|{ifdef}|{ifndef}|{import})((\/\*[^*/]*\*+
+ 					base_yylval.str = mm_strdup(yytext);
+ 					return Op;
+ 				}
+ 
+ {param}			{
+-					base_yylval.ival = atol(yytext+1);
++					int			val;
++
++					errno = 0;
++					val = strtoint(yytext + 1, NULL, 10);
++					if (errno == ERANGE)
++						mmfatal(PARSE_ERROR, "parameter number too large");
++					base_yylval.ival = val;
+ 					return PARAM;
+ 				}
+ {param_junk}	{
+ 					mmfatal(PARSE_ERROR, "trailing junk after parameter");
+ 				}
+diff --git a/src/test/regress/expected/numerology.out b/src/test/regress/expected/numerology.out
+index 8d4a3ba228a..717a237df98 100644
+--- a/src/test/regress/expected/numerology.out
++++ b/src/test/regress/expected/numerology.out
+@@ -204,10 +204,14 @@ LINE 1: SELECT 0.0e+a;
+                ^
+ PREPARE p1 AS SELECT $1a;
+ ERROR:  trailing junk after parameter at or near "$1a"
+ LINE 1: PREPARE p1 AS SELECT $1a;
+                              ^
++PREPARE p1 AS SELECT $2147483648;
++ERROR:  parameter number too large at or near "$2147483648"
++LINE 1: PREPARE p1 AS SELECT $2147483648;
++                             ^
+ SELECT 0b;
+ ERROR:  invalid binary integer at or near "0b"
+ LINE 1: SELECT 0b;
+                ^
+ SELECT 1b;
+diff --git a/src/test/regress/sql/numerology.sql b/src/test/regress/sql/numerology.sql
+index 372e7bf9bc8..3ae491cc980 100644
+--- a/src/test/regress/sql/numerology.sql
++++ b/src/test/regress/sql/numerology.sql
+@@ -50,10 +50,11 @@ SELECT 0.0a;
+ SELECT .0a;
+ SELECT 0.0e1a;
+ SELECT 0.0e;
+ SELECT 0.0e+a;
+ PREPARE p1 AS SELECT $1a;
++PREPARE p1 AS SELECT $2147483648;
+ 
+ SELECT 0b;
+ SELECT 1b;
+ SELECT 0b0x;
+ 

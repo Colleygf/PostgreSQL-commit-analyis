@@ -1,0 +1,137 @@
+commit d3111cb753e81a64c1a4417ed6de98a90a04432a
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Wed Oct 29 09:13:31 2025 +0900
+
+    Fix correctness issue with computation of FPI size in WAL stats
+    
+    XLogRecordAssemble() may be called multiple times before inserting a
+    record in XLogInsertRecord(), and the amount of FPIs generated inside
+    a record whose insertion is attempted multiple times may vary.
+    
+    The logic added in f9a09aa29520 touched directly pgWalUsage in
+    XLogRecordAssemble(), meaning that it could be possible for pgWalUsage
+    to be incremented multiple times for a single record.  This commit
+    changes the code to use the same logic as the number of FPIs added to a
+    record, where XLogRecordAssemble() returns this information and feeds it
+    to XLogInsertRecord(), updating pgWalUsage only when a record is
+    inserted.
+    
+    Reported-by: Shinya Kato <shinya11.kato@gmail.com>
+    Discussion: https://postgr.es/m/CAOzEurSiSr+rusd0GzVy8Bt30QwLTK=ugVMnF6=5WhsSrukvvw@mail.gmail.com
+
+diff --git a/src/backend/access/transam/xlog.c b/src/backend/access/transam/xlog.c
+index eceab341255..fd91bcd68ec 100644
+--- a/src/backend/access/transam/xlog.c
++++ b/src/backend/access/transam/xlog.c
+@@ -747,10 +747,11 @@ static void WALInsertLockUpdateInsertingAt(XLogRecPtr insertingAt);
+ XLogRecPtr
+ XLogInsertRecord(XLogRecData *rdata,
+ 				 XLogRecPtr fpw_lsn,
+ 				 uint8 flags,
+ 				 int num_fpi,
++				 uint64 fpi_bytes,
+ 				 bool topxid_included)
+ {
+ 	XLogCtlInsert *Insert = &XLogCtl->Insert;
+ 	pg_crc32c	rdata_crc;
+ 	bool		inserted;
+@@ -1079,10 +1080,11 @@ XLogInsertRecord(XLogRecData *rdata,
+ 	if (inserted)
+ 	{
+ 		pgWalUsage.wal_bytes += rechdr->xl_tot_len;
+ 		pgWalUsage.wal_records++;
+ 		pgWalUsage.wal_fpi += num_fpi;
++		pgWalUsage.wal_fpi_bytes += fpi_bytes;
+ 
+ 		/* Required for the flush of pending stats WAL data */
+ 		pgstat_report_fixed = true;
+ 	}
+ 
+diff --git a/src/backend/access/transam/xloginsert.c b/src/backend/access/transam/xloginsert.c
+index b3abf386f80..58cb4b1b00c 100644
+--- a/src/backend/access/transam/xloginsert.c
++++ b/src/backend/access/transam/xloginsert.c
+@@ -137,10 +137,11 @@ static bool begininsert_called = false;
+ static MemoryContext xloginsert_cxt;
+ 
+ static XLogRecData *XLogRecordAssemble(RmgrId rmid, uint8 info,
+ 									   XLogRecPtr RedoRecPtr, bool doPageWrites,
+ 									   XLogRecPtr *fpw_lsn, int *num_fpi,
++									   uint64 *fpi_bytes,
+ 									   bool *topxid_included);
+ static bool XLogCompressBackupBlock(const PageData *page, uint16 hole_offset,
+ 									uint16 hole_length, void *dest, uint16 *dlen);
+ 
+ /*
+@@ -510,23 +511,25 @@ XLogInsert(RmgrId rmid, uint8 info)
+ 		bool		doPageWrites;
+ 		bool		topxid_included = false;
+ 		XLogRecPtr	fpw_lsn;
+ 		XLogRecData *rdt;
+ 		int			num_fpi = 0;
++		uint64		fpi_bytes = 0;
+ 
+ 		/*
+ 		 * Get values needed to decide whether to do full-page writes. Since
+ 		 * we don't yet have an insertion lock, these could change under us,
+ 		 * but XLogInsertRecord will recheck them once it has a lock.
+ 		 */
+ 		GetFullPageWriteInfo(&RedoRecPtr, &doPageWrites);
+ 
+ 		rdt = XLogRecordAssemble(rmid, info, RedoRecPtr, doPageWrites,
+-								 &fpw_lsn, &num_fpi, &topxid_included);
++								 &fpw_lsn, &num_fpi, &fpi_bytes,
++								 &topxid_included);
+ 
+ 		EndPos = XLogInsertRecord(rdt, fpw_lsn, curinsert_flags, num_fpi,
+-								  topxid_included);
++								  fpi_bytes, topxid_included);
+ 	} while (EndPos == InvalidXLogRecPtr);
+ 
+ 	XLogResetInsertion();
+ 
+ 	return EndPos;
+@@ -560,11 +563,12 @@ XLogSimpleInsertInt64(RmgrId rmid, uint8 info, int64 value)
+  * current subtransaction.
+  */
+ static XLogRecData *
+ XLogRecordAssemble(RmgrId rmid, uint8 info,
+ 				   XLogRecPtr RedoRecPtr, bool doPageWrites,
+-				   XLogRecPtr *fpw_lsn, int *num_fpi, bool *topxid_included)
++				   XLogRecPtr *fpw_lsn, int *num_fpi, uint64 *fpi_bytes,
++				   bool *topxid_included)
+ {
+ 	XLogRecData *rdt;
+ 	uint64		total_len = 0;
+ 	int			block_id;
+ 	pg_crc32c	rdata_crc;
+@@ -798,12 +802,11 @@ XLogRecordAssemble(RmgrId rmid, uint8 info,
+ 			}
+ 
+ 			total_len += bimg.length;
+ 
+ 			/* Track the WAL full page images in bytes */
+-			pgWalUsage.wal_fpi_bytes += bimg.length;
+-			pgstat_report_fixed = true;
++			*fpi_bytes += bimg.length;
+ 		}
+ 
+ 		if (needs_data)
+ 		{
+ 			/*
+diff --git a/src/include/access/xlog.h b/src/include/access/xlog.h
+index d12798be3d8..a12757e46e5 100644
+--- a/src/include/access/xlog.h
++++ b/src/include/access/xlog.h
+@@ -200,10 +200,11 @@ struct XLogReaderState;
+ 
+ extern XLogRecPtr XLogInsertRecord(struct XLogRecData *rdata,
+ 								   XLogRecPtr fpw_lsn,
+ 								   uint8 flags,
+ 								   int num_fpi,
++								   uint64 fpi_bytes,
+ 								   bool topxid_included);
+ extern void XLogFlush(XLogRecPtr record);
+ extern bool XLogBackgroundFlush(void);
+ extern bool XLogNeedsFlush(XLogRecPtr record);
+ extern int	XLogFileInit(XLogSegNo logsegno, TimeLineID logtli);

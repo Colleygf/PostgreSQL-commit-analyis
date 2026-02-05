@@ -1,0 +1,71 @@
+commit ac0e2d387a044faed310cbfe2fae78ecb0f6a4b6
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Thu Jun 23 09:23:46 2022 +0530
+
+    Fix memory leak due to LogicalRepRelMapEntry.attrmap.
+    
+    When rebuilding the relation mapping on subscribers, we were not releasing
+    the attribute mapping's memory which was no longer required.
+    
+    The attribute mapping used in logical tuple conversion was refactored in
+    PG13 (by commit e1551f96e6) but we forgot to update the related code that
+    frees the attribute map.
+    
+    Author: Hou Zhijie
+    Reviewed-by: Amit Langote, Amit Kapila, Shi yu
+    Backpatch-through: 10, where it was introduced
+    Discussion: https://postgr.es/m/OSZPR01MB6310F46CD425A967E4AEF736FDA49@OSZPR01MB6310.jpnprd01.prod.outlook.com
+
+diff --git a/src/backend/replication/logical/relation.c b/src/backend/replication/logical/relation.c
+index 46475f32482..e989047681d 100644
+--- a/src/backend/replication/logical/relation.c
++++ b/src/backend/replication/logical/relation.c
+@@ -142,11 +142,11 @@ logicalrep_relmap_free_entry(LogicalRepRelMapEntry *entry)
+ 		pfree(remoterel->atttyps);
+ 	}
+ 	bms_free(remoterel->attkeys);
+ 
+ 	if (entry->attrmap)
+-		pfree(entry->attrmap);
++		free_attrmap(entry->attrmap);
+ }
+ 
+ /*
+  * Add new entry or update existing entry in the relation map cache.
+  *
+@@ -371,10 +371,17 @@ logicalrep_rel_open(LogicalRepRelId remoteid, LOCKMODE lockmode)
+ 		TupleDesc	desc;
+ 		MemoryContext oldctx;
+ 		int			i;
+ 		Bitmapset  *missingatts;
+ 
++		/* Release the no-longer-useful attrmap, if any. */
++		if (entry->attrmap)
++		{
++			free_attrmap(entry->attrmap);
++			entry->attrmap = NULL;
++		}
++
+ 		/* Try to find and lock the relation by name. */
+ 		relid = RangeVarGetRelid(makeRangeVar(remoterel->nspname,
+ 											  remoterel->relname, -1),
+ 								 lockmode, true);
+ 		if (!OidIsValid(relid))
+@@ -618,10 +625,17 @@ logicalrep_partition_open(LogicalRepRelMapEntry *root,
+ 	{
+ 		memset(part_entry, 0, sizeof(LogicalRepPartMapEntry));
+ 		part_entry->partoid = partOid;
+ 	}
+ 
++	/* Release the no-longer-useful attrmap, if any. */
++	if (entry->attrmap)
++	{
++		free_attrmap(entry->attrmap);
++		entry->attrmap = NULL;
++	}
++
+ 	if (!entry->remoterel.remoteid)
+ 	{
+ 		int			i;
+ 
+ 		/* Remote relation is copied as-is from the root entry. */

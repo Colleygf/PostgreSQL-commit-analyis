@@ -1,0 +1,113 @@
+commit cbe04e5d729f292bcf9b06f5d774884b4511b18a
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Tue Dec 2 21:11:15 2025 +0200
+
+    Fix amcheck's handling of half-dead B-tree pages
+    
+    amcheck incorrectly reported the following error if there were any
+    half-dead pages in the index:
+    
+    ERROR:  mismatch between parent key and child high key in index
+    "amchecktest_id_idx"
+    
+    It's expected that a half-dead page does not have a downlink in the
+    parent level, so skip the test.
+    
+    Reported-by: Konstantin Knizhnik <knizhnik@garret.ru>
+    Reviewed-by: Peter Geoghegan <pg@bowt.ie>
+    Reviewed-by: Mihail Nikalayeu <mihailnikalayeu@gmail.com>
+    Discussion: https://www.postgresql.org/message-id/33e39552-6a2a-46f3-8b34-3f9f8004451f@garret.ru
+    Backpatch-through: 14
+
+diff --git a/contrib/amcheck/verify_nbtree.c b/contrib/amcheck/verify_nbtree.c
+index f26c20b59aa..75751e2a1e9 100644
+--- a/contrib/amcheck/verify_nbtree.c
++++ b/contrib/amcheck/verify_nbtree.c
+@@ -2266,11 +2266,11 @@ bt_child_highkey_check(BtreeCheckState *state,
+ 
+ 		/*
+ 		 * If we visit page with high key, check that it is equal to the
+ 		 * target key next to corresponding downlink.
+ 		 */
+-		if (!rightsplit && !P_RIGHTMOST(opaque))
++		if (!rightsplit && !P_RIGHTMOST(opaque) && !P_ISHALFDEAD(opaque))
+ 		{
+ 			BTPageOpaque topaque;
+ 			IndexTuple	highkey;
+ 			OffsetNumber pivotkey_offset;
+ 
+diff --git a/src/test/modules/nbtree/expected/nbtree_half_dead_pages.out b/src/test/modules/nbtree/expected/nbtree_half_dead_pages.out
+index 8fd472f8df2..e94f016696d 100644
+--- a/src/test/modules/nbtree/expected/nbtree_half_dead_pages.out
++++ b/src/test/modules/nbtree/expected/nbtree_half_dead_pages.out
+@@ -9,10 +9,11 @@
+ -- targeted tests to exercise them.
+ --
+ -- This uses injection points to interrupt some page deletions
+ set client_min_messages TO 'warning';
+ create extension if not exists injection_points;
++create extension if not exists amcheck;
+ reset client_min_messages;
+ -- Make all injection points local to this process, for concurrency.
+ SELECT injection_points_set_local();
+  injection_points_set_local 
+ ----------------------------
+@@ -55,10 +56,17 @@ select * from nbtree_half_dead_pages where id > 99998 and id < 120002;
+  100000
+  120000
+  120001
+ (4 rows)
+ 
++-- Also check the index with amcheck
++select bt_index_parent_check('nbtree_half_dead_pages_id_idx'::regclass, true, true);
++ bt_index_parent_check 
++-----------------------
++ 
++(1 row)
++
+ -- Finish the deletion and re-check
+ vacuum nbtree_half_dead_pages;
+ NOTICE:  notice triggered for injection point nbtree-finish-half-dead-page-vacuum
+ select * from nbtree_half_dead_pages where id > 99998 and id < 120002;
+    id   
+@@ -67,5 +75,11 @@ select * from nbtree_half_dead_pages where id > 99998 and id < 120002;
+  100000
+  120000
+  120001
+ (4 rows)
+ 
++select bt_index_parent_check('nbtree_half_dead_pages_id_idx'::regclass, true, true);
++ bt_index_parent_check 
++-----------------------
++ 
++(1 row)
++
+diff --git a/src/test/modules/nbtree/sql/nbtree_half_dead_pages.sql b/src/test/modules/nbtree/sql/nbtree_half_dead_pages.sql
+index d4b9a3f824d..fd279b87e0e 100644
+--- a/src/test/modules/nbtree/sql/nbtree_half_dead_pages.sql
++++ b/src/test/modules/nbtree/sql/nbtree_half_dead_pages.sql
+@@ -10,10 +10,11 @@
+ --
+ 
+ -- This uses injection points to interrupt some page deletions
+ set client_min_messages TO 'warning';
+ create extension if not exists injection_points;
++create extension if not exists amcheck;
+ reset client_min_messages;
+ 
+ -- Make all injection points local to this process, for concurrency.
+ SELECT injection_points_set_local();
+ 
+@@ -36,8 +37,12 @@ SELECT injection_points_attach('nbtree-leave-page-half-dead', 'error');
+ vacuum nbtree_half_dead_pages;
+ SELECT injection_points_detach('nbtree-leave-page-half-dead');
+ 
+ select * from nbtree_half_dead_pages where id > 99998 and id < 120002;
+ 
++-- Also check the index with amcheck
++select bt_index_parent_check('nbtree_half_dead_pages_id_idx'::regclass, true, true);
++
+ -- Finish the deletion and re-check
+ vacuum nbtree_half_dead_pages;
+ select * from nbtree_half_dead_pages where id > 99998 and id < 120002;
++select bt_index_parent_check('nbtree_half_dead_pages_id_idx'::regclass, true, true);

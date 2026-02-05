@@ -1,0 +1,88 @@
+commit a6285b150ad308fbba3ca832fccd199ba38fac60
+Author: Andres Freund <andres@anarazel.de>
+Date:   Wed Apr 2 07:57:11 2025 -0400
+
+    tests: Fix incompatibility of test_aio with *_FORCE_RELEASE
+    
+    The test added in 93bc3d75d8e failed in a build with RELCACHE_FORCE_RELEASE
+    and CATCACHE_FORCE_RELEASE defined. The test intentionally forgets to exit
+    batchmode - normally that would trigger an error at the end of the
+    transaction, which the test verifies.  However, with RELCACHE_FORCE_RELEASE
+    and CATCACHE_FORCE_RELEASE defined, we get other code (output function lookup)
+    entering batchmode and erroring out because batchmode isn't allowed to be
+    entered recursively.
+    
+    Fix that by changing the queries in question to not output any rows. That's
+    not exactly pretty, but seems to avoid the problem reliably.
+    
+    Eventually we might want to make RELCACHE_FORCE_RELEASE and
+    CATCACHE_FORCE_RELEASE GUCs, so we can disable them where necessary - this
+    isn't the first test having difficulty with those debug options. But that's
+    for later.
+    
+    Per buildfarm member prion.
+    
+    Discussion: https://postgr.es/m/uc62i6vi5gd4bi6wtjj5poadqxolgy55e7ihkmf3mthjegb6zl@zqo7xez7sc2r
+
+diff --git a/src/test/modules/test_aio/t/001_aio.pl b/src/test/modules/test_aio/t/001_aio.pl
+index ff5f2219d0a..c136d8ee8f5 100644
+--- a/src/test/modules/test_aio/t/001_aio.pl
++++ b/src/test/modules/test_aio/t/001_aio.pl
+@@ -323,26 +323,32 @@ sub test_batchmode
+ 	my $io_method = shift;
+ 	my $node = shift;
+ 
+ 	my $psql = $node->background_psql('postgres', on_error_stop => 0);
+ 
++	# In a build with RELCACHE_FORCE_RELEASE and CATCACHE_FORCE_RELEASE, just
++	# using SELECT batch_start() causes spurious test failures, because the
++	# lookup of the type information when printing the result tuple also
++	# starts a batch. The easiest way around is to not print a result tuple.
++	my $batch_start_sql = qq(SELECT WHERE batch_start() IS NULL);
++
+ 	# leak warning & recovery: implicit xact
+ 	psql_like(
+ 		$io_method,
+ 		$psql,
+ 		"batch_start() leak & cleanup in implicit xact",
+-		qq(SELECT batch_start()),
++		$batch_start_sql,
+ 		qr/^$/,
+ 		qr/open AIO batch at end/,
+ 		"$io_method: leaky batch_start() warns");
+ 
+ 	# leak warning & recovery: explicit xact
+ 	psql_like(
+ 		$io_method,
+ 		$psql,
+ 		"batch_start() leak & cleanup in explicit xact",
+-		qq(BEGIN; SELECT batch_start(); COMMIT;),
++		qq(BEGIN; $batch_start_sql; COMMIT;),
+ 		qr/^$/,
+ 		qr/open AIO batch at end/,
+ 		"$io_method: leaky batch_start() warns");
+ 
+ 
+@@ -351,20 +357,20 @@ sub test_batchmode
+ 	# XXX: This doesn't fail right now, due to not getting a chance to do
+ 	# something at transaction command commit. That's not a correctness issue,
+ 	# it just means it's a bit harder to find buggy code.
+ 	#psql_like($io_method, $psql,
+ 	#		  "batch_start() leak & cleanup after abort",
+-	#		  qq(BEGIN; SELECT batch_start(); ROLLBACK;),
++	#		  qq(BEGIN; $batch_start_sql; ROLLBACK;),
+ 	#		  qr/^$/,
+ 	#		  qr/open AIO batch at end/, "$io_method: leaky batch_start() warns");
+ 
+ 	# no warning, batch closed in same command
+ 	psql_like(
+ 		$io_method,
+ 		$psql,
+ 		"batch_start(), batch_end() works",
+-		qq(SELECT batch_start() UNION ALL SELECT batch_end()),
++		qq($batch_start_sql UNION ALL SELECT WHERE batch_end() IS NULL),
+ 		qr/^$/,
+ 		qr/^$/,
+ 		"$io_method: batch_start(), batch_end()");
+ 
+ 	$psql->quit();

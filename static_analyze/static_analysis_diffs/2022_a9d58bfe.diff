@@ -1,0 +1,81 @@
+commit a9d58bfe8a3ae2254e1553ab76974feeaafa0133
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Sat Oct 1 12:48:24 2022 +0200
+
+    Fix tiny memory leaks
+    
+    Both check_application_name() and check_cluster_name() use
+    pg_clean_ascii() but didn't release the memory.  Depending on when the
+    GUC is set, this might be cleaned up at some later time or it would
+    leak postmaster memory once.  In any case, it seems better not to have
+    to rely on such analysis and make the code locally robust.  Also, this
+    makes Valgrind happier.
+    
+    Author: Masahiko Sawada <sawada.mshk@gmail.com>
+    Reviewed-by: Jacob Champion <jchampion@timescale.com>
+    Discussion: https://www.postgresql.org/message-id/CAD21AoBmFNy9MPfA0UUbMubQqH3AaK5U3mrv6pSeWrwCk3LJ8g@mail.gmail.com
+
+diff --git a/src/backend/commands/variable.c b/src/backend/commands/variable.c
+index c795cb7a29c..e555fb31501 100644
+--- a/src/backend/commands/variable.c
++++ b/src/backend/commands/variable.c
+@@ -1023,21 +1023,26 @@ check_canonical_path(char **newval, void **extra, GucSource source)
+  */
+ bool
+ check_application_name(char **newval, void **extra, GucSource source)
+ {
+ 	char	   *clean;
++	char	   *ret;
+ 
+ 	/* Only allow clean ASCII chars in the application name */
+ 	clean = pg_clean_ascii(*newval, MCXT_ALLOC_NO_OOM);
+ 	if (!clean)
+ 		return false;
+ 
+-	clean = guc_strdup(WARNING, clean);
+-	if (!clean)
++	ret = guc_strdup(WARNING, clean);
++	if (!ret)
++	{
++		pfree(clean);
+ 		return false;
++	}
+ 
+-	*newval = clean;
++	pfree(clean);
++	*newval = ret;
+ 	return true;
+ }
+ 
+ /*
+  * GUC assign_hook for application_name
+@@ -1054,21 +1059,26 @@ assign_application_name(const char *newval, void *extra)
+  */
+ bool
+ check_cluster_name(char **newval, void **extra, GucSource source)
+ {
+ 	char	   *clean;
++	char	   *ret;
+ 
+ 	/* Only allow clean ASCII chars in the cluster name */
+ 	clean = pg_clean_ascii(*newval, MCXT_ALLOC_NO_OOM);
+ 	if (!clean)
+ 		return false;
+ 
+-	clean = guc_strdup(WARNING, clean);
+-	if (!clean)
++	ret = guc_strdup(WARNING, clean);
++	if (!ret)
++	{
++		pfree(clean);
+ 		return false;
++	}
+ 
+-	*newval = clean;
++	pfree(clean);
++	*newval = ret;
+ 	return true;
+ }
+ 
+ /*
+  * GUC assign_hook for maintenance_io_concurrency

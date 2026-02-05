@@ -1,0 +1,81 @@
+commit fce2ce797c412df8b794b8a92c5a586db5e1bedc
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Mon Mar 4 12:00:39 2024 -0500
+
+    Fix initdb's -c option to treat the GUC name case-insensitively.
+    
+    The backend treats GUC names case-insensitively, so this code should
+    too.  This avoids ending up with a confusing set of redundant entries
+    in the generated postgresql.conf file.
+    
+    Per report from Kyotaro Horiguchi.  Back-patch to v16 where this
+    feature was added (in commit 3e51b278d).
+    
+    Discussion: https://postgr.es/m/20230928.164904.2153358973162534034.horikyota.ntt@gmail.com
+
+diff --git a/src/bin/initdb/initdb.c b/src/bin/initdb/initdb.c
+index ac409b00064..200b2e8e317 100644
+--- a/src/bin/initdb/initdb.c
++++ b/src/bin/initdb/initdb.c
+@@ -482,29 +482,34 @@ replace_guc_value(char **lines, const char *guc_name, const char *guc_value,
+ 		appendPQExpBufferStr(newline, guc_value);
+ 
+ 	for (i = 0; lines[i]; i++)
+ 	{
+ 		const char *where;
++		const char *namestart;
+ 
+ 		/*
+ 		 * Look for a line assigning to guc_name.  Typically it will be
+ 		 * preceded by '#', but that might not be the case if a -c switch
+ 		 * overrides a previous assignment.  We allow leading whitespace too,
+ 		 * although normally there wouldn't be any.
+ 		 */
+ 		where = lines[i];
+ 		while (*where == '#' || isspace((unsigned char) *where))
+ 			where++;
+-		if (strncmp(where, guc_name, namelen) != 0)
++		if (pg_strncasecmp(where, guc_name, namelen) != 0)
+ 			continue;
++		namestart = where;
+ 		where += namelen;
+ 		while (isspace((unsigned char) *where))
+ 			where++;
+ 		if (*where != '=')
+ 			continue;
+ 
+-		/* found it -- append the original comment if any */
++		/* found it -- let's use the canonical casing shown in the file */
++		memcpy(&newline->data[mark_as_comment ? 1 : 0], namestart, namelen);
++
++		/* now append the original comment if any */
+ 		where = strrchr(where, '#');
+ 		if (where)
+ 		{
+ 			/*
+ 			 * We try to preserve original indentation, which is tedious.
+diff --git a/src/bin/initdb/t/001_initdb.pl b/src/bin/initdb/t/001_initdb.pl
+index 03376cc0f7a..594b20cc743 100644
+--- a/src/bin/initdb/t/001_initdb.pl
++++ b/src/bin/initdb/t/001_initdb.pl
+@@ -197,6 +197,20 @@ command_fails(
+ 	'fails for invalid option combination');
+ 
+ command_fails([ 'initdb', '--no-sync', '--set', 'foo=bar', "$tempdir/dataX" ],
+ 	'fails for invalid --set option');
+ 
++# Make sure multiple invocations of -c parameters are added case insensitive
++command_ok(
++	[
++		'initdb', '-cwork_mem=128',
++		'-cWork_Mem=256', '-cWORK_MEM=512',
++		"$tempdir/dataY"
++	],
++	'multiple -c options with different case');
++
++my $conf = slurp_file("$tempdir/dataY/postgresql.conf");
++ok($conf !~ qr/^WORK_MEM = /m, "WORK_MEM should not be configured");
++ok($conf !~ qr/^Work_Mem = /m, "Work_Mem should not be configured");
++ok($conf =~ qr/^work_mem = 512/m, "work_mem should be in config");
++
+ done_testing();

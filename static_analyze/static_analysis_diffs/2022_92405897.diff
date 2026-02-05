@@ -1,0 +1,63 @@
+commit 9240589798e02705dbe3e86549d064988c0f47d2
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Fri Mar 4 13:23:58 2022 -0500
+
+    Fix pg_regress to print the correct postmaster address on Windows.
+    
+    pg_regress reported "Unix socket" as the default location whenever
+    HAVE_UNIX_SOCKETS is defined.  However, that's not been accurate
+    on Windows since 8f3ec75de.  Update this logic to match what libpq
+    actually does now.
+    
+    This is just cosmetic, but still it's potentially misleading.
+    Back-patch to v13 where 8f3ec75de came in.
+    
+    Discussion: https://postgr.es/m/3894060.1646415641@sss.pgh.pa.us
+
+diff --git a/src/interfaces/libpq/fe-connect.c b/src/interfaces/libpq/fe-connect.c
+index 1c5a2b43e99..cf554d389fa 100644
+--- a/src/interfaces/libpq/fe-connect.c
++++ b/src/interfaces/libpq/fe-connect.c
+@@ -1113,10 +1113,15 @@ connectOptions2(PGconn *conn)
+ 		}
+ 		else
+ 		{
+ 			if (ch->host)
+ 				free(ch->host);
++
++			/*
++			 * This bit selects the default host location.  If you change
++			 * this, see also pg_regress.
++			 */
+ #ifdef HAVE_UNIX_SOCKETS
+ 			if (DEFAULT_PGSOCKET_DIR[0])
+ 			{
+ 				ch->host = strdup(DEFAULT_PGSOCKET_DIR);
+ 				ch->type = CHT_UNIX_SOCKET;
+diff --git a/src/test/regress/pg_regress.c b/src/test/regress/pg_regress.c
+index db8427dd9b5..982801e029d 100644
+--- a/src/test/regress/pg_regress.c
++++ b/src/test/regress/pg_regress.c
+@@ -744,14 +744,20 @@ initialize_environment(void)
+ 		/*
+ 		 * Report what we're connecting to
+ 		 */
+ 		pghost = getenv("PGHOST");
+ 		pgport = getenv("PGPORT");
+-#ifndef HAVE_UNIX_SOCKETS
+ 		if (!pghost)
+-			pghost = "localhost";
++		{
++			/* Keep this bit in sync with libpq's default host location: */
++#ifdef HAVE_UNIX_SOCKETS
++			if (DEFAULT_PGSOCKET_DIR[0])
++				 /* do nothing, we'll print "Unix socket" below */ ;
++			else
+ #endif
++				pghost = "localhost";	/* DefaultHost in fe-connect.c */
++		}
+ 
+ 		if (pghost && pgport)
+ 			printf(_("(using postmaster on %s, port %s)\n"), pghost, pgport);
+ 		if (pghost && !pgport)
+ 			printf(_("(using postmaster on %s, default port)\n"), pghost);

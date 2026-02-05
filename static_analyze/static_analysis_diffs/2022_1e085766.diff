@@ -1,0 +1,50 @@
+commit 1e08576691bf1a25c0e28745e5e800c44f2a1c76
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Fri Sep 16 11:10:41 2022 +0200
+
+    Fix createdb tests for C locale
+    
+    If the createdb tests run under the C locale, the database cluster
+    will be initialized with encoding SQL_ASCII.  With the checks added in
+    c7db01e325a530ec38ec7ba57cd3ed32e123e33c, this will cause several
+    ICU-related tests to fail because SQL_ASCII is not supported by ICU.
+    To work around that, use initdb option -E UTF8 for those tests to get
+    past that check.
+
+diff --git a/src/bin/scripts/t/020_createdb.pl b/src/bin/scripts/t/020_createdb.pl
+index e95f200d0b9..b87d8fc63b5 100644
+--- a/src/bin/scripts/t/020_createdb.pl
++++ b/src/bin/scripts/t/020_createdb.pl
+@@ -29,25 +29,29 @@ if ($ENV{with_icu} eq 'yes')
+ {
+ 	# This fails because template0 uses libc provider and has no ICU
+ 	# locale set.  It would succeed if template0 used the icu
+ 	# provider.  XXX Maybe split into multiple tests?
+ 	$node->command_fails(
+-		[ 'createdb', '-T', 'template0', '--locale-provider=icu', 'foobar4' ],
++		[
++			'createdb', '-T', 'template0', '-E', 'UTF8',
++			'--locale-provider=icu', 'foobar4'
++		],
+ 		'create database with ICU fails without ICU locale specified');
+ 
+ 	$node->issues_sql_like(
+ 		[
+ 			'createdb',        '-T',
+-			'template0',       '--locale-provider=icu',
++			'template0',       '-E', 'UTF8', '--locale-provider=icu',
+ 			'--icu-locale=en', 'foobar5'
+ 		],
+ 		qr/statement: CREATE DATABASE foobar5 .* LOCALE_PROVIDER icu ICU_LOCALE 'en'/,
+ 		'create database with ICU locale specified');
+ 
+ 	$node->command_fails(
+ 		[
+-			'createdb', '-T', 'template0', '--locale-provider=icu',
++			'createdb', '-T', 'template0', '-E', 'UTF8',
++			'--locale-provider=icu',
+ 			'--icu-locale=@colNumeric=lower', 'foobarX'
+ 		],
+ 		'fails for invalid ICU locale');
+ 
+ 	$node->command_fails_like(

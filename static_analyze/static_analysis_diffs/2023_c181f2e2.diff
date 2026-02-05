@@ -1,0 +1,59 @@
+commit c181f2e2bcecc2704c6461a0543894a38d7143df
+Author: Heikki Linnakangas <heikki.linnakangas@iki.fi>
+Date:   Sat Sep 30 17:03:50 2023 +0300
+
+    Fix briefly showing old progress stats for ANALYZE on inherited tables.
+    
+    ANALYZE on a table with inheritance children analyzes all the child
+    tables in a loop. When stepping to next child table, it updated the
+    child rel ID value in the command progress stats, but did not reset
+    the 'sample_blks_total' and 'sample_blks_scanned' counters.
+    acquire_sample_rows() updates 'sample_blks_total' as soon as the scan
+    starts and 'sample_blks_scanned' after processing the first block, but
+    until then, pg_stat_progress_analyze would display a bogus combination
+    of the new child table relid with old counter values from the
+    previously processed child table. Fix by resetting 'sample_blks_total'
+    and 'sample_blks_scanned' to zero at the same time that
+    'current_child_table_relid' is updated.
+    
+    Backpatch to v13, where pg_stat_progress_analyze view was introduced.
+    
+    Reported-by: Justin Pryzby
+    Discussion: https://www.postgresql.org/message-id/20230122162345.GP13860%40telsasoft.com
+
+diff --git a/src/backend/commands/analyze.c b/src/backend/commands/analyze.c
+index bfd981aa3f3..206d1689ef9 100644
+--- a/src/backend/commands/analyze.c
++++ b/src/backend/commands/analyze.c
+@@ -1529,12 +1529,29 @@ acquire_inherited_sample_rows(Relation onerel, int elevel,
+ 	{
+ 		Relation	childrel = rels[i];
+ 		AcquireSampleRowsFunc acquirefunc = acquirefuncs[i];
+ 		double		childblocks = relblocks[i];
+ 
+-		pgstat_progress_update_param(PROGRESS_ANALYZE_CURRENT_CHILD_TABLE_RELID,
+-									 RelationGetRelid(childrel));
++		/*
++		 * Report progress.  The sampling function will normally report blocks
++		 * done/total, but we need to reset them to 0 here, so that they don't
++		 * show an old value until that.
++		 */
++		{
++			const int	progress_index[] = {
++				PROGRESS_ANALYZE_CURRENT_CHILD_TABLE_RELID,
++				PROGRESS_ANALYZE_BLOCKS_DONE,
++				PROGRESS_ANALYZE_BLOCKS_TOTAL
++			};
++			const int64 progress_vals[] = {
++				RelationGetRelid(childrel),
++				0,
++				0,
++			};
++
++			pgstat_progress_update_multi_param(3, progress_index, progress_vals);
++		}
+ 
+ 		if (childblocks > 0)
+ 		{
+ 			int			childtargrows;
+ 

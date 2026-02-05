@@ -1,0 +1,80 @@
+commit b82557ecc2ebbf649142740a1c5ce8d19089f620
+Author: David Rowley <drowley@postgresql.org>
+Date:   Thu Jan 5 12:56:17 2023 +1300
+
+    Fix some compiler warnings in aset.c and generation.c
+    
+    This fixes a couple of unused variable warnings that could be seen when
+    compiling with MEMORY_CONTEXT_CHECKING but not USE_ASSERT_CHECKING.
+    Defining MEMORY_CONTEXT_CHECKING without asserts is a little unusual,
+    however, we shouldn't be producing any warnings from such a build.
+    
+    Author: Richard Guo
+    Discussion: https://postgr.es/m/CAMbWs4_D-vgLEh7eO47p=73u1jWO78NWf6Qfv1FndY1kG-Q-jA@mail.gmail.com
+
+diff --git a/src/backend/utils/mmgr/aset.c b/src/backend/utils/mmgr/aset.c
+index ef10bb1690b..740729b5d08 100644
+--- a/src/backend/utils/mmgr/aset.c
++++ b/src/backend/utils/mmgr/aset.c
+@@ -1022,14 +1022,12 @@ AllocSetFree(void *pointer)
+ 
+ 		set = block->aset;
+ 
+ #ifdef MEMORY_CONTEXT_CHECKING
+ 		{
+-			Size		chunk_size = block->endptr - (char *) pointer;
+-
+ 			/* Test for someone scribbling on unused space in chunk */
+-			Assert(chunk->requested_size < chunk_size);
++			Assert(chunk->requested_size < (block->endptr - (char *) pointer));
+ 			if (!sentinel_ok(pointer, chunk->requested_size))
+ 				elog(WARNING, "detected write past chunk end in %s %p",
+ 					 set->header.name, chunk);
+ 		}
+ #endif
+diff --git a/src/backend/utils/mmgr/generation.c b/src/backend/utils/mmgr/generation.c
+index 93825265a1b..ebcb61e9b6a 100644
+--- a/src/backend/utils/mmgr/generation.c
++++ b/src/backend/utils/mmgr/generation.c
+@@ -627,11 +627,12 @@ void
+ GenerationFree(void *pointer)
+ {
+ 	MemoryChunk *chunk = PointerGetMemoryChunk(pointer);
+ 	GenerationBlock *block;
+ 	GenerationContext *set;
+-#if defined(MEMORY_CONTEXT_CHECKING) || defined(CLOBBER_FREED_MEMORY)
++#if (defined(MEMORY_CONTEXT_CHECKING) && defined(USE_ASSERT_CHECKING)) \
++	|| defined(CLOBBER_FREED_MEMORY)
+ 	Size		chunksize;
+ #endif
+ 
+ 	if (MemoryChunkIsExternal(chunk))
+ 	{
+@@ -642,11 +643,12 @@ GenerationFree(void *pointer)
+ 		 * should reference a generation context.
+ 		 */
+ 		if (!GenerationBlockIsValid(block))
+ 			elog(ERROR, "could not find block containing chunk %p", chunk);
+ 
+-#if defined(MEMORY_CONTEXT_CHECKING) || defined(CLOBBER_FREED_MEMORY)
++#if (defined(MEMORY_CONTEXT_CHECKING) && defined(USE_ASSERT_CHECKING)) \
++	|| defined(CLOBBER_FREED_MEMORY)
+ 		chunksize = block->endptr - (char *) pointer;
+ #endif
+ 	}
+ 	else
+ 	{
+@@ -657,11 +659,12 @@ GenerationFree(void *pointer)
+ 		 * block is good.  Future field experience may show that this Assert
+ 		 * had better become a regular runtime test-and-elog check.
+ 		 */
+ 		Assert(GenerationBlockIsValid(block));
+ 
+-#if defined(MEMORY_CONTEXT_CHECKING) || defined(CLOBBER_FREED_MEMORY)
++#if (defined(MEMORY_CONTEXT_CHECKING) && defined(USE_ASSERT_CHECKING)) \
++	|| defined(CLOBBER_FREED_MEMORY)
+ 		chunksize = MemoryChunkGetValue(chunk);
+ #endif
+ 	}
+ 
+ 	/* Allow access to private part of chunk header. */

@@ -1,0 +1,92 @@
+commit 8e2b6d45a033287da7c8f63062129ea02d86d831
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Wed Feb 2 13:50:33 2022 -0500
+
+    Fix server crash bug in 'server' backup target.
+    
+    When this code executed as superuser it appeared to work because no
+    system catalog lookups happened, but otherwise it crashes because there
+    is no transaction environment. Fix that.
+    
+    Report and code change by me. Test case by Dagfinn Ilmari Mannsåker.
+    
+    Discussion: http://postgr.es/m/CA+TgmobiKLXne-2AVzYyWRiO8=rChBQ=7ywoxp=2SmcFw=oDDw@mail.gmail.com
+
+diff --git a/src/backend/replication/basebackup_server.c b/src/backend/replication/basebackup_server.c
+index 18b0e11d903..a8786296686 100644
+--- a/src/backend/replication/basebackup_server.c
++++ b/src/backend/replication/basebackup_server.c
+@@ -8,10 +8,11 @@
+  *
+  *-------------------------------------------------------------------------
+  */
+ #include "postgres.h"
+ 
++#include "access/xact.h"
+ #include "catalog/pg_authid.h"
+ #include "miscadmin.h"
+ #include "replication/basebackup.h"
+ #include "replication/basebackup_sink.h"
+ #include "storage/fd.h"
+@@ -65,14 +66,16 @@ bbsink_server_new(bbsink *next, char *pathname)
+ 	*((const bbsink_ops **) &sink->base.bbs_ops) = &bbsink_server_ops;
+ 	sink->pathname = pathname;
+ 	sink->base.bbs_next = next;
+ 
+ 	/* Replication permission is not sufficient in this case. */
++	StartTransactionCommand();
+ 	if (!is_member_of_role(GetUserId(), ROLE_PG_WRITE_SERVER_FILES))
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+ 				 errmsg("must be superuser or a member of the pg_write_server_files role to create server backup")));
++	CommitTransactionCommand();
+ 
+ 	/*
+ 	 * It's not a good idea to store your backups in the same directory that
+ 	 * you're backing up. If we allowed a relative path here, that could easily
+ 	 * happen accidentally, so we don't. The user could still accomplish the
+diff --git a/src/bin/pg_basebackup/t/010_pg_basebackup.pl b/src/bin/pg_basebackup/t/010_pg_basebackup.pl
+index a827be5e592..2283a8c42d5 100644
+--- a/src/bin/pg_basebackup/t/010_pg_basebackup.pl
++++ b/src/bin/pg_basebackup/t/010_pg_basebackup.pl
+@@ -8,11 +8,11 @@ use Config;
+ use File::Basename qw(basename dirname);
+ use File::Path qw(rmtree);
+ use Fcntl qw(:seek);
+ use PostgreSQL::Test::Cluster;
+ use PostgreSQL::Test::Utils;
+-use Test::More tests => 143;
++use Test::More;
+ 
+ program_help_ok('pg_basebackup');
+ program_version_ok('pg_basebackup');
+ program_options_handling_ok('pg_basebackup');
+ 
+@@ -519,10 +519,19 @@ $node->command_ok(
+ 	[ @pg_basebackup_defs, '--target', "server:$real_tempdir/backuponserver", '-X', 'none' ],
+ 	'backup target server');
+ ok(-f "$tempdir/backuponserver/base.tar", 'backup tar was created');
+ rmtree("$tempdir/backuponserver");
+ 
++$node->command_ok(
++	[qw(createuser --replication --role=pg_write_server_files backupuser)],
++	'create backup user');
++$node->command_ok(
++	[ @pg_basebackup_defs, '-U', 'backupuser', '--target', "server:$real_tempdir/backuponserver", '-X', 'none' ],
++	'backup target server');
++ok(-f "$tempdir/backuponserver/base.tar", 'backup tar was created as non-superuser');
++rmtree("$tempdir/backuponserver");
++
+ $node->command_fails(
+ 	[
+ 		@pg_basebackup_defs,         '-D',
+ 		"$tempdir/backupxs_sl_fail", '-X',
+ 		'stream',                    '-S',
+@@ -766,5 +775,7 @@ SKIP:
+ 	is($gzip_is_valid, 0, "gzip verified the integrity of compressed data");
+ 	rmtree("$tempdir/backup_gzip");
+ 	rmtree("$tempdir/backup_gzip2");
+ 	rmtree("$tempdir/backup_gzip3");
+ }
++
++done_testing();

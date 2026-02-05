@@ -1,0 +1,61 @@
+commit f762d99c8783f5ca99d5a6ab0f8245e164a954ce
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Fri Sep 27 07:26:29 2024 +0900
+
+    Fix catalog data of new LO privilege functions
+    
+    This commit improves the catalog data in pg_proc for the three functions
+    for has_largeobject_privilege(), introduced in 4eada203a5a8:
+    - Fix their descriptions (typos and consistency).
+    - Reallocate OIDs to be within the 8000-9999 range as required by
+    a6417078c414.
+    
+    Bump catalog version.
+    
+    Reviewed-by: Fujii Masao
+    Discussion: https://postgr.es/m/ZvUYR0V0dzWaLnsV@paquier.xyz
+
+diff --git a/src/include/catalog/catversion.h b/src/include/catalog/catversion.h
+index 79eb5899156..ba4f8641ac6 100644
+--- a/src/include/catalog/catversion.h
++++ b/src/include/catalog/catversion.h
+@@ -55,8 +55,8 @@
+  * on that day.  (Hopefully we'll never commit ten independent sets of
+  * catalog changes on the same day...)
+  */
+ 
+ /*							yyyymmddN */
+-#define CATALOG_VERSION_NO	202409261
++#define CATALOG_VERSION_NO	202409271
+ 
+ #endif
+diff --git a/src/include/catalog/pg_proc.dat b/src/include/catalog/pg_proc.dat
+index 60aecafdda9..322114d72a7 100644
+--- a/src/include/catalog/pg_proc.dat
++++ b/src/include/catalog/pg_proc.dat
+@@ -5367,19 +5367,22 @@
+ { oid => '3029', descr => 'current user privilege on any column by rel oid',
+   proname => 'has_any_column_privilege', procost => '10', provolatile => 's',
+   prorettype => 'bool', proargtypes => 'oid text',
+   prosrc => 'has_any_column_privilege_id' },
+ 
+-{ oid => '4551', descr => 'user privilege on large objct by username, large object oid',
++{ oid => '8048',
++  descr => 'user privilege on large object by username, large object oid',
+   proname => 'has_largeobject_privilege', procost => '10', provolatile => 's',
+   prorettype => 'bool', proargtypes => 'name oid text',
+   prosrc => 'has_largeobject_privilege_name_id' },
+-{ oid => '4552', descr => 'current privilege on large objct by large object oid',
++{ oid => '8049',
++  descr => 'current user privilege on large object by large object oid',
+   proname => 'has_largeobject_privilege', procost => '10', provolatile => 's',
+   prorettype => 'bool', proargtypes => 'oid text',
+   prosrc => 'has_largeobject_privilege_id' },
+-{ oid => '4553', descr => 'user privilege on large objct by user oid, large object oid',
++{ oid => '8050',
++  descr => 'user privilege on large object by user oid, large object oid',
+   proname => 'has_largeobject_privilege', procost => '10', provolatile => 's',
+   prorettype => 'bool', proargtypes => 'oid oid text',
+   prosrc => 'has_largeobject_privilege_id_id' },
+ 
+ { oid => '3355', descr => 'I/O',

@@ -1,0 +1,106 @@
+commit 591767150f5f91ccc3614e71977c47ce7a68786b
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Wed Mar 23 13:25:26 2022 -0400
+
+    pg_basebackup: Try to fix some failures on Windows.
+    
+    Commit ffd53659c46a54a6978bcb8c4424c1e157a2c0f1 messed up the
+    mechanism that was being used to pass parameters to LogStreamerMain()
+    on Windows. It worked on Linux because only Windows was using threads.
+    Repair by moving the additional parameters added by that commit into
+    the 'logstreamer_param' struct.
+    
+    Along the way, fix a compiler warning on builds without HAVE_LIBZ.
+    
+    Discussion: http://postgr.es/m/CA+TgmoY5=AmWOtMj3v+cySP2rR=Bt6EGyF_joAq4CfczMddKtw@mail.gmail.com
+
+diff --git a/src/backend/replication/basebackup_gzip.c b/src/backend/replication/basebackup_gzip.c
+index 703a91ba776..e4df57b121f 100644
+--- a/src/backend/replication/basebackup_gzip.c
++++ b/src/backend/replication/basebackup_gzip.c
+@@ -59,19 +59,18 @@ const bbsink_ops bbsink_gzip_ops = {
+  * Create a new basebackup sink that performs gzip compression.
+  */
+ bbsink *
+ bbsink_gzip_new(bbsink *next, bc_specification *compress)
+ {
+-	int		compresslevel;
+-
+ #ifndef HAVE_LIBZ
+ 	ereport(ERROR,
+ 			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+ 			 errmsg("gzip compression is not supported by this build")));
+ 	return NULL;				/* keep compiler quiet */
+ #else
+ 	bbsink_gzip *sink;
++	int		compresslevel;
+ 
+ 	Assert(next != NULL);
+ 
+ 	if ((compress->options & BACKUP_COMPRESSION_OPTION_LEVEL) == 0)
+ 		compresslevel = Z_DEFAULT_COMPRESSION;
+diff --git a/src/bin/pg_basebackup/pg_basebackup.c b/src/bin/pg_basebackup/pg_basebackup.c
+index 3e6977df1aa..ed8d084d629 100644
+--- a/src/bin/pg_basebackup/pg_basebackup.c
++++ b/src/bin/pg_basebackup/pg_basebackup.c
+@@ -539,16 +539,16 @@ typedef struct
+ 	PGconn	   *bgconn;
+ 	XLogRecPtr	startptr;
+ 	char		xlog[MAXPGPATH];	/* directory or tarfile depending on mode */
+ 	char	   *sysidentifier;
+ 	int			timeline;
++	WalCompressionMethod	wal_compress_method;
++	int			wal_compress_level;
+ } logstreamer_param;
+ 
+ static int
+-LogStreamerMain(logstreamer_param *param,
+-				WalCompressionMethod wal_compress_method,
+-				int wal_compress_level)
++LogStreamerMain(logstreamer_param *param)
+ {
+ 	StreamCtl	stream;
+ 
+ 	in_log_streamer = true;
+ 
+@@ -573,12 +573,12 @@ LogStreamerMain(logstreamer_param *param,
+ 		stream.walmethod = CreateWalDirectoryMethod(param->xlog,
+ 													COMPRESSION_NONE, 0,
+ 													stream.do_sync);
+ 	else
+ 		stream.walmethod = CreateWalTarMethod(param->xlog,
+-											  wal_compress_method,
+-											  wal_compress_level,
++											  param->wal_compress_method,
++											  param->wal_compress_level,
+ 											  stream.do_sync);
+ 
+ 	if (!ReceiveXlogStream(param->bgconn, &stream))
+ 	{
+ 		/*
+@@ -632,10 +632,12 @@ StartLogStreamer(char *startpos, uint32 timeline, char *sysidentifier,
+ 	char		statusdir[MAXPGPATH];
+ 
+ 	param = pg_malloc0(sizeof(logstreamer_param));
+ 	param->timeline = timeline;
+ 	param->sysidentifier = sysidentifier;
++	param->wal_compress_method = wal_compress_method;
++	param->wal_compress_level = wal_compress_level;
+ 
+ 	/* Convert the starting position */
+ 	if (sscanf(startpos, "%X/%X", &hi, &lo) != 2)
+ 	{
+ 		pg_log_error("could not parse write-ahead log location \"%s\"",
+@@ -722,11 +724,11 @@ StartLogStreamer(char *startpos, uint32 timeline, char *sysidentifier,
+ 	if (bgchild == 0)
+ 	{
+ 		int			ret;
+ 
+ 		/* in child process */
+-		ret = LogStreamerMain(param, wal_compress_method, wal_compress_level);
++		ret = LogStreamerMain(param);
+ 
+ 		/* temp debugging aid to analyze 019_replslot_limit failures */
+ 		if (verbose)
+ 			pg_log_info("log streamer with pid %d exiting", getpid());
+ 

@@ -1,0 +1,90 @@
+commit 53823a06be6f40d88d8e3ba45045ecee1a21fc5e
+Author: David Rowley <drowley@postgresql.org>
+Date:   Fri Aug 5 10:14:00 2022 +1200
+
+    Fix failure to set correct operator in window run condition
+    
+    This was a simple omission in 9d9c02ccd where the code didn't correctly
+    set the operator to use in the run condition OpExpr when the window
+    function was both monotonically increasing and decreasing.
+    
+    Bug discovered by Julien Roze, although he did not report it.
+    
+    Reported-by: Phil Florent
+    Discussion: https://postgr.es/m/PA4P191MB160009A09B9D0624359278CFBA9F9@PA4P191MB1600.EURP191.PROD.OUTLOOK.COM
+    Backpatch-through: 15, where 9d9c02ccd was added
+
+diff --git a/src/backend/optimizer/path/allpaths.c b/src/backend/optimizer/path/allpaths.c
+index b23cc8ee82d..8fc28007f54 100644
+--- a/src/backend/optimizer/path/allpaths.c
++++ b/src/backend/optimizer/path/allpaths.c
+@@ -2304,10 +2304,11 @@ find_window_run_conditions(Query *subquery, RangeTblEntry *rte, Index rti,
+ 			 */
+ 			if ((res->monotonic & MONOTONICFUNC_BOTH) == MONOTONICFUNC_BOTH)
+ 			{
+ 				*keep_original = false;
+ 				runopexpr = opexpr;
++				runoperator = opexpr->opno;
+ 				break;
+ 			}
+ 
+ 			/*
+ 			 * When monotonically increasing we make a qual with <wfunc> <=
+diff --git a/src/test/regress/expected/window.out b/src/test/regress/expected/window.out
+index 433a0bb0259..55dcd668c94 100644
+--- a/src/test/regress/expected/window.out
++++ b/src/test/regress/expected/window.out
+@@ -3644,10 +3644,27 @@ WHERE c <= 3;
+      1 | sales     |   5000 | 1
+      4 | sales     |   4800 | 3
+      3 | sales     |   4800 | 3
+ (8 rows)
+ 
++-- Ensure we get the correct run condition when the window function is both
++-- monotonically increasing and decreasing.
++EXPLAIN (COSTS OFF)
++SELECT * FROM
++  (SELECT empno,
++          depname,
++          salary,
++          count(empno) OVER () c
++   FROM empsalary) emp
++WHERE c = 1;
++                       QUERY PLAN                       
++--------------------------------------------------------
++ WindowAgg
++   Run Condition: (count(empsalary.empno) OVER (?) = 1)
++   ->  Seq Scan on empsalary
++(3 rows)
++
+ -- Some more complex cases with multiple window clauses
+ EXPLAIN (COSTS OFF)
+ SELECT * FROM
+   (SELECT *,
+           count(salary) OVER (PARTITION BY depname || '') c1, -- w1
+diff --git a/src/test/regress/sql/window.sql b/src/test/regress/sql/window.sql
+index a504e46e403..57c39e796c1 100644
+--- a/src/test/regress/sql/window.sql
++++ b/src/test/regress/sql/window.sql
+@@ -1148,10 +1148,21 @@ SELECT * FROM
+           salary,
+           count(empno) OVER (PARTITION BY depname ORDER BY salary DESC) c
+    FROM empsalary) emp
+ WHERE c <= 3;
+ 
++-- Ensure we get the correct run condition when the window function is both
++-- monotonically increasing and decreasing.
++EXPLAIN (COSTS OFF)
++SELECT * FROM
++  (SELECT empno,
++          depname,
++          salary,
++          count(empno) OVER () c
++   FROM empsalary) emp
++WHERE c = 1;
++
+ -- Some more complex cases with multiple window clauses
+ EXPLAIN (COSTS OFF)
+ SELECT * FROM
+   (SELECT *,
+           count(salary) OVER (PARTITION BY depname || '') c1, -- w1

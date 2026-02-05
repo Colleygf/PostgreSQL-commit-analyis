@@ -1,0 +1,91 @@
+commit 04396eacd3faeaa4fa3d084a6749e4e384bdf0db
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Tue Dec 9 07:25:20 2025 +0000
+
+    Fix LOCK_TIMEOUT handling in slotsync worker.
+    
+    Previously, the slotsync worker relied on SIGINT for graceful shutdown
+    during promotion. However, SIGINT is also used by the LOCK_TIMEOUT handler
+    to cancel queries. Since the slotsync worker can lock catalog tables while
+    parsing libpq tuples, this overlap caused it to ignore LOCK_TIMEOUT
+    signals and potentially wait indefinitely on locks.
+    
+    This patch replaces the slotsync worker's SIGINT handler with
+    StatementCancelHandler to correctly process query-cancel interrupts.
+    Additionally, the startup process now uses SIGUSR1 to signal the slotsync
+    worker to stop during promotion. The worker exits after detecting that the
+    shared memory flag stopSignaled is set.
+    
+    Author: Hou Zhijie <houzj.fnst@fujitsu.com>
+    Reviewed-by: shveta malik <shveta.malik@gmail.com>
+    Reviewed-by: Chao Li <li.evan.chao@gmail.com>
+    Reviewed-by: Amit Kapila <amit.kapila16@gmail.com>
+    Backpatch-through: 17, here it was introduced
+    Discussion: https://postgr.es/m/TY4PR01MB169078F33846E9568412D878C94A2A@TY4PR01MB16907.jpnprd01.prod.outlook.com
+
+diff --git a/src/backend/replication/logical/slotsync.c b/src/backend/replication/logical/slotsync.c
+index 31d7cb3ca77..7e3b4c4413e 100644
+--- a/src/backend/replication/logical/slotsync.c
++++ b/src/backend/replication/logical/slotsync.c
+@@ -1252,14 +1252,14 @@ slotsync_reread_config(void)
+ static void
+ ProcessSlotSyncInterrupts(void)
+ {
+ 	CHECK_FOR_INTERRUPTS();
+ 
+-	if (ShutdownRequestPending)
++	if (SlotSyncCtx->stopSignaled)
+ 	{
+ 		ereport(LOG,
+-				errmsg("replication slot synchronization worker is shutting down on receiving SIGINT"));
++				errmsg("replication slot synchronization worker is shutting down because promotion is triggered"));
+ 
+ 		proc_exit(0);
+ 	}
+ 
+ 	if (ConfigReloadPending)
+@@ -1486,11 +1486,11 @@ ReplSlotSyncWorkerMain(const void *startup_data, size_t startup_data_len)
+ 	/* We can now handle ereport(ERROR) */
+ 	PG_exception_stack = &local_sigjmp_buf;
+ 
+ 	/* Setup signal handling */
+ 	pqsignal(SIGHUP, SignalHandlerForConfigReload);
+-	pqsignal(SIGINT, SignalHandlerForShutdownRequest);
++	pqsignal(SIGINT, StatementCancelHandler);
+ 	pqsignal(SIGTERM, die);
+ 	pqsignal(SIGFPE, FloatExceptionHandler);
+ 	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
+ 	pqsignal(SIGUSR2, SIG_IGN);
+ 	pqsignal(SIGPIPE, SIG_IGN);
+@@ -1593,11 +1593,12 @@ ReplSlotSyncWorkerMain(const void *startup_data, size_t startup_data_len)
+ 		wait_for_slot_activity(some_slot_updated);
+ 	}
+ 
+ 	/*
+ 	 * The slot sync worker can't get here because it will only stop when it
+-	 * receives a SIGINT from the startup process, or when there is an error.
++	 * receives a stop request from the startup process, or when there is an
++	 * error.
+ 	 */
+ 	Assert(false);
+ }
+ 
+ /*
+@@ -1678,12 +1679,16 @@ ShutDownSlotSync(void)
+ 
+ 	worker_pid = SlotSyncCtx->pid;
+ 
+ 	SpinLockRelease(&SlotSyncCtx->mutex);
+ 
++	/*
++	 * Signal slotsync worker if it was still running. The worker will stop
++	 * upon detecting that the stopSignaled flag is set to true.
++	 */
+ 	if (worker_pid != InvalidPid)
+-		kill(worker_pid, SIGINT);
++		kill(worker_pid, SIGUSR1);
+ 
+ 	/* Wait for slot sync to end */
+ 	for (;;)
+ 	{
+ 		int			rc;

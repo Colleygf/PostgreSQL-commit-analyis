@@ -1,0 +1,87 @@
+commit 1d4be6be65ab18aa3b240d9bc912ebece255c53b
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Tue Mar 8 10:05:55 2022 -0500
+
+    Fix LZ4 tests for remaining buffer space.
+    
+    We should flush the buffer when the remaining space is less than
+    the maximum amount that we might need, not when it is less than or
+    equal to the maximum amount we might need.
+    
+    Jeevan Ladhe, per an observation from me.
+    
+    Discussion: http://postgr.es/m/CANm22CgVMa85O1akgs+DOPE8NSrT1zbz5_vYfS83_r+6nCivLQ@mail.gmail.com
+
+diff --git a/src/backend/replication/basebackup_lz4.c b/src/backend/replication/basebackup_lz4.c
+index d26032783cf..472b620d7c7 100644
+--- a/src/backend/replication/basebackup_lz4.c
++++ b/src/backend/replication/basebackup_lz4.c
+@@ -191,11 +191,11 @@ bbsink_lz4_archive_contents(bbsink *sink, size_t avail_in)
+ 	/*
+ 	 * If the number of available bytes has fallen below the value computed by
+ 	 * LZ4F_compressBound(), ask the next sink to process the data so that we
+ 	 * can empty the buffer.
+ 	 */
+-	if ((mysink->base.bbs_next->bbs_buffer_length - mysink->bytes_written) <=
++	if ((mysink->base.bbs_next->bbs_buffer_length - mysink->bytes_written) <
+ 		avail_in_bound)
+ 	{
+ 		bbsink_archive_contents(sink->bbs_next, mysink->bytes_written);
+ 		mysink->bytes_written = 0;
+ 	}
+@@ -236,11 +236,11 @@ bbsink_lz4_end_archive(bbsink *sink)
+ 
+ 	lz4_footer_bound = LZ4F_compressBound(0, &mysink->prefs);
+ 
+ 	Assert(mysink->base.bbs_next->bbs_buffer_length >= lz4_footer_bound);
+ 
+-	if ((mysink->base.bbs_next->bbs_buffer_length - mysink->bytes_written) <=
++	if ((mysink->base.bbs_next->bbs_buffer_length - mysink->bytes_written) <
+ 		lz4_footer_bound)
+ 	{
+ 		bbsink_archive_contents(sink->bbs_next, mysink->bytes_written);
+ 		mysink->bytes_written = 0;
+ 	}
+diff --git a/src/bin/pg_basebackup/bbstreamer_lz4.c b/src/bin/pg_basebackup/bbstreamer_lz4.c
+index f0bc226bf8d..bde018246f2 100644
+--- a/src/bin/pg_basebackup/bbstreamer_lz4.c
++++ b/src/bin/pg_basebackup/bbstreamer_lz4.c
+@@ -97,11 +97,11 @@ bbstreamer_lz4_compressor_new(bbstreamer *next, int compresslevel)
+ 	 * (LZ4F_compressUpdate) based on a given source size and preferences.
+ 	 */
+ 	compressed_bound = LZ4F_compressBound(streamer->base.bbs_buffer.maxlen, prefs);
+ 
+ 	/* Enlarge buffer if it falls short of compression bound. */
+-	if (streamer->base.bbs_buffer.maxlen <= compressed_bound)
++	if (streamer->base.bbs_buffer.maxlen < compressed_bound)
+ 		enlargeStringInfo(&streamer->base.bbs_buffer, compressed_bound);
+ 
+ 	ctxError = LZ4F_createCompressionContext(&streamer->cctx, LZ4F_VERSION);
+ 	if (LZ4F_isError(ctxError))
+ 			pg_log_error("could not create lz4 compression context: %s",
+@@ -168,11 +168,11 @@ bbstreamer_lz4_compressor_content(bbstreamer *streamer,
+ 	 * required capacity for the success of LZ4F_compressUpdate. If needed
+ 	 * forward the content to next streamer and empty the buffer.
+ 	 */
+ 	out_bound = LZ4F_compressBound(len, &mystreamer->prefs);
+ 	Assert(mystreamer->base.bbs_buffer.maxlen >= out_bound);
+-	if (avail_out <= out_bound)
++	if (avail_out < out_bound)
+ 	{
+ 			bbstreamer_content(mystreamer->base.bbs_next, member,
+ 							   mystreamer->base.bbs_buffer.data,
+ 							   mystreamer->bytes_written,
+ 							   context);
+@@ -216,11 +216,11 @@ bbstreamer_lz4_compressor_finalize(bbstreamer *streamer)
+ 	mystreamer = (bbstreamer_lz4_frame *) streamer;
+ 
+ 	/* Find out the footer bound and update the output buffer. */
+ 	footer_bound = LZ4F_compressBound(0, &mystreamer->prefs);
+ 	Assert(mystreamer->base.bbs_buffer.maxlen >= footer_bound);
+-	if ((mystreamer->base.bbs_buffer.maxlen - mystreamer->bytes_written) <=
++	if ((mystreamer->base.bbs_buffer.maxlen - mystreamer->bytes_written) <
+ 		footer_bound)
+ 	{
+ 			bbstreamer_content(mystreamer->base.bbs_next, NULL,
+ 							   mystreamer->base.bbs_buffer.data,
+ 							   mystreamer->bytes_written,

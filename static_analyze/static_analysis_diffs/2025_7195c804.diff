@@ -1,0 +1,67 @@
+commit 7195c804bd12f47a9f1b2df9c2e1794bb04c5987
+Author: Alexander Korotkov <akorotkov@postgresql.org>
+Date:   Fri Jun 27 11:49:00 2025 +0300
+
+    Fix CheckPointReplicationSlots() with max_replication_slots == 0
+    
+    ca307d5cec90 made CheckPointReplicationSlots() unconditionally call
+    ReplicationSlotsComputeRequiredLSN().  It causes an assertion trap when
+    max_replication_slots equals 0.  This commit makes
+    CheckPointReplicationSlots() call ReplicationSlotsComputeRequiredLSN() only
+    when at least one slot gets its last_saved_restart_lsn updated.  That avoids
+    an assert trap and also saves some cycles when no one slot has
+    last_saved_restart_lsn updated.
+    
+    Based on ideas from Dilip Kumar <dilipbalaut@gmail.com> and
+    Hayato Kuroda <kuroda.hayato@fujitsu.com>.
+    
+    Reported-by: Zhijie Hou <houzj.fnst@fujitsu.com>
+    Discussion: https://postgr.es/m/OS0PR01MB5716BB506AF934376FF3A8BB947BA%40OS0PR01MB5716.jpnprd01.prod.outlook.com
+
+diff --git a/src/backend/replication/slot.c b/src/backend/replication/slot.c
+index c11e588d632..f9fec50ae88 100644
+--- a/src/backend/replication/slot.c
++++ b/src/backend/replication/slot.c
+@@ -2077,10 +2077,11 @@ restart:
+  */
+ void
+ CheckPointReplicationSlots(bool is_shutdown)
+ {
+ 	int			i;
++	bool		last_saved_restart_lsn_updated = false;
+ 
+ 	elog(DEBUG1, "performing replication slot checkpoint");
+ 
+ 	/*
+ 	 * Prevent any slot from being created/dropped while we're active. As we
+@@ -2121,19 +2122,27 @@ CheckPointReplicationSlots(bool is_shutdown)
+ 				s->dirty = true;
+ 			}
+ 			SpinLockRelease(&s->mutex);
+ 		}
+ 
++		/*
++		 * Track if we're going to update slot's last_saved_restart_lsn. We
++		 * need this to know if we need to recompute the required LSN.
++		 */
++		if (s->last_saved_restart_lsn != s->data.restart_lsn)
++			last_saved_restart_lsn_updated = true;
++
+ 		SaveSlotToPath(s, path, LOG);
+ 	}
+ 	LWLockRelease(ReplicationSlotAllocationLock);
+ 
+ 	/*
+-	 * Recompute the required LSN as SaveSlotToPath() updated
+-	 * last_saved_restart_lsn for slots.
++	 * Recompute the required LSN if SaveSlotToPath() updated
++	 * last_saved_restart_lsn for any slot.
+ 	 */
+-	ReplicationSlotsComputeRequiredLSN();
++	if (last_saved_restart_lsn_updated)
++		ReplicationSlotsComputeRequiredLSN();
+ }
+ 
+ /*
+  * Load all replication slots from disk into memory at server startup. This
+  * needs to be run before we start crash recovery.

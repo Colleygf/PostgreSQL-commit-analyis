@@ -1,0 +1,55 @@
+commit b2be5cb2ab671073ec0fc69357c3c11e25bb41cc
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Sun Aug 11 12:24:56 2024 -0400
+
+    Suppress Coverity warnings about Asserts in get_name_for_var_field.
+    
+    Coverity thinks dpns->plan could be null at these points.  That
+    shouldn't really be possible, but it's easy enough to modify the
+    Asserts so they'd not core-dump if it were true.
+    
+    These are new in b919a97a6.  Back-patch to v13; the v12 version
+    of the patch didn't have these Asserts.
+
+diff --git a/src/backend/utils/adt/ruleutils.c b/src/backend/utils/adt/ruleutils.c
+index c656afc35a1..4039ee0df73 100644
+--- a/src/backend/utils/adt/ruleutils.c
++++ b/src/backend/utils/adt/ruleutils.c
+@@ -7912,15 +7912,15 @@ get_name_for_var_field(Var *var, int fieldno,
+ 
+ 					if (!dpns->inner_plan)
+ 					{
+ 						char	   *dummy_name = palloc(32);
+ 
+-						Assert(IsA(dpns->plan, Result));
++						Assert(dpns->plan && IsA(dpns->plan, Result));
+ 						snprintf(dummy_name, 32, "f%d", fieldno);
+ 						return dummy_name;
+ 					}
+-					Assert(IsA(dpns->plan, SubqueryScan));
++					Assert(dpns->plan && IsA(dpns->plan, SubqueryScan));
+ 
+ 					tle = get_tle_by_resno(dpns->inner_tlist, attnum);
+ 					if (!tle)
+ 						elog(ERROR, "bogus varattno for subquery var: %d",
+ 							 attnum);
+@@ -8043,16 +8043,16 @@ get_name_for_var_field(Var *var, int fieldno,
+ 
+ 					if (!dpns->inner_plan)
+ 					{
+ 						char	   *dummy_name = palloc(32);
+ 
+-						Assert(IsA(dpns->plan, Result));
++						Assert(dpns->plan && IsA(dpns->plan, Result));
+ 						snprintf(dummy_name, 32, "f%d", fieldno);
+ 						return dummy_name;
+ 					}
+-					Assert(IsA(dpns->plan, CteScan) ||
+-						   IsA(dpns->plan, WorkTableScan));
++					Assert(dpns->plan && (IsA(dpns->plan, CteScan) ||
++										  IsA(dpns->plan, WorkTableScan)));
+ 
+ 					tle = get_tle_by_resno(dpns->inner_tlist, attnum);
+ 					if (!tle)
+ 						elog(ERROR, "bogus varattno for subquery var: %d",
+ 							 attnum);

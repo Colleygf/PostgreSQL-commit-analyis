@@ -1,0 +1,55 @@
+commit c2891175052772b603da6d0ae634e42b63b7f274
+Author: Thomas Munro <tmunro@postgresql.org>
+Date:   Wed Feb 1 14:29:51 2023 +1300
+
+    Try to fix pg_upgrade test on Windows, again.
+    
+    Further to commit 54e72b66e, if rmtree() fails while cleaning up in
+    pg_upgrade, try again.  This gives our Windows unlink() wrapper a chance
+    to reach its wait-for-the-other-process-to-go-away logic, if the first
+    go around initiated the unlink of a file that a concurrently exiting
+    program still has open.
+    
+    Discussion: https://postgr.es/m/CA%2BhUKGKCVy2%3Do%3Dd8c2Va6a_3Rpf_KkhUitkWCZ3hzuO2VwLMXA%40mail.gmail.com
+
+diff --git a/src/bin/pg_upgrade/util.c b/src/bin/pg_upgrade/util.c
+index 42dcbfc5b5c..21ba4c8f12b 100644
+--- a/src/bin/pg_upgrade/util.c
++++ b/src/bin/pg_upgrade/util.c
+@@ -66,11 +66,16 @@ cleanup_output_dirs(void)
+ 
+ 	/* Remove dump and log files? */
+ 	if (log_opts.retain)
+ 		return;
+ 
+-	(void) rmtree(log_opts.basedir, true);
++	/*
++	 * Try twice.  The second time might wait for files to finish being
++	 * unlinked, on Windows.
++	 */
++	if (!rmtree(log_opts.basedir, true))
++		rmtree(log_opts.basedir, true);
+ 
+ 	/* Remove pg_upgrade_output.d only if empty */
+ 	switch (pg_check_dir(log_opts.rootdir))
+ 	{
+ 		case 0:					/* non-existent */
+@@ -78,11 +83,17 @@ cleanup_output_dirs(void)
+ 			Assert(false);
+ 			break;
+ 
+ 		case 1:					/* exists and empty */
+ 		case 2:					/* exists and contains only dot files */
+-			(void) rmtree(log_opts.rootdir, true);
++
++			/*
++			 * Try twice.  The second time might wait for files to finish
++			 * being unlinked, on Windows.
++			 */
++			if (!rmtree(log_opts.rootdir, true))
++				rmtree(log_opts.rootdir, true);
+ 			break;
+ 
+ 		case 4:					/* exists */
+ 
+ 			/*

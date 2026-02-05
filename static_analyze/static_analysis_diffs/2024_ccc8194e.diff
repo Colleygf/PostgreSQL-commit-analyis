@@ -1,0 +1,161 @@
+commit ccc8194e4275d0be557a9b94126a12b389520593
+Author: John Naylor <john.naylor@postgresql.org>
+Date:   Wed Dec 4 16:51:55 2024 +0700
+
+    Fix use-after-free in parallel_vacuum_reset_dead_items
+    
+    parallel_vacuum_reset_dead_items used a local variable to hold a
+    pointer from the passed vacrel, purely as a shorthand. This pointer
+    was later freed and a new allocation was made and stored to the
+    struct. Then the local pointer was mistakenly referenced again.
+    
+    This apparently happened not to break anything since the freed chunk
+    would have been put on the context's freelist, so it was accidentally
+    the same pointer anyway, in which case the DSA handle was correctly
+    updated. The minimal fix is to change two places so they access
+    dead_items through the vacrel. This coding style is a maintenance
+    hazard, so while at it get rid of most other similar usages, which
+    were inconsistently used anyway.
+    
+    Analysis and patch by Vallimaharajan G, with further defensive coding
+    by me
+    
+    Backpath to v17, when TidStore came in
+    
+    Discussion: https://postgr.es/m/1936493cc38.68cb2ef27266.7456585136086197135@zohocorp.com
+
+diff --git a/src/backend/access/heap/vacuumlazy.c b/src/backend/access/heap/vacuumlazy.c
+index 485644f12d1..6a3588cf817 100644
+--- a/src/backend/access/heap/vacuumlazy.c
++++ b/src/backend/access/heap/vacuumlazy.c
+@@ -826,12 +826,10 @@ lazy_scan_heap(LVRelState *vacrel)
+ 	BlockNumber rel_pages = vacrel->rel_pages,
+ 				blkno,
+ 				next_fsm_block_to_vacuum = 0;
+ 	bool		all_visible_according_to_vm;
+ 
+-	TidStore   *dead_items = vacrel->dead_items;
+-	VacDeadItemsInfo *dead_items_info = vacrel->dead_items_info;
+ 	Buffer		vmbuffer = InvalidBuffer;
+ 	const int	initprog_index[] = {
+ 		PROGRESS_VACUUM_PHASE,
+ 		PROGRESS_VACUUM_TOTAL_HEAP_BLKS,
+ 		PROGRESS_VACUUM_MAX_DEAD_TUPLE_BYTES
+@@ -839,11 +837,11 @@ lazy_scan_heap(LVRelState *vacrel)
+ 	int64		initprog_val[3];
+ 
+ 	/* Report that we're scanning the heap, advertising total # of blocks */
+ 	initprog_val[0] = PROGRESS_VACUUM_PHASE_SCAN_HEAP;
+ 	initprog_val[1] = rel_pages;
+-	initprog_val[2] = dead_items_info->max_bytes;
++	initprog_val[2] = vacrel->dead_items_info->max_bytes;
+ 	pgstat_progress_update_multi_param(3, initprog_index, initprog_val);
+ 
+ 	/* Initialize for the first heap_vac_scan_next_block() call */
+ 	vacrel->current_block = InvalidBlockNumber;
+ 	vacrel->next_unskippable_block = InvalidBlockNumber;
+@@ -882,11 +880,11 @@ lazy_scan_heap(LVRelState *vacrel)
+ 		 * Consider if we definitely have enough space to process TIDs on page
+ 		 * already.  If we are close to overrunning the available space for
+ 		 * dead_items TIDs, pause and do a cycle of vacuuming before we tackle
+ 		 * this page.
+ 		 */
+-		if (TidStoreMemoryUsage(dead_items) > dead_items_info->max_bytes)
++		if (TidStoreMemoryUsage(vacrel->dead_items) > vacrel->dead_items_info->max_bytes)
+ 		{
+ 			/*
+ 			 * Before beginning index vacuuming, we release any pin we may
+ 			 * hold on the visibility map page.  This isn't necessary for
+ 			 * correctness, but we do it anyway to avoid holding the pin
+@@ -1052,11 +1050,11 @@ lazy_scan_heap(LVRelState *vacrel)
+ 
+ 	/*
+ 	 * Do index vacuuming (call each index's ambulkdelete routine), then do
+ 	 * related heap vacuuming
+ 	 */
+-	if (dead_items_info->num_items > 0)
++	if (vacrel->dead_items_info->num_items > 0)
+ 		lazy_vacuum(vacrel);
+ 
+ 	/*
+ 	 * Vacuum the remainder of the Free Space Map.  We must do this whether or
+ 	 * not there were indexes, and whether or not we bypassed index vacuuming.
+@@ -2893,42 +2891,39 @@ dead_items_alloc(LVRelState *vacrel, int nworkers)
+  */
+ static void
+ dead_items_add(LVRelState *vacrel, BlockNumber blkno, OffsetNumber *offsets,
+ 			   int num_offsets)
+ {
+-	TidStore   *dead_items = vacrel->dead_items;
+ 	const int	prog_index[2] = {
+ 		PROGRESS_VACUUM_NUM_DEAD_ITEM_IDS,
+ 		PROGRESS_VACUUM_DEAD_TUPLE_BYTES
+ 	};
+ 	int64		prog_val[2];
+ 
+-	TidStoreSetBlockOffsets(dead_items, blkno, offsets, num_offsets);
++	TidStoreSetBlockOffsets(vacrel->dead_items, blkno, offsets, num_offsets);
+ 	vacrel->dead_items_info->num_items += num_offsets;
+ 
+ 	/* update the progress information */
+ 	prog_val[0] = vacrel->dead_items_info->num_items;
+-	prog_val[1] = TidStoreMemoryUsage(dead_items);
++	prog_val[1] = TidStoreMemoryUsage(vacrel->dead_items);
+ 	pgstat_progress_update_multi_param(2, prog_index, prog_val);
+ }
+ 
+ /*
+  * Forget all collected dead items.
+  */
+ static void
+ dead_items_reset(LVRelState *vacrel)
+ {
+-	TidStore   *dead_items = vacrel->dead_items;
+-
+ 	if (ParallelVacuumIsActive(vacrel))
+ 	{
+ 		parallel_vacuum_reset_dead_items(vacrel->pvs);
+ 		return;
+ 	}
+ 
+ 	/* Recreate the tidstore with the same max_bytes limitation */
+-	TidStoreDestroy(dead_items);
++	TidStoreDestroy(vacrel->dead_items);
+ 	vacrel->dead_items = TidStoreCreateLocal(vacrel->dead_items_info->max_bytes, true);
+ 
+ 	/* Reset the counter */
+ 	vacrel->dead_items_info->num_items = 0;
+ }
+diff --git a/src/backend/commands/vacuumparallel.c b/src/backend/commands/vacuumparallel.c
+index 4fd6574e129..67cba17a564 100644
+--- a/src/backend/commands/vacuumparallel.c
++++ b/src/backend/commands/vacuumparallel.c
+@@ -472,25 +472,24 @@ parallel_vacuum_get_dead_items(ParallelVacuumState *pvs, VacDeadItemsInfo **dead
+ 
+ /* Forget all items in dead_items */
+ void
+ parallel_vacuum_reset_dead_items(ParallelVacuumState *pvs)
+ {
+-	TidStore   *dead_items = pvs->dead_items;
+ 	VacDeadItemsInfo *dead_items_info = &(pvs->shared->dead_items_info);
+ 
+ 	/*
+ 	 * Free the current tidstore and return allocated DSA segments to the
+ 	 * operating system. Then we recreate the tidstore with the same max_bytes
+ 	 * limitation we just used.
+ 	 */
+-	TidStoreDestroy(dead_items);
++	TidStoreDestroy(pvs->dead_items);
+ 	pvs->dead_items = TidStoreCreateShared(dead_items_info->max_bytes,
+ 										   LWTRANCHE_PARALLEL_VACUUM_DSA);
+ 
+ 	/* Update the DSA pointer for dead_items to the new one */
+-	pvs->shared->dead_items_dsa_handle = dsa_get_handle(TidStoreGetDSA(dead_items));
+-	pvs->shared->dead_items_handle = TidStoreGetHandle(dead_items);
++	pvs->shared->dead_items_dsa_handle = dsa_get_handle(TidStoreGetDSA(pvs->dead_items));
++	pvs->shared->dead_items_handle = TidStoreGetHandle(pvs->dead_items);
+ 
+ 	/* Reset the counter */
+ 	dead_items_info->num_items = 0;
+ }
+ 

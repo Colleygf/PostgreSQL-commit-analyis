@@ -1,0 +1,73 @@
+commit 32bc0d022dee250fac9fc787226abed96b8ff894
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Fri Apr 7 20:19:16 2023 +0200
+
+    Fix underspecified sort order in test query
+    
+    Fail in e056c557aef4.
+
+diff --git a/src/test/regress/expected/inherit.out b/src/test/regress/expected/inherit.out
+index eed4b91ae44..9c463732b6d 100644
+--- a/src/test/regress/expected/inherit.out
++++ b/src/test/regress/expected/inherit.out
+@@ -2216,30 +2216,30 @@ select conrelid::regclass, contype, conname,
+   (select attname from pg_attribute where attrelid = conrelid and attnum = conkey[1]),
+   coninhcount, conislocal
+  from pg_constraint where contype = 'n' and
+  conrelid::regclass in ('inh_p1', 'inh_p2', 'inh_p3', 'inh_p4',
+ 	'inh_multiparent')
+- order by 1, 2;
++ order by conrelid::regclass::text, conname;
+     conrelid     | contype |      conname       | attname | coninhcount | conislocal 
+ -----------------+---------+--------------------+---------+-------------+------------
++ inh_multiparent | n       | inh_p1_f1_not_null | f1      |           3 | f
++ inh_multiparent | n       | inh_p4_f3_not_null | f3      |           1 | f
+  inh_p1          | n       | inh_p1_f1_not_null | f1      |           0 | t
+  inh_p2          | n       | inh_p2_f1_not_null | f1      |           0 | t
+  inh_p4          | n       | inh_p4_f1_not_null | f1      |           0 | t
+  inh_p4          | n       | inh_p4_f3_not_null | f3      |           0 | t
+- inh_multiparent | n       | inh_p1_f1_not_null | f1      |           3 | f
+- inh_multiparent | n       | inh_p4_f3_not_null | f3      |           1 | f
+ (6 rows)
+ 
+ create table inh_multiparent2 (a int not null, f1 int) inherits(inh_p3, inh_multiparent);
+ NOTICE:  merging multiple inherited definitions of column "f2"
+ NOTICE:  merging column "f1" with inherited definition
+ select conrelid::regclass, contype, conname,
+   (select attname from pg_attribute where attrelid = conrelid and attnum = conkey[1]),
+   coninhcount, conislocal
+  from pg_constraint where contype = 'n' and
+  conrelid::regclass in ('inh_p3', 'inh_multiparent', 'inh_multiparent2')
+- order by 1, 2;
++ order by conrelid::regclass::text, conname;
+      conrelid     | contype |           conname           | attname | coninhcount | conislocal 
+ ------------------+---------+-----------------------------+---------+-------------+------------
+  inh_multiparent  | n       | inh_p1_f1_not_null          | f1      |           3 | f
+  inh_multiparent  | n       | inh_p4_f3_not_null          | f3      |           1 | f
+  inh_multiparent2 | n       | inh_multiparent2_a_not_null | a       |           0 | t
+diff --git a/src/test/regress/sql/inherit.sql b/src/test/regress/sql/inherit.sql
+index 3ef7220051d..b2bd530cb4d 100644
+--- a/src/test/regress/sql/inherit.sql
++++ b/src/test/regress/sql/inherit.sql
+@@ -873,19 +873,19 @@ select conrelid::regclass, contype, conname,
+   (select attname from pg_attribute where attrelid = conrelid and attnum = conkey[1]),
+   coninhcount, conislocal
+  from pg_constraint where contype = 'n' and
+  conrelid::regclass in ('inh_p1', 'inh_p2', 'inh_p3', 'inh_p4',
+ 	'inh_multiparent')
+- order by 1, 2;
++ order by conrelid::regclass::text, conname;
+ 
+ create table inh_multiparent2 (a int not null, f1 int) inherits(inh_p3, inh_multiparent);
+ select conrelid::regclass, contype, conname,
+   (select attname from pg_attribute where attrelid = conrelid and attnum = conkey[1]),
+   coninhcount, conislocal
+  from pg_constraint where contype = 'n' and
+  conrelid::regclass in ('inh_p3', 'inh_multiparent', 'inh_multiparent2')
+- order by 1, 2;
++ order by conrelid::regclass::text, conname;
+ 
+ drop table inh_p1, inh_p2, inh_p3, inh_p4 cascade;
+ 
+ --
+ -- Check use of temporary tables with inheritance trees

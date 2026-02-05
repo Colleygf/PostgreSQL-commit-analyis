@@ -1,0 +1,55 @@
+commit a734caa25f79b7bfa423dd97162e5ecf14d1feb5
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Wed Jun 21 10:36:09 2023 +0530
+
+    Fix the errhint message and docs for drop subscription failure.
+    
+    The existing errhint message and docs were missing the fact that we can't
+    disassociate from the slot unless the subscription is disabled.
+    
+    Author: Robert Sjöblom, Peter Smith
+    Reviewed-by: Peter Eisentraut, Amit Kapila
+    Backpatch-through: 11
+    Discussion: https://postgr.es/m/807bdf85-61ea-88e2-5712-6d9fcd4eabff@fortnox.se
+
+diff --git a/doc/src/sgml/ref/drop_subscription.sgml b/doc/src/sgml/ref/drop_subscription.sgml
+index 8d997c983fe..2a67bdea913 100644
+--- a/doc/src/sgml/ref/drop_subscription.sgml
++++ b/doc/src/sgml/ref/drop_subscription.sgml
+@@ -83,13 +83,15 @@ DROP SUBSCRIPTION [ IF EXISTS ] <replaceable class="parameter">name</replaceable
+    any remaining table synchronization slots) as
+    part of its operation.  This is necessary so that the resources allocated
+    for the subscription on the remote host are released.  If this fails,
+    either because the remote host is not reachable or because the remote
+    replication slot cannot be dropped or does not exist or never existed,
+-   the <command>DROP SUBSCRIPTION</command> command will fail.  To proceed in
+-   this situation, disassociate the subscription from the replication slot by
+-   executing <literal>ALTER SUBSCRIPTION ... SET (slot_name = NONE)</literal>.
++   the <command>DROP SUBSCRIPTION</command> command will fail.  To proceed
++   in this situation, first disable the subscription by executing
++   <literal>ALTER SUBSCRIPTION ... DISABLE</literal>, and then disassociate
++   it from the replication slot by executing
++   <literal>ALTER SUBSCRIPTION ... SET (slot_name = NONE)</literal>.
+    After that, <command>DROP SUBSCRIPTION</command> will no longer attempt any
+    actions on a remote host.  Note that if the remote replication slot still
+    exists, it (and any related table synchronization slots) should then be
+    dropped manually; otherwise it/they will continue to
+    reserve WAL and might eventually cause the disk to fill up.  See
+diff --git a/src/backend/commands/subscriptioncmds.c b/src/backend/commands/subscriptioncmds.c
+index 1c88c2bccbf..54895ba929a 100644
+--- a/src/backend/commands/subscriptioncmds.c
++++ b/src/backend/commands/subscriptioncmds.c
+@@ -2183,11 +2183,12 @@ ReportSlotConnectionError(List *rstates, Oid subid, char *slotname, char *err)
+ 	ereport(ERROR,
+ 			(errcode(ERRCODE_CONNECTION_FAILURE),
+ 			 errmsg("could not connect to publisher when attempting to drop replication slot \"%s\": %s",
+ 					slotname, err),
+ 	/* translator: %s is an SQL ALTER command */
+-			 errhint("Use %s to disassociate the subscription from the slot.",
++			 errhint("Use %s to disable the subscription, and then use %s to disassociate it from the slot.",
++					 "ALTER SUBSCRIPTION ... DISABLE",
+ 					 "ALTER SUBSCRIPTION ... SET (slot_name = NONE)")));
+ }
+ 
+ /*
+  * Check for duplicates in the given list of publications and error out if

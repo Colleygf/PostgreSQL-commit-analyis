@@ -1,0 +1,62 @@
+commit 480bc6e3ed3a5719cdec076d4943b119890e8171
+Author: Peter Geoghegan <pg@bowt.ie>
+Date:   Mon Apr 22 13:58:06 2024 -0400
+
+    Remove unneeded nbtree array preprocessing assert.
+    
+    Certain cases involving the use of cursors had assertion failures within
+    _bt_preprocess_keys's recently added no-op return path.  The assertion
+    in question made the faulty assumption that a second or third call to
+    _bt_preprocess_keys (within the same btrescan) could only happen when
+    another scheduled primitive index scan was just about to begin.
+    
+    It would be possible to address the problem by only allowing scans that
+    have array keys to take the new no-op path, forcing affected cases to
+    perform redundant preprocessing work.  It seems simpler to just remove
+    the assertion, and reframe the no-op path as a more general mechanism.
+    Take this simpler approach.
+    
+    The important underlying principle is that we only need to perform
+    preprocessing once per btrescan (at most).  This is expected regardless
+    of whether or not the scan happens to have array keys.
+    
+    Oversight in commit 1b134ca5, which enhanced nbtree ScalarArrayOp
+    execution.
+    
+    Reported-By: Alexander Lakhin <exclusion@gmail.com>
+    Discussion: https://postgr.es/m/ef0f7c8b-a6fa-362e-6fd6-054950f947ca@gmail.com
+
+diff --git a/src/backend/access/nbtree/nbtutils.c b/src/backend/access/nbtree/nbtutils.c
+index 8381027f4e5..05f0d23dc0b 100644
+--- a/src/backend/access/nbtree/nbtutils.c
++++ b/src/backend/access/nbtree/nbtutils.c
+@@ -2570,23 +2570,20 @@ _bt_preprocess_keys(IndexScanDesc scan)
+ 	AttrNumber	attno;
+ 	ScanKey		arrayKeyData;
+ 	int		   *keyDataMap = NULL;
+ 	int			arrayidx = 0;
+ 
+-	/*
+-	 * We're called at the start of each primitive index scan during scans
+-	 * that use equality array keys.  We can just reuse the scan keys that
+-	 * were output at the start of the scan's first primitive index scan.
+-	 */
+ 	if (so->numberOfKeys > 0)
+ 	{
+ 		/*
+-		 * An earlier call to _bt_advance_array_keys already set everything up
+-		 * already.  Just assert that the scan's existing output scan keys are
+-		 * consistent with its current array elements.
++		 * Only need to do preprocessing once per btrescan, at most.  All
++		 * calls after the first are handled as no-ops.
++		 *
++		 * If there are array scan keys in so->keyData[], then the now-current
++		 * array elements must already be present in each array's scan key.
++		 * Verify that that happened using an assertion.
+ 		 */
+-		Assert(so->numArrayKeys);
+ 		Assert(_bt_verify_keys_with_arraykeys(scan));
+ 		return;
+ 	}
+ 
+ 	/* initialize result variables */

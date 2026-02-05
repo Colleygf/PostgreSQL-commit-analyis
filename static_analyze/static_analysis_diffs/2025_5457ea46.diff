@@ -1,0 +1,97 @@
+commit 5457ea46d181f8b8dbe1ae482720b23bff4029de
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Fri Jul 25 10:56:55 2025 -0400
+
+    Fix dynahash's HASH_FIXED_SIZE ("isfixed") option.
+    
+    This flag was effectively a no-op in EXEC_BACKEND (ie, Windows)
+    builds, because it was kept in the process-local HTAB struct,
+    and it could only ever become set in the postmaster's copy.
+    
+    The simplest fix is to move it to the shared HASHHDR struct.
+    We could keep a copy in HTAB as well, as we do with keysize
+    and some other fields, but the "too much contention" argument
+    doesn't seem to apply here: we only examine isfixed during
+    element_alloc(), which had better not get hit very often for
+    a shared hashtable.
+    
+    This oversight dates to 7c797e719 which invented the option.
+    But back-patching doesn't seem appropriate given the lack of
+    field complaints.  If there is anyone running an affected
+    workload on Windows, they might be unhappy about the behavior
+    changing in a minor release.
+    
+    Author: Aidar Imamov <a.imamov@postgrespro.ru>
+    Reviewed-by: Tom Lane <tgl@sss.pgh.pa.us>
+    Discussion: https://postgr.es/m/4d0cb35ff01c5c74d2b9a582ecb73823@postgrespro.ru
+
+diff --git a/src/backend/utils/hash/dynahash.c b/src/backend/utils/hash/dynahash.c
+index 1ad155d446e..42e9be274fc 100644
+--- a/src/backend/utils/hash/dynahash.c
++++ b/src/backend/utils/hash/dynahash.c
+@@ -193,10 +193,11 @@ struct HASHHDR
+ 	long		num_partitions; /* # partitions (must be power of 2), or 0 */
+ 	long		max_dsize;		/* 'dsize' limit if directory is fixed size */
+ 	long		ssize;			/* segment size --- must be power of 2 */
+ 	int			sshift;			/* segment shift = log2(ssize) */
+ 	int			nelem_alloc;	/* number of entries to allocate at once */
++	bool		isfixed;		/* if true, don't enlarge */
+ 
+ #ifdef HASH_STATISTICS
+ 
+ 	/*
+ 	 * Count statistics here.  NB: stats code doesn't bother with mutex, so
+@@ -225,11 +226,10 @@ struct HTAB
+ 	HashCopyFunc keycopy;		/* key copying function */
+ 	HashAllocFunc alloc;		/* memory allocator */
+ 	MemoryContext hcxt;			/* memory context if default allocator used */
+ 	char	   *tabname;		/* table name (for error messages) */
+ 	bool		isshared;		/* true if table is in shared memory */
+-	bool		isfixed;		/* if true, don't enlarge */
+ 
+ 	/* freezing a shared table isn't allowed, so we can keep state here */
+ 	bool		frozen;			/* true = no more inserts allowed */
+ 
+ 	/* We keep local copies of these fixed values to reduce contention */
+@@ -616,12 +616,14 @@ hash_create(const char *tabname, long nelem, const HASHCTL *info, int flags)
+ 						(errcode(ERRCODE_OUT_OF_MEMORY),
+ 						 errmsg("out of memory")));
+ 		}
+ 	}
+ 
++	/* Set isfixed if requested, but not till after we build initial entries */
+ 	if (flags & HASH_FIXED_SIZE)
+-		hashp->isfixed = true;
++		hctl->isfixed = true;
++
+ 	return hashp;
+ }
+ 
+ /*
+  * Set default HASHHDR parameters.
+@@ -642,10 +644,12 @@ hdefault(HTAB *hashp)
+ 	hctl->max_dsize = NO_MAX_DSIZE;
+ 
+ 	hctl->ssize = DEF_SEGSIZE;
+ 	hctl->sshift = DEF_SEGSIZE_SHIFT;
+ 
++	hctl->isfixed = false;		/* can be enlarged */
++
+ #ifdef HASH_STATISTICS
+ 	hctl->accesses = hctl->collisions = 0;
+ #endif
+ }
+ 
+@@ -1711,11 +1715,11 @@ element_alloc(HTAB *hashp, int nelem, int freelist_idx)
+ 	HASHELEMENT *firstElement;
+ 	HASHELEMENT *tmpElement;
+ 	HASHELEMENT *prevElement;
+ 	int			i;
+ 
+-	if (hashp->isfixed)
++	if (hctl->isfixed)
+ 		return false;
+ 
+ 	/* Each element has a HASHELEMENT header plus user data. */
+ 	elementSize = MAXALIGN(sizeof(HASHELEMENT)) + MAXALIGN(hctl->entrysize);
+ 

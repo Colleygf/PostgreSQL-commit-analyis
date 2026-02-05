@@ -1,0 +1,75 @@
+commit f275afc997d77ada991307d22703b08f1dedef13
+Author: David Rowley <drowley@postgresql.org>
+Date:   Wed Dec 10 12:01:14 2025 +1300
+
+    Fix misleading comment in tuplesort.c
+    
+    A comment in tuplesort.c was claiming that the code was defining
+    INITIAL_MEMTUPSIZE so that it *does not* exceed
+    ALLOCSET_SEPARATE_THRESHOLD, but the code actually ensures that we
+    purposefully *do* exceed ALLOCSET_SEPARATE_THRESHOLD for the initial
+    allocation of the tuples array, as per reasons detailed in the
+    commentary of grow_memtuples().
+    
+    Also, there's not much need to repeat the mention about
+    ALLOCSET_SEPARATE_THRESHOLD in each location where INITIAL_MEMTUPSIZE is
+    used, so remove those comments.
+    
+    Author: ChangAo Chen <cca5507@qq.com>
+    Reviewed-by: Chao Li <li.evan.chao@gmail.com>
+    Reviewed-by: David G. Johnston <david.g.johnston@gmail.com>
+    Discussion: https://postgr.es/m/tencent_6FA14F85D6B5B5291532D6789E07F4765C08%40qq.com
+
+diff --git a/src/backend/utils/sort/tuplesort.c b/src/backend/utils/sort/tuplesort.c
+index c1fa7a97509..88ae529e843 100644
+--- a/src/backend/utils/sort/tuplesort.c
++++ b/src/backend/utils/sort/tuplesort.c
+@@ -109,15 +109,13 @@
+ #include "utils/memutils.h"
+ #include "utils/pg_rusage.h"
+ #include "utils/tuplesort.h"
+ 
+ /*
+- * Initial size of memtuples array.  We're trying to select this size so that
+- * array doesn't exceed ALLOCSET_SEPARATE_THRESHOLD and so that the overhead of
+- * allocation might possibly be lowered.  However, we don't consider array sizes
+- * less than 1024.
+- *
++ * Initial size of memtuples array.  This must be more than
++ * ALLOCSET_SEPARATE_THRESHOLD; see comments in grow_memtuples().  Clamp at
++ * 1024 elements to avoid excessive reallocs.
+  */
+ #define INITIAL_MEMTUPSIZE Max(1024, \
+ 	ALLOCSET_SEPARATE_THRESHOLD / sizeof(SortTuple) + 1)
+ 
+ /* GUC variables */
+@@ -690,14 +688,10 @@ tuplesort_begin_common(int workMem, SortCoordinate coordinate, int sortopt)
+ 	 */
+ 	state->allowedMem = Max(workMem, 64) * (int64) 1024;
+ 	state->base.sortcontext = sortcontext;
+ 	state->base.maincontext = maincontext;
+ 
+-	/*
+-	 * Initial size of array must be more than ALLOCSET_SEPARATE_THRESHOLD;
+-	 * see comments in grow_memtuples().
+-	 */
+ 	state->memtupsize = INITIAL_MEMTUPSIZE;
+ 	state->memtuples = NULL;
+ 
+ 	/*
+ 	 * After all of the other non-parallel-related state, we setup all of the
+@@ -782,14 +776,10 @@ tuplesort_begin_batch(Tuplesortstate *state)
+ 
+ 	state->tapeset = NULL;
+ 
+ 	state->memtupcount = 0;
+ 
+-	/*
+-	 * Initial size of array must be more than ALLOCSET_SEPARATE_THRESHOLD;
+-	 * see comments in grow_memtuples().
+-	 */
+ 	state->growmemtuples = true;
+ 	state->slabAllocatorUsed = false;
+ 	if (state->memtuples != NULL && state->memtupsize != INITIAL_MEMTUPSIZE)
+ 	{
+ 		pfree(state->memtuples);

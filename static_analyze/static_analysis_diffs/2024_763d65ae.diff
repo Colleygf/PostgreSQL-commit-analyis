@@ -1,0 +1,189 @@
+commit 763d65ae254569e0bdbe2cbb27b184112765f24f
+Author: Peter Geoghegan <pg@bowt.ie>
+Date:   Wed Oct 30 10:57:19 2024 -0400
+
+    Fix bug in nbtree array primitive scan scheduling.
+    
+    A bug in nbtree's handling of primitive index scan scheduling could lead
+    to wrong answers when a scrollable cursor was used with an index scan
+    that had a SAOP index qual.  Wrong answers were only possible when the
+    scan direction changed after a primitive scan was scheduled, but before
+    _bt_next was asked to fetch the next tuple in line (i.e. for things to
+    break, _bt_next had to be denied the opportunity to step off the page in
+    the same direction as the one used when the primscan was scheduled).
+    Furthermore, the issue only occurred when the page in question happened
+    to be the first page to be visited by the entire top-level scan; the
+    issue hinged upon the cursor backing up to the absolute beginning of the
+    key space that it returns tuples from (fetching in the opposite scan
+    direction across a "primitive scan boundary" always worked correctly).
+    
+    To fix, make _bt_next unset the "needs primitive index scan" flag when
+    it detects that the current scan direction is not the one that was used
+    by _bt_readpage back when the primitive scan in question was scheduled.
+    This fixes the cases that are known to be faulty, and also seems like a
+    good idea on general robustness grounds.
+    
+    Affected scrollable cursor cases now avoid a spurious primitive index
+    scan when they fetch backwards to the absolute start of the key space to
+    be visited by their cursor.  Fetching backwards now only returns those
+    tuples at the start of the scan, as expected.  It'll also be okay to
+    once again fetch forwards from the start at that point, since the scan
+    will be left in a state that's exactly consistent with the state it was
+    in before any tuples were ever fetched, as expected.
+    
+    Oversight in commit 5bf748b8, which enhanced nbtree ScalarArrayOp
+    execution.
+    
+    Author: Peter Geoghegan <pg@bowt.ie>
+    Discussion: https://postgr.es/m/CAH2-Wznv49bFsE2jkt4GuZ0tU2C91dEST=50egzjY2FeOcHL4Q@mail.gmail.com
+    Backpatch: 17-, where commit 5bf748b8 first appears.
+
+diff --git a/src/backend/access/nbtree/nbtsearch.c b/src/backend/access/nbtree/nbtsearch.c
+index c33438c4bbd..b082cc80f6c 100644
+--- a/src/backend/access/nbtree/nbtsearch.c
++++ b/src/backend/access/nbtree/nbtsearch.c
+@@ -1566,10 +1566,11 @@ _bt_readpage(IndexScanDesc scan, ScanDirection dir, OffsetNumber offnum,
+ 	so->currPos.prevPage = opaque->btpo_prev;
+ 	so->currPos.nextPage = opaque->btpo_next;
+ 
+ 	Assert(!P_IGNORE(opaque));
+ 	Assert(BTScanPosIsPinned(so->currPos));
++	Assert(!so->needPrimScan);
+ 
+ 	if (scan->parallel_scan)
+ 	{
+ 		/* allow next/prev page to be read by other worker without delay */
+ 		if (ScanDirectionIsForward(dir))
+@@ -1592,11 +1593,10 @@ _bt_readpage(IndexScanDesc scan, ScanDirection dir, OffsetNumber offnum,
+ 	arrayKeys = so->numArrayKeys != 0;
+ 	minoff = P_FIRSTDATAKEY(opaque);
+ 	maxoff = PageGetMaxOffsetNumber(page);
+ 
+ 	/* initialize page-level state that we'll pass to _bt_checkkeys */
+-	pstate.dir = dir;
+ 	pstate.minoff = minoff;
+ 	pstate.maxoff = maxoff;
+ 	pstate.finaltup = NULL;
+ 	pstate.page = page;
+ 	pstate.offnum = InvalidOffsetNumber;
+@@ -2086,11 +2086,11 @@ _bt_steppage(IndexScanDesc scan, ScanDirection dir)
+ 		 * In effect, btrestpos leaves advancing the arrays up to the first
+ 		 * _bt_readpage call (that takes place after it has restored markPos).
+ 		 */
+ 		if (so->needPrimScan)
+ 		{
+-			if (ScanDirectionIsForward(dir))
++			if (ScanDirectionIsForward(so->currPos.dir))
+ 				so->markPos.moreRight = true;
+ 			else
+ 				so->markPos.moreLeft = true;
+ 		}
+ 
+@@ -2107,19 +2107,30 @@ _bt_steppage(IndexScanDesc scan, ScanDirection dir)
+ 		if (ScanDirectionIsForward(dir))
+ 			blkno = so->currPos.nextPage;
+ 		else
+ 			blkno = so->currPos.prevPage;
+ 		lastcurrblkno = so->currPos.currPage;
++
++		/*
++		 * Cancel primitive index scans that were scheduled when the call to
++		 * _bt_readpage for currPos happened to use the opposite direction to
++		 * the one that we're stepping in now.  (It's okay to leave the scan's
++		 * array keys as-is, since the next _bt_readpage will advance them.)
++		 */
++		if (so->currPos.dir != dir)
++			so->needPrimScan = false;
+ 	}
+ 	else
+ 	{
+ 		/*
+ 		 * Seize the scan to get the nextPage and currPage from shared
+ 		 * parallel state (saved from parallel scan's last _bt_readpage)
+ 		 */
+ 		if (!_bt_parallel_seize(scan, &blkno, &lastcurrblkno, false))
+ 			return false;
++
++		Assert(!so->needPrimScan);
+ 	}
+ 
+ 	return _bt_readnextpage(scan, blkno, lastcurrblkno, dir);
+ }
+ 
+diff --git a/src/backend/access/nbtree/nbtutils.c b/src/backend/access/nbtree/nbtutils.c
+index 76be65123c8..20227989c6d 100644
+--- a/src/backend/access/nbtree/nbtutils.c
++++ b/src/backend/access/nbtree/nbtutils.c
+@@ -1798,11 +1798,11 @@ _bt_advance_array_keys(IndexScanDesc scan, BTReadPageState *pstate,
+ 					   IndexTuple tuple, int tupnatts, TupleDesc tupdesc,
+ 					   int sktrig, bool sktrig_required)
+ {
+ 	BTScanOpaque so = (BTScanOpaque) scan->opaque;
+ 	Relation	rel = scan->indexRelation;
+-	ScanDirection dir = pstate ? pstate->dir : ForwardScanDirection;
++	ScanDirection dir = so->currPos.dir;
+ 	int			arrayidx = 0;
+ 	bool		beyond_end_advance = false,
+ 				has_required_opposite_direction_only = false,
+ 				oppodir_inequality_sktrig = false,
+ 				all_required_satisfied = true,
+@@ -2398,12 +2398,14 @@ _bt_advance_array_keys(IndexScanDesc scan, BTReadPageState *pstate,
+ new_prim_scan:
+ 
+ 	/*
+ 	 * End this primitive index scan, but schedule another.
+ 	 *
+-	 * Note: If the scan direction happens to change, this scheduled primitive
+-	 * index scan won't go ahead after all.
++	 * Note: We make a soft assumption that the current scan direction will
++	 * also be used within _bt_next, when it is asked to step off this page.
++	 * It is up to _bt_next to cancel this scheduled primitive index scan
++	 * whenever it steps to a page in the direction opposite currPos.dir.
+ 	 */
+ 	pstate->continuescan = false;	/* Tell _bt_readpage we're done... */
+ 	so->needPrimScan = true;	/* ...but call _bt_first again */
+ 
+ 	if (scan->parallel_scan)
+@@ -3456,11 +3458,11 @@ bool
+ _bt_checkkeys(IndexScanDesc scan, BTReadPageState *pstate, bool arrayKeys,
+ 			  IndexTuple tuple, int tupnatts)
+ {
+ 	TupleDesc	tupdesc = RelationGetDescr(scan->indexRelation);
+ 	BTScanOpaque so = (BTScanOpaque) scan->opaque;
+-	ScanDirection dir = pstate->dir;
++	ScanDirection dir = so->currPos.dir;
+ 	int			ikey = 0;
+ 	bool		res;
+ 
+ 	Assert(BTreeTupleGetNAtts(tuple, scan->indexRelation) == tupnatts);
+ 
+@@ -4060,11 +4062,12 @@ _bt_check_rowcompare(ScanKey skey, IndexTuple tuple, int tupnatts,
+  */
+ static void
+ _bt_checkkeys_look_ahead(IndexScanDesc scan, BTReadPageState *pstate,
+ 						 int tupnatts, TupleDesc tupdesc)
+ {
+-	ScanDirection dir = pstate->dir;
++	BTScanOpaque so = (BTScanOpaque) scan->opaque;
++	ScanDirection dir = so->currPos.dir;
+ 	OffsetNumber aheadoffnum;
+ 	IndexTuple	ahead;
+ 
+ 	/* Avoid looking ahead when comparing the page high key */
+ 	if (pstate->offnum < pstate->minoff)
+diff --git a/src/include/access/nbtree.h b/src/include/access/nbtree.h
+index 5fb523ecec3..123fba624db 100644
+--- a/src/include/access/nbtree.h
++++ b/src/include/access/nbtree.h
+@@ -1076,11 +1076,10 @@ typedef BTScanOpaqueData *BTScanOpaque;
+  * _bt_readpage state used across _bt_checkkeys calls for a page
+  */
+ typedef struct BTReadPageState
+ {
+ 	/* Input parameters, set by _bt_readpage for _bt_checkkeys */
+-	ScanDirection dir;			/* current scan direction */
+ 	OffsetNumber minoff;		/* Lowest non-pivot tuple's offset */
+ 	OffsetNumber maxoff;		/* Highest non-pivot tuple's offset */
+ 	IndexTuple	finaltup;		/* Needed by scans with array keys */
+ 	Page		page;			/* Page being read */
+ 

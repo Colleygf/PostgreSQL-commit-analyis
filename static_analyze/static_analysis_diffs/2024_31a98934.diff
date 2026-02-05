@@ -1,0 +1,102 @@
+commit 31a98934d1699007b50aefaedd68ab4d6b42e3b4
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Tue Sep 3 11:33:38 2024 +0200
+
+    Fix typos in code comments and test data
+    
+    The typos in 005_negotiate_encryption.pl and pg_combinebackup.c
+    shall be backported to v17 where they were introduced.
+    
+    Backpatch-through: v17
+    Discussion: https://postgr.es/m/Ztaj7BkN4658OMxF@paquier.xyz
+
+diff --git a/src/backend/storage/buffer/bufmgr.c b/src/backend/storage/buffer/bufmgr.c
+index 5cdd2f10fc8..71d2ab8b49f 100644
+--- a/src/backend/storage/buffer/bufmgr.c
++++ b/src/backend/storage/buffer/bufmgr.c
+@@ -4739,11 +4739,11 @@ RelationCopyStorageUsingBuffer(RelFileLocator srclocator,
+ 
+ 	/* This is a bulk operation, so use buffer access strategies. */
+ 	bstrategy_src = GetAccessStrategy(BAS_BULKREAD);
+ 	bstrategy_dst = GetAccessStrategy(BAS_BULKWRITE);
+ 
+-	/* Initalize streaming read */
++	/* Initialize streaming read */
+ 	p.blocknum = 0;
+ 	p.nblocks = nblocks;
+ 	src_smgr = smgropen(srclocator, INVALID_PROC_NUMBER);
+ 	src_stream = read_stream_begin_smgr_relation(READ_STREAM_FULL,
+ 												 bstrategy_src,
+diff --git a/src/bin/pg_combinebackup/pg_combinebackup.c b/src/bin/pg_combinebackup/pg_combinebackup.c
+index 05a2ff905b0..6183d317151 100644
+--- a/src/bin/pg_combinebackup/pg_combinebackup.c
++++ b/src/bin/pg_combinebackup/pg_combinebackup.c
+@@ -847,11 +847,11 @@ process_directory_recursively(Oid tsoid,
+ 	 * We set is_pg_tblspc only for the toplevel pg_tblspc directory, because
+ 	 * the symlinks in that specific directory require special handling.
+ 	 *
+ 	 * We set is_pg_wal for the toplevel WAL directory and all of its
+ 	 * subdirectories, because those files are not included in the backup
+-	 * manifest and hence need special treatement. (Since incremental backup
++	 * manifest and hence need special treatment. (Since incremental backup
+ 	 * does not exist in pre-v10 versions, we don't have to worry about the
+ 	 * old pg_xlog naming.)
+ 	 *
+ 	 * We set is_incremental_dir for directories that can contain incremental
+ 	 * files requiring reconstruction. If such files occur outside these
+diff --git a/src/interfaces/libpq/t/005_negotiate_encryption.pl b/src/interfaces/libpq/t/005_negotiate_encryption.pl
+index 157f23b8e83..73f0056f10c 100644
+--- a/src/interfaces/libpq/t/005_negotiate_encryption.pl
++++ b/src/interfaces/libpq/t/005_negotiate_encryption.pl
+@@ -238,11 +238,11 @@ testuser    disable      disable      postgres       connect, authok
+ .           .            allow        postgres       connect, authok             -> plain
+ .           .            prefer       postgres       connect, sslreject, authok  -> plain
+ .           .            require      postgres       connect, sslreject          -> fail
+ .           .            .            direct         connect, directsslreject    -> fail
+ 
+-# sslnegotiation=direct is not acccepted unless sslmode=require or stronger
++# sslnegotiation=direct is not accepted unless sslmode=require or stronger
+ *           *            disable      direct         -     -> fail
+ *           *            allow        direct         -     -> fail
+ *           *            prefer       direct         -     -> fail
+ };
+ }
+@@ -301,11 +301,11 @@ nossluser   .            disable      postgres       connect, authok
+ .           .            allow        postgres       connect, authok                                 -> plain
+ .           .            prefer       postgres       connect, sslaccept, authfail, reconnect, authok -> plain
+ .           .            require      postgres       connect, sslaccept, authfail                    -> fail
+ .           .            require      direct         connect, directsslaccept, authfail              -> fail
+ 
+-# sslnegotiation=direct is not acccepted unless sslmode=require or stronger
++# sslnegotiation=direct is not accepted unless sslmode=require or stronger
+ *           *            disable      direct         -     -> fail
+ *           *            allow        direct         -     -> fail
+ *           *            prefer       direct         -     -> fail
+ };
+ 
+@@ -403,11 +403,11 @@ nogssuser   disable      disable      postgres       connect, authok
+ .           .            allow        postgres       connect, gssaccept, authfail -> fail
+ .           .            prefer       postgres       connect, gssaccept, authfail -> fail
+ .           .            require      postgres       connect, gssaccept, authfail -> fail   # If both GSSAPI and sslmode are required, and GSS is not available -> fail
+ .           .            .            direct         connect, gssaccept, authfail -> fail   # If both GSSAPI and sslmode are required, and GSS is not available -> fail
+ 
+-# sslnegotiation=direct is not acccepted unless sslmode=require or stronger
++# sslnegotiation=direct is not accepted unless sslmode=require or stronger
+ *           *            disable      direct         -     -> fail
+ *           *            allow        direct         -     -> fail
+ *           *            prefer       direct         -     -> fail
+ 	};
+ 
+@@ -560,11 +560,11 @@ nossluser   disable      disable      postgres       connect, authok
+ .           prefer       *            postgres       connect, gssaccept, authok   -> gss
+ .           .            require      direct         connect, gssaccept, authok   -> gss
+ .           require      *            postgres       connect, gssaccept, authok   -> gss
+ .           .            require      direct         connect, gssaccept, authok   -> gss
+ 
+-# sslnegotiation=direct is not acccepted unless sslmode=require or stronger
++# sslnegotiation=direct is not accepted unless sslmode=require or stronger
+ *           *            disable      direct         -     -> fail
+ *           *            allow        direct         -     -> fail
+ *           *            prefer       direct         -     -> fail
+ 	};
+ 

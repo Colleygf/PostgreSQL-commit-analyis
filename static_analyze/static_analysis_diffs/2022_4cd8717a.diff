@@ -1,0 +1,70 @@
+commit 4cd8717af3f0345c758d46fea06fb390b4d593f2
+Author: Andrew Dunstan <andrew@dunslane.net>
+Date:   Thu Apr 14 10:26:29 2022 -0400
+
+    Improve a couple of sql/json error messages
+    
+    Fix the grammar in two, and add a hint to one.
+
+diff --git a/src/backend/parser/parse_expr.c b/src/backend/parser/parse_expr.c
+index 2f8c5e63fe8..5fc0b1763c8 100644
+--- a/src/backend/parser/parse_expr.c
++++ b/src/backend/parser/parse_expr.c
+@@ -4454,21 +4454,22 @@ transformJsonFuncExpr(ParseState *pstate, JsonFuncExpr *func)
+ 			jsexpr->returning->typmod = -1;
+ 
+ 			if (jsexpr->returning->typid != JSONBOID)
+ 				ereport(ERROR,
+ 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+-						 errmsg("JSON_TABLE() is not yet implemented for json type"),
++						 errmsg("JSON_TABLE() is not yet implemented for the json type"),
+ 						 errhint("Try casting the argument to jsonb"),
+ 						 parser_errposition(pstate, func->location)));
+ 
+ 			break;
+ 	}
+ 
+ 	if (exprType(contextItemExpr) != JSONBOID)
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+-				 errmsg("%s() is not yet implemented for json type", func_name),
++				 errmsg("%s() is not yet implemented for the json type", func_name),
++				 errhint("Try casting the argument to jsonb"),
+ 				 parser_errposition(pstate, func->location)));
+ 
+ 	return (Node *) jsexpr;
+ }
+ 
+diff --git a/src/test/regress/expected/json_sqljson.out b/src/test/regress/expected/json_sqljson.out
+index 5c4dfa5f7c5..995f2674046 100644
+--- a/src/test/regress/expected/json_sqljson.out
++++ b/src/test/regress/expected/json_sqljson.out
+@@ -1,21 +1,24 @@
+ -- JSON_EXISTS
+ SELECT JSON_EXISTS(NULL FORMAT JSON, '$');
+-ERROR:  JSON_EXISTS() is not yet implemented for json type
++ERROR:  JSON_EXISTS() is not yet implemented for the json type
+ LINE 1: SELECT JSON_EXISTS(NULL FORMAT JSON, '$');
+                ^
++HINT:  Try casting the argument to jsonb
+ -- JSON_VALUE
+ SELECT JSON_VALUE(NULL FORMAT JSON, '$');
+-ERROR:  JSON_VALUE() is not yet implemented for json type
++ERROR:  JSON_VALUE() is not yet implemented for the json type
+ LINE 1: SELECT JSON_VALUE(NULL FORMAT JSON, '$');
+                ^
++HINT:  Try casting the argument to jsonb
+ -- JSON_QUERY
+ SELECT JSON_QUERY(NULL FORMAT JSON, '$');
+-ERROR:  JSON_QUERY() is not yet implemented for json type
++ERROR:  JSON_QUERY() is not yet implemented for the json type
+ LINE 1: SELECT JSON_QUERY(NULL FORMAT JSON, '$');
+                ^
++HINT:  Try casting the argument to jsonb
+ -- JSON_TABLE
+ SELECT * FROM JSON_TABLE(NULL FORMAT JSON, '$' COLUMNS (foo text));
+-ERROR:  JSON_TABLE() is not yet implemented for json type
++ERROR:  JSON_TABLE() is not yet implemented for the json type
+ LINE 1: SELECT * FROM JSON_TABLE(NULL FORMAT JSON, '$' COLUMNS (foo ...
+                                  ^
+ HINT:  Try casting the argument to jsonb

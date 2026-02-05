@@ -1,0 +1,89 @@
+commit 39e3bcae44868734504c3decbb6708c36a5a84b2
+Author: Nathan Bossart <nathan@postgresql.org>
+Date:   Thu Jan 9 17:10:13 2025 -0600
+
+    Fix an ALTER GROUP ... DROP USER error message.
+    
+    This error message stated the privileges required to add a member
+    to a group even if the user was trying to drop a member:
+    
+            postgres=> alter group a drop user b;
+            ERROR:  permission denied to alter role
+            DETAIL:  Only roles with the ADMIN option on role "a" may add members.
+    
+    Since the required privileges for both operations are the same, we
+    can fix this by modifying the message to mention both adding and
+    dropping members:
+    
+            postgres=> alter group a drop user b;
+            ERROR:  permission denied to alter role
+            DETAIL:  Only roles with the ADMIN option on role "a" may add or drop members.
+    
+    Author: ChangAo Chen
+    Reviewed-by: Tom Lane
+    Discussion: https://postgr.es/m/tencent_FAA0D00E3514AAF0BBB6322542A6094FEF05%40qq.com
+    Backpatch-through: 16
+
+diff --git a/src/backend/commands/user.c b/src/backend/commands/user.c
+index 266635d5e29..0db174e6f10 100644
+--- a/src/backend/commands/user.c
++++ b/src/backend/commands/user.c
+@@ -815,16 +815,16 @@ AlterRole(ParseState *pstate, AlterRoleStmt *stmt)
+ 					 errmsg("permission denied to alter role"),
+ 					 errdetail("Only roles with the %s attribute may change the %s attribute.",
+ 							   "BYPASSRLS", "BYPASSRLS")));
+ 	}
+ 
+-	/* To add members to a role, you need ADMIN OPTION. */
++	/* To add or drop members, you need ADMIN OPTION. */
+ 	if (drolemembers && !is_admin_of_role(currentUserId, roleid))
+ 		ereport(ERROR,
+ 				(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+ 				 errmsg("permission denied to alter role"),
+-				 errdetail("Only roles with the %s option on role \"%s\" may add members.",
++				 errdetail("Only roles with the %s option on role \"%s\" may add or drop members.",
+ 						   "ADMIN", rolename)));
+ 
+ 	/* Convert validuntil to internal form */
+ 	if (dvalidUntil)
+ 	{
+diff --git a/src/test/regress/expected/privileges.out b/src/test/regress/expected/privileges.out
+index 75912f690c2..6b01313101b 100644
+--- a/src/test/regress/expected/privileges.out
++++ b/src/test/regress/expected/privileges.out
+@@ -214,10 +214,17 @@ DROP USER regress_priv_user9;
+ DROP USER regress_priv_user8;
+ CREATE GROUP regress_priv_group1;
+ CREATE GROUP regress_priv_group2 WITH ADMIN regress_priv_user1 USER regress_priv_user2;
+ ALTER GROUP regress_priv_group1 ADD USER regress_priv_user4;
+ GRANT regress_priv_group2 TO regress_priv_user2 GRANTED BY regress_priv_user1;
++SET SESSION AUTHORIZATION regress_priv_user3;
++ALTER GROUP regress_priv_group2 ADD USER regress_priv_user2;	-- fail
++ERROR:  permission denied to alter role
++DETAIL:  Only roles with the ADMIN option on role "regress_priv_group2" may add or drop members.
++ALTER GROUP regress_priv_group2 DROP USER regress_priv_user2;	-- fail
++ERROR:  permission denied to alter role
++DETAIL:  Only roles with the ADMIN option on role "regress_priv_group2" may add or drop members.
+ SET SESSION AUTHORIZATION regress_priv_user1;
+ ALTER GROUP regress_priv_group2 ADD USER regress_priv_user2;
+ NOTICE:  role "regress_priv_user2" has already been granted membership in role "regress_priv_group2" by role "regress_priv_user1"
+ ALTER GROUP regress_priv_group2 ADD USER regress_priv_user2;	-- duplicate
+ NOTICE:  role "regress_priv_user2" has already been granted membership in role "regress_priv_group2" by role "regress_priv_user1"
+diff --git a/src/test/regress/sql/privileges.sql b/src/test/regress/sql/privileges.sql
+index d886cc088c9..60e7443bf59 100644
+--- a/src/test/regress/sql/privileges.sql
++++ b/src/test/regress/sql/privileges.sql
+@@ -167,10 +167,13 @@ CREATE GROUP regress_priv_group1;
+ CREATE GROUP regress_priv_group2 WITH ADMIN regress_priv_user1 USER regress_priv_user2;
+ 
+ ALTER GROUP regress_priv_group1 ADD USER regress_priv_user4;
+ 
+ GRANT regress_priv_group2 TO regress_priv_user2 GRANTED BY regress_priv_user1;
++SET SESSION AUTHORIZATION regress_priv_user3;
++ALTER GROUP regress_priv_group2 ADD USER regress_priv_user2;	-- fail
++ALTER GROUP regress_priv_group2 DROP USER regress_priv_user2;	-- fail
+ SET SESSION AUTHORIZATION regress_priv_user1;
+ ALTER GROUP regress_priv_group2 ADD USER regress_priv_user2;
+ ALTER GROUP regress_priv_group2 ADD USER regress_priv_user2;	-- duplicate
+ ALTER GROUP regress_priv_group2 DROP USER regress_priv_user2;
+ ALTER USER regress_priv_user2 PASSWORD 'verysecret'; -- not permitted

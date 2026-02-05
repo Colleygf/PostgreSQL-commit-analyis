@@ -1,0 +1,117 @@
+commit c67c2e2a29392b85ba7c728d3ceed986808eeec3
+Author: Tom Lane <tgl@sss.pgh.pa.us>
+Date:   Tue Aug 2 18:05:34 2022 -0400
+
+    Be more wary about 32-bit integer overflow in pg_stat_statements.
+    
+    We've heard a couple of reports of people having trouble with
+    multi-gigabyte-sized query-texts files.  It occurred to me that on
+    32-bit platforms, there could be an issue with integer overflow
+    of calculations associated with the total query text size.
+    Address that with several changes:
+    
+    1. Limit pg_stat_statements.max to INT_MAX / 2 not INT_MAX.
+    The hashtable code will bound it to that anyway unless "long"
+    is 64 bits.  We still need overflow guards on its use, but
+    this helps.
+    
+    2. Add a check to prevent extending the query-texts file to
+    more than MaxAllocHugeSize.  If it got that big, qtext_load_file
+    would certainly fail, so there's not much point in allowing it.
+    Without this, we'd need to consider whether extent, query_offset,
+    and related variables shouldn't be off_t not size_t.
+    
+    3. Adjust the comparisons in need_gc_qtexts() to be done in 64-bit
+    arithmetic on all platforms.  It appears possible that under duress
+    those multiplications could overflow 32 bits, yielding a false
+    conclusion that we need to garbage-collect the texts file, which
+    could lead to repeatedly garbage-collecting after every hash table
+    insertion.
+    
+    Per report from Bruno da Silva.  I'm not convinced that these
+    issues fully explain his problem; there may be some other bug that's
+    contributing to the query-texts file becoming so large in the first
+    place.  But it did get that big, so #2 is a reasonable defense,
+    and #3 could explain the reported performance difficulties.
+    
+    (See also commit 8bbe4cbd9, which addressed some related bugs.
+    The second Discussion: link is the thread that led up to that.)
+    
+    This issue is old, and is primarily a problem for old platforms,
+    so back-patch.
+    
+    Discussion: https://postgr.es/m/CAB+Nuk93fL1Q9eLOCotvLP07g7RAv4vbdrkm0cVQohDVMpAb9A@mail.gmail.com
+    Discussion: https://postgr.es/m/5601D354.5000703@BlueTreble.com
+
+diff --git a/contrib/pg_stat_statements/pg_stat_statements.c b/contrib/pg_stat_statements/pg_stat_statements.c
+index 049da9fe6df..73439c01991 100644
+--- a/contrib/pg_stat_statements/pg_stat_statements.c
++++ b/contrib/pg_stat_statements/pg_stat_statements.c
+@@ -395,11 +395,11 @@ _PG_init(void)
+ 							"Sets the maximum number of statements tracked by pg_stat_statements.",
+ 							NULL,
+ 							&pgss_max,
+ 							5000,
+ 							100,
+-							INT_MAX,
++							INT_MAX / 2,
+ 							PGC_POSTMASTER,
+ 							0,
+ 							NULL,
+ 							NULL,
+ 							NULL);
+@@ -2084,10 +2084,22 @@ qtext_store(const char *query, int query_len,
+ 		SpinLockRelease(&s->mutex);
+ 	}
+ 
+ 	*query_offset = off;
+ 
++	/*
++	 * Don't allow the file to grow larger than what qtext_load_file can
++	 * (theoretically) handle.  This has been seen to be reachable on 32-bit
++	 * platforms.
++	 */
++	if (unlikely(query_len >= MaxAllocHugeSize - off))
++	{
++		errno = EFBIG;			/* not quite right, but it'll do */
++		fd = -1;
++		goto error;
++	}
++
+ 	/* Now write the data into the successfully-reserved part of the file */
+ 	fd = OpenTransientFile(PGSS_TEXT_FILE, O_RDWR | O_CREAT | PG_BINARY);
+ 	if (fd < 0)
+ 		goto error;
+ 
+@@ -2269,22 +2281,28 @@ need_gc_qtexts(void)
+ 		SpinLockAcquire(&s->mutex);
+ 		extent = s->extent;
+ 		SpinLockRelease(&s->mutex);
+ 	}
+ 
+-	/* Don't proceed if file does not exceed 512 bytes per possible entry */
+-	if (extent < 512 * pgss_max)
++	/*
++	 * Don't proceed if file does not exceed 512 bytes per possible entry.
++	 *
++	 * Here and in the next test, 32-bit machines have overflow hazards if
++	 * pgss_max and/or mean_query_len are large.  Force the multiplications
++	 * and comparisons to be done in uint64 arithmetic to forestall trouble.
++	 */
++	if ((uint64) extent < (uint64) 512 * pgss_max)
+ 		return false;
+ 
+ 	/*
+ 	 * Don't proceed if file is less than about 50% bloat.  Nothing can or
+ 	 * should be done in the event of unusually large query texts accounting
+ 	 * for file's large size.  We go to the trouble of maintaining the mean
+ 	 * query length in order to prevent garbage collection from thrashing
+ 	 * uselessly.
+ 	 */
+-	if (extent < pgss->mean_query_len * pgss_max * 2)
++	if ((uint64) extent < (uint64) pgss->mean_query_len * pgss_max * 2)
+ 		return false;
+ 
+ 	return true;
+ }
+ 

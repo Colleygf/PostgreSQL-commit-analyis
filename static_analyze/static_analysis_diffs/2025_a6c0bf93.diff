@@ -1,0 +1,122 @@
+commit a6c0bf93031dac8701b8d6c1093230dc5caf190d
+Author: Daniel Gustafsson <dgustafsson@postgresql.org>
+Date:   Thu Jul 10 23:26:51 2025 +0200
+
+    Fix sslkeylogfile error handling logging
+    
+    When sslkeylogfile has been set but the file fails to open in an
+    otherwise successful connection, the log entry added to the conn
+    object is never printed.  Instead print the error on stderr for
+    increased visibility.  This is a debugging tool so using stderr
+    for logging is appropriate.  Also while there, remove the umask
+    call in the callback as it's not useful.
+    
+    Issues noted by Peter Eisentraut in post-commit review, backpatch
+    down to 18 when support for sslkeylogfile was added
+    
+    Author: Daniel Gustafsson <daniel@yesql.se>
+    Reported-by: Peter Eisentraut <peter@eisentraut.org>
+    Reviewed-by: Peter Eisentraut <peter@eisentraut.org>
+    Discussion: https://postgr.es/m/70450bee-cfaa-48ce-8980-fc7efcfebb03@eisentraut.org
+    Backpatch-through: 18
+
+diff --git a/src/interfaces/libpq/fe-secure-openssl.c b/src/interfaces/libpq/fe-secure-openssl.c
+index b08b3a6901b..51dd7b9fec0 100644
+--- a/src/interfaces/libpq/fe-secure-openssl.c
++++ b/src/interfaces/libpq/fe-secure-openssl.c
+@@ -691,38 +691,39 @@ static unsigned char alpn_protos[] = PG_ALPN_PROTOCOL_VECTOR;
+  *
+  * This callback lets the user store all key material to a file for debugging
+  * purposes.  The file will be written using the NSS keylog format.  LibreSSL
+  * 3.5 introduced stub function to set the callback for OpenSSL compatibility
+  * but the callback is never invoked.
++ *
++ * Error messages added to the connection object wont be printed anywhere if
++ * the connection is successful.  Errors in processing keylogging are printed
++ * to stderr to overcome this.
+  */
+ static void
+ SSL_CTX_keylog_cb(const SSL *ssl, const char *line)
+ {
+ 	int			fd;
+-	mode_t		old_umask;
+ 	ssize_t		rc;
+ 	PGconn	   *conn = SSL_get_app_data(ssl);
+ 
+ 	if (conn == NULL)
+ 		return;
+ 
+-	old_umask = umask(077);
+ 	fd = open(conn->sslkeylogfile, O_WRONLY | O_APPEND | O_CREAT, 0600);
+-	umask(old_umask);
+ 
+ 	if (fd == -1)
+ 	{
+-		libpq_append_conn_error(conn, "could not open SSL key logging file \"%s\": %s",
+-								conn->sslkeylogfile, pg_strerror(errno));
++		fprintf(stderr, libpq_gettext("WARNING: could not open SSL key logging file \"%s\": %m\n"),
++				conn->sslkeylogfile);
+ 		return;
+ 	}
+ 
+ 	/* line is guaranteed by OpenSSL to be NUL terminated */
+ 	rc = write(fd, line, strlen(line));
+ 	if (rc < 0)
+-		libpq_append_conn_error(conn, "could not write to SSL key logging file \"%s\": %s",
+-								conn->sslkeylogfile, pg_strerror(errno));
++		fprintf(stderr, libpq_gettext("WARNING: could not write to SSL key logging file \"%s\": %m\n"),
++				conn->sslkeylogfile);
+ 	else
+ 		rc = write(fd, "\n", 1);
+ 	(void) rc;					/* silence compiler warnings */
+ 	close(fd);
+ }
+@@ -1042,10 +1043,14 @@ initialize_SSL(PGconn *conn)
+ 		SSL_CTX_free(SSL_context);
+ 		return -1;
+ 	}
+ 	conn->ssl_in_use = true;
+ 
++	/*
++	 * If SSL key logging is requested, set up the callback if a compatible
++	 * version of OpenSSL is used and libpq was compiled to support it.
++	 */
+ 	if (conn->sslkeylogfile && strlen(conn->sslkeylogfile) > 0)
+ 	{
+ #ifdef HAVE_SSL_CTX_SET_KEYLOG_CALLBACK
+ 		SSL_CTX_set_keylog_callback(SSL_context, SSL_CTX_keylog_cb);
+ #else
+@@ -1055,11 +1060,10 @@ initialize_SSL(PGconn *conn)
+ 		fprintf(stderr, libpq_gettext("WARNING: libpq was not built with sslkeylogfile support\n"));
+ #endif
+ #endif
+ 	}
+ 
+-
+ 	/*
+ 	 * SSL contexts are reference counted by OpenSSL. We can free it as soon
+ 	 * as we have created the SSL object, and it will stick around for as long
+ 	 * as it's actually needed.
+ 	 */
+diff --git a/src/test/ssl/t/001_ssltests.pl b/src/test/ssl/t/001_ssltests.pl
+index 2cb4d0ffd41..b2eb18d3e81 100644
+--- a/src/test/ssl/t/001_ssltests.pl
++++ b/src/test/ssl/t/001_ssltests.pl
+@@ -171,10 +171,17 @@ SKIP:
+ 	  if ($windows_os || $Config::Config{osname} eq 'cygwin');
+ 
+ 	ok( (@status = stat("$tempdir/key.txt")),
+ 		"keylog file exists and returned status");
+ 	ok(@status && !($status[2] & 0006), "keylog file is not world readable");
++
++	# Connect should work with an incorrect sslkeylogfile, with the error to
++	# open the logfile printed to stderr
++	$node->connect_ok(
++		"$common_connstr sslrootcert=ssl/root+server_ca.crt sslkeylogfile=$tempdir/invalid/key.txt sslmode=require",
++		"connect with server root cert and incorrect sslkeylogfile path",
++		expected_stderr => qr/could not open/);
+ }
+ 
+ # The server should not accept non-SSL connections.
+ $node->connect_fails(
+ 	"$common_connstr sslmode=disable",
