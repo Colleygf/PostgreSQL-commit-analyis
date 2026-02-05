@@ -1,0 +1,678 @@
+file,patterns
+2022_01effb13.diff,Logic
+2022_0222be13.diff,Logic
+2022_07daca53.diff,"NullCheck, Logic"
+2022_08909e3a.diff,Logic
+2022_091a971b.diff,"NullCheck, Logic"
+2022_0d5bd3a6.diff,Logic
+2022_0e758ae8.diff,"Memory, Logic"
+2022_0f47e833.diff,"Memory, Logic"
+2022_14a737bf.diff,Logic
+2022_163b0993.diff,"Logic, Assertion"
+2022_17ec5fa5.diff,"NullCheck, Logic"
+2022_19408aae.diff,Logic
+2022_1aa8dad4.diff,Logic
+2022_1d4be6be.diff,"NullCheck, Logic, Assertion"
+2022_1e085766.diff,Logic
+2022_1e731ed1.diff,"NullCheck, Logic"
+2022_1f0019de.diff,"Memory, Logic"
+2022_1f655fdc.diff,Logic
+2022_20b68471.diff,"NullCheck, Logic"
+2022_21267b64.diff,"NullCheck, Logic"
+2022_2253f5b4.diff,Logic
+2022_2313a3ee.diff,"NullCheck, Logic"
+2022_245e14e2.diff,"Memory, Logic"
+2022_25f915b3.diff,Logic
+2022_26ee7fb3.diff,"NullCheck, Logic"
+2022_291ec6e4.diff,Logic
+2022_2beb4acf.diff,Logic
+2022_2d7ead85.diff,Logic
+2022_335fa5a2.diff,"NullCheck, Logic"
+2022_3390ef1b.diff,"NullCheck, Logic"
+2022_359d6010.diff,"NullCheck, Logic"
+2022_36e545cd.diff,"NullCheck, Logic, Assertion"
+2022_36f729e2.diff,"NullCheck, Logic"
+2022_376af686.diff,Logic
+2022_385da730.diff,Logic
+2022_387803d8.diff,Logic
+2022_39b8c293.diff,Logic
+2022_3d53b9ef.diff,Logic
+2022_3eae0cbf.diff,Logic
+2022_43a7dc96.diff,"NullCheck, Logic"
+2022_4517358e.diff,Logic
+2022_45d5ecab.diff,Logic
+2022_45edde03.diff,"Memory, Logic"
+2022_4667d97c.diff,Logic
+2022_46d9bfb0.diff,"NullCheck, Logic, Concurrency"
+2022_4b4663fb.diff,"NullCheck, Memory, Logic"
+2022_4cd8717a.diff,"NullCheck, Logic"
+2022_4ddfbd2a.diff,Logic
+2022_4f981df8.diff,"NullCheck, Logic"
+2022_4fc6b6ee.diff,Logic
+2022_503e3833.diff,"Logic, Assertion"
+2022_53823a06.diff,Logic
+2022_55b49663.diff,"Memory, Logic"
+2022_56b66252.diff,"Memory, Logic, Assertion"
+2022_587de223.diff,"NullCheck, Memory, Logic"
+2022_59176715.diff,"NullCheck, Memory, Logic, Assertion"
+2022_5c7121bc.diff,"NullCheck, Logic"
+2022_5dcebd10.diff,Logic
+2022_5e26aa64.diff,"NullCheck, Logic, Assertion"
+2022_5e9b1220.diff,"NullCheck, Logic"
+2022_5ecd0183.diff,Logic
+2022_6538be9e.diff,Logic
+2022_664da2a3.diff,Logic
+2022_670475b2.diff,Logic
+2022_69298db8.diff,Logic
+2022_692df425.diff,Logic
+2022_6af08272.diff,"NullCheck, Logic"
+2022_6c07f9eb.diff,"NullCheck, Logic"
+2022_6c46e8a5.diff,"Memory, Logic"
+2022_6d157e7c.diff,"NullCheck, Memory, Logic"
+2022_6f6943fc.diff,"NullCheck, Memory, Logic"
+2022_701d918a.diff,Logic
+2022_7057bf23.diff,"NullCheck, Logic"
+2022_71cb84ec.diff,"NullCheck, Logic, Assertion"
+2022_7201cd18.diff,"NullCheck, Memory, Logic, Assertion"
+2022_7597cc30.diff,Logic
+2022_75bfe743.diff,Logic
+2022_7a08f78a.diff,Logic
+2022_7b64e4b3.diff,"Memory, Logic"
+2022_7beda87b.diff,Logic
+2022_7e74aafc.diff,"NullCheck, Memory, Logic"
+2022_7fdbdf20.diff,Logic
+2022_8328a15f.diff,"Logic, Assertion"
+2022_83e42a00.diff,Logic
+2022_853c6400.diff,Logic
+2022_891624f0.diff,Logic
+2022_8ab0ebb9.diff,"NullCheck, Logic"
+2022_8c848cd4.diff,"Logic, Assertion"
+2022_8c954168.diff,"NullCheck, Logic, Concurrency"
+2022_8cd7627c.diff,Logic
+2022_8e053dc6.diff,"NullCheck, Memory, Logic"
+2022_8e2b6d45.diff,Logic
+2022_8f1537d1.diff,Logic
+2022_90a4b641.diff,Logic
+2022_914611ea.diff,"NullCheck, Logic"
+2022_91c0570a.diff,"Logic, Concurrency"
+2022_92007233.diff,Logic
+2022_92405897.diff,"Memory, Logic"
+2022_93759c66.diff,Logic
+2022_9520f8d9.diff,"NullCheck, Logic"
+2022_99c75412.diff,"NullCheck, Logic"
+2022_9c3d25e1.diff,"NullCheck, Logic"
+2022_9cb5518b.diff,"NullCheck, Memory, Logic"
+2022_9cd43f6c.diff,"NullCheck, Logic"
+2022_9d3444dc.diff,"NullCheck, Logic"
+2022_9e6b7b45.diff,Logic
+2022_9ef2c655.diff,Logic
+2022_a2341779.diff,Logic
+2022_a62bff74.diff,Logic
+2022_a6434b95.diff,Logic
+2022_a69959fa.diff,Logic
+2022_a9d58bfe.diff,"Memory, Logic"
+2022_ab810062.diff,"NullCheck, Logic"
+2022_ac0e2d38.diff,"NullCheck, Memory, Logic"
+2022_ac8be0cb.diff,Logic
+2022_aeebb8bf.diff,Logic
+2022_afb529e6.diff,"NullCheck, Memory, Logic, Assertion"
+2022_b447d607.diff,"NullCheck, Logic"
+2022_b5607b07.diff,Logic
+2022_b5621b66.diff,"Memory, Logic, Assertion"
+2022_c67c2e2a.diff,"NullCheck, Logic, Concurrency"
+2022_c6a43c25.diff,"Logic, Assertion"
+2022_c6f2f016.diff,Logic
+2022_c89f4097.diff,Logic
+2022_cc7401d5.diff,"NullCheck, Logic"
+2022_cd83cb95.diff,Logic
+2022_ce21a36c.diff,Logic
+2022_d0d62262.diff,Logic
+2022_d1ce745d.diff,Logic
+2022_d3117fc1.diff,"NullCheck, Logic"
+2022_d3609dd2.diff,"NullCheck, Logic"
+2022_d3c0cc44.diff,Logic
+2022_d5938392.diff,"NullCheck, Logic"
+2022_d7744d50.diff,"NullCheck, Logic"
+2022_d8e34fa7.diff,Logic
+2022_dad9ba1c.diff,Logic
+2022_dafae970.diff,Logic
+2022_dea83493.diff,"Logic, Assertion"
+2022_df4a0566.diff,Logic
+2022_e186f56f.diff,Logic
+2022_e243de03.diff,Logic
+2022_e61efafc.diff,"NullCheck, Logic"
+2022_e848be60.diff,Logic
+2022_eaa5ebe0.diff,Logic
+2022_eb39610f.diff,Logic
+2022_eb706fde.diff,"Memory, Logic, Assertion"
+2022_eccb607e.diff,Logic
+2022_f0206d99.diff,Logic
+2022_f1618021.diff,Logic
+2022_f1e90859.diff,Logic
+2022_f2a2bf66.diff,Logic
+2022_f3f467b8.diff,Logic
+2022_f453d684.diff,"NullCheck, Logic"
+2022_f4857082.diff,"NullCheck, Logic, Assertion"
+2022_f49a9fc2.diff,Logic
+2022_f5bfba54.diff,"NullCheck, Logic, Concurrency"
+2022_f66885be.diff,"Logic, Assertion"
+2022_f6b6a8fb.diff,"NullCheck, Logic"
+2022_f71007fb.diff,Logic
+2022_f862d570.diff,"NullCheck, Logic, Assertion"
+2022_f959bf9a.diff,"NullCheck, Memory, Logic, Assertion"
+2022_fc36ac52.diff,Logic
+2022_fccaf259.diff,Logic
+2022_fcdb35c3.diff,"NullCheck, Logic"
+2022_fdd8937c.diff,"NullCheck, Logic"
+2022_fe12f2f8.diff,"NullCheck, Logic"
+2022_fe20afae.diff,"NullCheck, Memory, Logic"
+2022_fe594abf.diff,"NullCheck, Logic"
+2022_ffd1b6bb.diff,"Logic, Assertion"
+2023_0174c2d2.diff,Logic
+2023_01d56eec.diff,Logic
+2023_05c82129.diff,Logic
+2023_064eb89e.diff,"NullCheck, Logic"
+2023_06be01eb.diff,Logic
+2023_0890f7d5.diff,Logic
+2023_09d465c3.diff,Logic
+2023_0b053e78.diff,"NullCheck, Memory, Logic"
+2023_0b5d1fb3.diff,Logic
+2023_0bf62460.diff,"NullCheck, Logic, Assertion"
+2023_126552c8.diff,"NullCheck, Logic"
+2023_17935e1f.diff,Logic
+2023_1d477a90.diff,"NullCheck, Logic"
+2023_20847013.diff,"Memory, Logic"
+2023_236f1ea8.diff,"NullCheck, Logic"
+2023_237f8765.diff,"NullCheck, Memory, Logic"
+2023_2c321cea.diff,Logic
+2023_2ed16aac.diff,"NullCheck, Logic"
+2023_30dbdbe7.diff,Logic
+2023_318b1c0c.diff,"NullCheck, Memory, Logic"
+2023_32bc0d02.diff,Logic
+2023_3850d4de.diff,Logic
+2023_39055cb4.diff,"Logic, Assertion"
+2023_3ad5f07c.diff,"NullCheck, Memory, Logic, Assertion, Concurrency"
+2023_3ec8a3bf.diff,"NullCheck, Logic"
+2023_3ef18a90.diff,Logic
+2023_4637a6ac.diff,"Memory, Logic"
+2023_4766eef3.diff,Logic
+2023_47ab5d2e.diff,Logic
+2023_49c2c5fc.diff,"NullCheck, Logic, Concurrency"
+2023_4e465aac.diff,Logic
+2023_4f3514f2.diff,"NullCheck, Memory, Logic"
+2023_50547a3f.diff,"NullCheck, Memory, Logic"
+2023_541e8f14.diff,"NullCheck, Logic"
+2023_55484169.diff,"NullCheck, Memory, Logic"
+2023_555b929b.diff,"NullCheck, Logic"
+2023_5cfba1ad.diff,"Memory, Logic, Assertion"
+2023_5d8aa8bc.diff,"NullCheck, Logic"
+2023_5dc456b7.diff,"NullCheck, Logic"
+2023_5ec69b71.diff,"Logic, Assertion"
+2023_5f3aa309.diff,"NullCheck, Memory, Logic"
+2023_6631363a.diff,Logic
+2023_675fed4d.diff,Logic
+2023_691594ac.diff,"NullCheck, Logic, Assertion"
+2023_6c14fb17.diff,"Logic, Assertion"
+2023_6c6d6ba3.diff,Logic
+2023_7023207c.diff,"NullCheck, Logic"
+2023_714780dc.diff,"NullCheck, Memory, Logic, Assertion"
+2023_720de00a.diff,Logic
+2023_72740099.diff,Logic
+2023_728015a4.diff,Logic
+2023_7ab1bc29.diff,Logic
+2023_7da51590.diff,"NullCheck, Memory, Logic"
+2023_7e5f5177.diff,"Memory, Logic"
+2023_7fe1aa99.diff,"NullCheck, Logic, Assertion"
+2023_80a48e0f.diff,"NullCheck, Logic"
+2023_8427ce4c.diff,"NullCheck, Logic, Assertion"
+2023_849172ff.diff,"Memory, Logic"
+2023_88199b9d.diff,"NullCheck, Logic"
+2023_89be0b89.diff,"NullCheck, Logic"
+2023_8d7d2197.diff,"Logic, Concurrency"
+2023_8dd43894.diff,Logic
+2023_8e5eef50.diff,"Memory, Logic"
+2023_8f685806.diff,Logic
+2023_902ecd3b.diff,"NullCheck, Memory, Logic"
+2023_949e2e7c.diff,Logic
+2023_97ff8dd0.diff,"NullCheck, Logic"
+2023_98c6231d.diff,"NullCheck, Logic"
+2023_9c487efe.diff,Logic
+2023_9d49837d.diff,Logic
+2023_9f71e10d.diff,Logic
+2023_a4cfeeca.diff,"NullCheck, Logic, Assertion"
+2023_a72d613b.diff,Logic
+2023_a734caa2.diff,Logic
+2023_a8dd62ef.diff,"Memory, Logic"
+2023_a9781ae1.diff,"Logic, Assertion, Concurrency"
+2023_a9f19c13.diff,Logic
+2023_aa210e0c.diff,Logic
+2023_b081fe41.diff,Logic
+2023_b1307b8b.diff,Logic
+2023_b3efa270.diff,Logic
+2023_b48af6d1.diff,Logic
+2023_b5934bfd.diff,"Logic, Assertion, Concurrency"
+2023_b5c51737.diff,"Logic, Concurrency"
+2023_b62381d9.diff,Logic
+2023_b762fed6.diff,Logic
+2023_b7f315c9.diff,"NullCheck, Logic, Assertion"
+2023_b82557ec.diff,"Logic, Assertion"
+2023_bade01cb.diff,"NullCheck, Logic, Assertion"
+2023_bda97e47.diff,"Memory, Logic, Assertion"
+2023_becfbdd6.diff,"Logic, Assertion"
+2023_c181f2e2.diff,Logic
+2023_c2891175.diff,"Logic, Assertion"
+2023_c39f2f68.diff,Logic
+2023_c7dc56bd.diff,"NullCheck, Logic"
+2023_c8bc807c.diff,Logic
+2023_cb44a834.diff,"NullCheck, Logic"
+2023_cb943054.diff,"NullCheck, Memory, Logic"
+2023_cccfa08c.diff,Logic
+2023_cd7cdc55.diff,Logic
+2023_d38ad8e3.diff,"NullCheck, Logic"
+2023_d43bd090.diff,Logic
+2023_d6326ba8.diff,Logic
+2023_d71e6055.diff,Logic
+2023_d7c4830a.diff,Logic
+2023_dab5538f.diff,Logic
+2023_dab889d6.diff,"NullCheck, Logic, Concurrency"
+2023_de63f8da.diff,"NullCheck, Logic"
+2023_df38157d.diff,"NullCheck, Logic"
+2023_e0a09d4e.diff,Logic
+2023_e1f95ec8.diff,"Logic, Assertion"
+2023_e221c0be.diff,"Logic, Concurrency"
+2023_e5975c2d.diff,Logic
+2023_e8583126.diff,Logic
+2023_e8e1f96c.diff,Logic
+2023_e9440632.diff,Logic
+2023_e9718b4b.diff,"NullCheck, Memory, Logic"
+2023_e9d12a5e.diff,Logic
+2023_eae0e20d.diff,"NullCheck, Logic, Assertion"
+2023_f026c16a.diff,"NullCheck, Logic"
+2023_f05b1fa1.diff,Logic
+2023_f483b209.diff,Logic
+2023_f5da3d85.diff,"Memory, Logic"
+2023_f73fa5a4.diff,"NullCheck, Logic"
+2023_f7457396.diff,Logic
+2023_fb5a7d84.diff,Logic
+2023_fbed4bc5.diff,Logic
+2024_028b4b21.diff,Logic
+2024_03b08c8f.diff,Logic
+2024_089aac63.diff,"NullCheck, Logic"
+2024_0960ae19.diff,Logic
+2024_09d09d42.diff,"NullCheck, Logic"
+2024_0b84f5c4.diff,Logic
+2024_0f92b230.diff,"NullCheck, Logic"
+2024_12d6c727.diff,Logic
+2024_141752bb.diff,Logic
+2024_165d921c.diff,"Logic, Assertion, Concurrency"
+2024_18404ea6.diff,"NullCheck, Memory, Logic"
+2024_1a43de5e.diff,"Logic, Assertion, Concurrency"
+2024_1b00fe30.diff,Logic
+2024_1e666fd7.diff,"NullCheck, Logic"
+2024_1fed234f.diff,"NullCheck, Memory, Logic"
+2024_21ac38f4.diff,"NullCheck, Logic"
+2024_2364f614.diff,Logic
+2024_24a36f91.diff,"NullCheck, Logic"
+2024_25799850.diff,"Logic, Assertion"
+2024_28328ec8.diff,Logic
+2024_2a67b5a6.diff,"Memory, Logic"
+2024_2b03cfee.diff,Logic
+2024_2b065fc5.diff,Logic
+2024_2b520860.diff,Logic
+2024_2ea4b292.diff,Logic
+2024_310cd8ab.diff,"NullCheck, Memory, Logic"
+2024_31a98934.diff,Logic
+2024_33ee2550.diff,"NullCheck, Logic"
+2024_341e9a05.diff,"NullCheck, Logic"
+2024_3639d08e.diff,Logic
+2024_37c6923c.diff,Logic
+2024_398d3e3b.diff,"Memory, Logic"
+2024_3a974609.diff,"NullCheck, Logic"
+2024_3cb19f45.diff,"NullCheck, Logic"
+2024_400928b8.diff,"NullCheck, Logic"
+2024_4019285c.diff,"NullCheck, Logic"
+2024_41b98ddb.diff,Logic
+2024_4331a11c.diff,"NullCheck, Logic, Assertion"
+2024_4372adfa.diff,"NullCheck, Logic"
+2024_46778187.diff,Logic
+2024_480bc6e3.diff,"NullCheck, Logic, Assertion"
+2024_486c2ea2.diff,"NullCheck, Logic, Assertion"
+2024_49a23441.diff,Logic
+2024_4a044b94.diff,Logic
+2024_4af123ad.diff,"NullCheck, Logic"
+2024_4b652692.diff,"NullCheck, Memory, Logic"
+2024_4c2eda67.diff,Logic
+2024_4c48c0fe.diff,Logic
+2024_4dd30873.diff,"NullCheck, Logic, Assertion"
+2024_4e5d6c40.diff,Logic
+2024_50b797dc.diff,"Memory, Logic"
+2024_54562c9c.diff,"NullCheck, Logic, Assertion"
+2024_571f7f70.diff,Logic
+2024_57a36e89.diff,Logic
+2024_58445651.diff,Logic
+2024_5869aef9.diff,Logic
+2024_591cf626.diff,"NullCheck, Memory, Logic"
+2024_5bc7b33b.diff,Logic
+2024_5bcbe981.diff,Logic
+2024_5c5bccef.diff,Logic
+2024_5c9f35fc.diff,Logic
+2024_5cd72cc0.diff,"NullCheck, Logic"
+2024_5d6187d2.diff,Logic
+2024_5d6c64d2.diff,"Memory, Logic"
+2024_5ddf9973.diff,Logic
+2024_5eac8cef.diff,"NullCheck, Logic, Assertion"
+2024_5fce30e7.diff,Logic
+2024_61f352ec.diff,"NullCheck, Logic"
+2024_631db1d4.diff,Logic
+2024_64740853.diff,"Logic, Assertion"
+2024_67bab53d.diff,Logic
+2024_686db12d.diff,Logic
+2024_68ad9816.diff,"NullCheck, Logic, Assertion"
+2024_6a5bcf7f.diff,"Memory, Logic"
+2024_6a6b7f5d.diff,Logic
+2024_6ee26c6a.diff,Logic
+2024_6f38c43e.diff,"Memory, Logic"
+2024_6f97ef05.diff,Logic
+2024_6fd144e3.diff,"NullCheck, Memory, Logic"
+2024_71cb3529.diff,Logic
+2024_7229ebe0.diff,"Memory, Logic, Assertion"
+2024_75159826.diff,Logic
+2024_75240f65.diff,"Memory, Logic"
+2024_763d65ae.diff,"NullCheck, Logic, Assertion"
+2024_768f0c3e.diff,Logic
+2024_7829f85a.diff,"Logic, Assertion"
+2024_78e4841c.diff,Logic
+2024_7a424ece.diff,"NullCheck, Logic"
+2024_7a65cc07.diff,Logic
+2024_7e187a73.diff,Logic
+2024_7e65ad19.diff,Logic
+2024_7e85d1c7.diff,Logic
+2024_7eb9a820.diff,Logic
+2024_7f97b473.diff,"NullCheck, Memory, Logic"
+2024_8285b484.diff,"NullCheck, Memory, Logic"
+2024_82b07eba.diff,"NullCheck, Logic"
+2024_846cfe0d.diff,"Logic, Assertion"
+2024_84a67725.diff,Logic
+2024_85551730.diff,"NullCheck, Logic"
+2024_87f81a55.diff,"Memory, Logic, Assertion"
+2024_884d791b.diff,Logic
+2024_8b9cbf49.diff,"NullCheck, Logic"
+2024_8ba34c69.diff,Logic
+2024_8cb653b2.diff,Logic
+2024_8d148bb8.diff,"NullCheck, Logic, Assertion"
+2024_8f4ee962.diff,"NullCheck, Logic"
+2024_915de706.diff,Logic
+2024_91cbb4b4.diff,"NullCheck, Memory, Logic"
+2024_91e7115b.diff,Logic
+2024_91fe092a.diff,Logic
+2024_927332b9.diff,Logic
+2024_93660d1c.diff,Logic
+2024_94131cd5.diff,"NullCheck, Logic, Assertion"
+2024_945ec4c4.diff,"Memory, Logic"
+2024_94bb6c44.diff,Logic
+2024_95d14b7a.diff,"NullCheck, Memory, Logic"
+2024_97e5b002.diff,"Memory, Logic"
+2024_98c7c715.diff,"NullCheck, Logic"
+2024_991f8cf8.diff,Logic
+2024_995e0fbc.diff,Logic
+2024_9bc1eee9.diff,Logic
+2024_9c40db3b.diff,Logic
+2024_9d9ece4c.diff,Logic
+2024_9ecbf540.diff,"Logic, Assertion"
+2024_9f34cae1.diff,"NullCheck, Logic"
+2024_9fd8b331.diff,Logic
+2024_a39297ec.diff,"NullCheck, Logic"
+2024_a3a836fb.diff,Logic
+2024_a41106da.diff,Logic
+2024_a62d90f2.diff,"NullCheck, Memory, Logic"
+2024_a79ed10e.diff,Logic
+2024_a7e5237f.diff,"Logic, Assertion"
+2024_a7f2f6ad.diff,Logic
+2024_a8395677.diff,"Memory, Logic"
+2024_a9ed7d94.diff,"NullCheck, Logic, Assertion"
+2024_aa1e898d.diff,Logic
+2024_aa79bde7.diff,"NullCheck, Memory, Logic"
+2024_b181062a.diff,"NullCheck, Logic"
+2024_b199eb89.diff,"NullCheck, Logic"
+2024_b1ffe3ff.diff,"Memory, Logic, Assertion, Concurrency"
+2024_b2be5cb2.diff,"Memory, Logic, Assertion"
+2024_b2d6b4c7.diff,"NullCheck, Memory, Logic"
+2024_b3bd1829.diff,Logic
+2024_b631d014.diff,Logic
+2024_b9e5249c.diff,"Logic, Concurrency"
+2024_babb3993.diff,"Memory, Logic"
+2024_bb5604ba.diff,Logic
+2024_bb812ab0.diff,Logic
+2024_bcd5b4bc.diff,Logic
+2024_bd06cc33.diff,"Logic, Concurrency"
+2024_bd8fc167.diff,"NullCheck, Logic"
+2024_be2f0731.diff,"Logic, Concurrency"
+2024_c03d91d9.diff,Logic
+2024_c1664544.diff,Logic
+2024_c1ff2d8b.diff,Logic
+2024_c7301c3b.diff,Logic
+2024_c899c683.diff,"NullCheck, Logic"
+2024_c95d2159.diff,Logic
+2024_c9e24573.diff,"Logic, Concurrency"
+2024_cc0e7ebd.diff,"NullCheck, Logic, Assertion"
+2024_ccc8194e.diff,"Memory, Logic"
+2024_cd2624fd.diff,Logic
+2024_d12b4ba1.diff,Logic
+2024_d2129572.diff,Logic
+2024_d22d98c3.diff,"Memory, Logic, Assertion"
+2024_d35cd061.diff,"NullCheck, Logic"
+2024_d4d11940.diff,"Memory, Logic, Assertion"
+2024_d802ff06.diff,Logic
+2024_d82ab9fc.diff,Logic
+2024_d8f5acbd.diff,"Logic, Assertion"
+2024_d9e225f2.diff,"NullCheck, Logic"
+2024_da4017a6.diff,"NullCheck, Logic"
+2024_db22b900.diff,"NullCheck, Logic"
+2024_dbf3f974.diff,"NullCheck, Memory, Logic"
+2024_dc26ff2f.diff,"NullCheck, Logic"
+2024_e116b703.diff,Logic
+2024_e1724af4.diff,"NullCheck, Logic"
+2024_e3584258.diff,"NullCheck, Logic, Assertion, Concurrency"
+2024_e468ec0f.diff,"NullCheck, Logic, Assertion"
+2024_e882bcae.diff,"NullCheck, Logic"
+2024_e89f4c66.diff,"NullCheck, Logic"
+2024_e9b7aee2.diff,Logic
+2024_ea792bfd.diff,"NullCheck, Memory, Logic, Assertion"
+2024_ed1e0a65.diff,"NullCheck, Memory, Logic"
+2024_ed52df3b.diff,"Memory, Logic"
+2024_ee937f04.diff,"Memory, Logic"
+2024_eecd9138.diff,Logic
+2024_ef744ebb.diff,"NullCheck, Logic"
+2024_ef7fa900.diff,"Logic, Assertion"
+2024_f0c569d7.diff,"Memory, Logic"
+2024_f56a9def.diff,"Memory, Logic, Assertion"
+2024_f5a465f1.diff,"Logic, Assertion"
+2024_f6ab942f.diff,Logic
+2024_f762d99c.diff,Logic
+2024_fc1b2ce0.diff,"NullCheck, Memory, Logic"
+2024_fce2ce79.diff,Logic
+2024_fe093994.diff,"NullCheck, Logic, Assertion"
+2025_00066aa1.diff,"Logic, Assertion"
+2025_00d61a08.diff,"NullCheck, Logic"
+2025_02c4bc88.diff,Logic
+2025_03366b61.diff,"NullCheck, Memory, Logic"
+2025_039bfc45.diff,"NullCheck, Memory, Logic"
+2025_03bf7a12.diff,Logic
+2025_04396eac.diff,"Logic, Assertion, Concurrency"
+2025_0839fbe4.diff,Logic
+2025_086b9a33.diff,Logic
+2025_09fcc652.diff,Logic
+2025_0c2b7174.diff,"NullCheck, Logic, Concurrency"
+2025_0de5f0d8.diff,Logic
+2025_0e5b1441.diff,"NullCheck, Logic, Assertion"
+2025_0f21db36.diff,"NullCheck, Logic"
+2025_0fc33b00.diff,"Memory, Logic"
+2025_117f9f32.diff,Logic
+2025_12efa489.diff,"NullCheck, Logic, Assertion"
+2025_1469e312.diff,"NullCheck, Memory, Logic"
+2025_166b4f45.diff,"NullCheck, Logic"
+2025_167cb267.diff,Logic
+2025_1681a70d.diff,"NullCheck, Memory, Logic"
+2025_18cdf593.diff,"Memory, Logic"
+2025_1d7b00dc.diff,Logic
+2025_1dbe6f76.diff,"NullCheck, Logic"
+2025_1fc34036.diff,Logic
+2025_23100645.diff,"NullCheck, Logic, Assertion"
+2025_246ec4a5.diff,Logic
+2025_26eadf4d.diff,"Memory, Logic"
+2025_2817525f.diff,"Logic, Assertion, Concurrency"
+2025_2a083ab8.diff,"NullCheck, Memory, Logic"
+2025_2ad6e80d.diff,Logic
+2025_2c7b4ad2.diff,"Memory, Logic"
+2025_2d756ebb.diff,"NullCheck, Logic, Assertion"
+2025_2ef57908.diff,Logic
+2025_2fcc5a71.diff,Logic
+2025_3191a593.diff,"NullCheck, Memory, Logic"
+2025_33b06a20.diff,"Logic, Assertion"
+2025_33eec809.diff,"NullCheck, Logic"
+2025_3811ca36.diff,"NullCheck, Memory, Logic"
+2025_3943f5cf.diff,Logic
+2025_39e3bcae.diff,Logic
+2025_39f67d9b.diff,"NullCheck, Logic"
+2025_3a661580.diff,"NullCheck, Memory, Logic"
+2025_3b35f9a4.diff,"NullCheck, Logic"
+2025_3fae25cb.diff,"NullCheck, Logic"
+2025_43830ecb.diff,"NullCheck, Logic"
+2025_45f50c99.diff,Logic
+2025_46b4ba53.diff,"NullCheck, Logic"
+2025_47da1989.diff,Logic
+2025_49fe1c83.diff,"NullCheck, Logic"
+2025_4c08ecd1.diff,"Memory, Logic, Assertion"
+2025_4cb560b5.diff,"NullCheck, Memory, Logic"
+2025_4f15759b.diff,Logic
+2025_500b6176.diff,"NullCheck, Logic, Assertion"
+2025_51a0382e.diff,"NullCheck, Logic, Concurrency"
+2025_52382feb.diff,Logic
+2025_530cfa8e.diff,"Logic, Concurrency"
+2025_5457ea46.diff,"Memory, Logic"
+2025_5a4eba55.diff,Logic
+2025_5b8f2ccc.diff,Logic
+2025_5b94e275.diff,"Memory, Logic"
+2025_5ee75e32.diff,"Memory, Logic"
+2025_615ff828.diff,"NullCheck, Logic"
+2025_62ec3e1f.diff,"Logic, Concurrency"
+2025_64e7fa43.diff,"NullCheck, Logic, Assertion"
+2025_69ab4465.diff,"Logic, Assertion, Concurrency"
+2025_6aa33afe.diff,"NullCheck, Memory, Logic, Assertion"
+2025_6c05ef57.diff,Logic
+2025_6e153530.diff,"Memory, Logic"
+2025_6e91b9c1.diff,Logic
+2025_6f22a82a.diff,"NullCheck, Logic, Assertion"
+2025_706cbed3.diff,"Memory, Logic"
+2025_7195c804.diff,"Logic, Concurrency"
+2025_783cbb6d.diff,Logic
+2025_798b19d2.diff,"NullCheck, Memory, Logic"
+2025_7afca7ed.diff,"Logic, Assertion"
+2025_7bbc4621.diff,"NullCheck, Logic"
+2025_7bc88c3d.diff,"NullCheck, Logic"
+2025_7c2061bd.diff,Logic
+2025_7fcb32ad.diff,Logic
+2025_81f72115.diff,Logic
+2025_837cc73a.diff,Logic
+2025_847bbb21.diff,"NullCheck, Logic, Concurrency"
+2025_84914e96.diff,Logic
+2025_84fd3bc1.diff,"NullCheck, Logic, Assertion, Concurrency"
+2025_85ccd7e3.diff,"NullCheck, Logic, Assertion"
+2025_86b276a4.diff,Logic
+2025_8741e48e.diff,"NullCheck, Logic"
+2025_898c131b.diff,Logic
+2025_89d57c1f.diff,"Memory, Logic"
+2025_8ab6ef2b.diff,"NullCheck, Memory, Logic"
+2025_8ae0a379.diff,Logic
+2025_8b18ed6d.diff,Logic
+2025_8b3e2c62.diff,"Memory, Logic"
+2025_8c8f7b19.diff,"Memory, Logic"
+2025_8e5b9292.diff,"NullCheck, Memory, Logic"
+2025_8ec97e78.diff,Logic
+2025_8ede692d.diff,Logic
+2025_90260e2e.diff,Logic
+2025_905e932f.diff,"NullCheck, Memory, Logic"
+2025_92cf557f.diff,Logic
+2025_94512623.diff,"NullCheck, Memory, Logic"
+2025_969ab9d4.diff,"NullCheck, Memory, Logic"
+2025_9790affc.diff,"NullCheck, Memory, Logic"
+2025_990c8db1.diff,"NullCheck, Logic"
+2025_991974bb.diff,Logic
+2025_99780da7.diff,"NullCheck, Logic"
+2025_9e345415.diff,"NullCheck, Logic"
+2025_9e63f83a.diff,"NullCheck, Logic"
+2025_9ec0b299.diff,Logic
+2025_9fc7f6ab.diff,Logic
+2025_9fd29d7f.diff,"NullCheck, Logic"
+2025_a4fd971c.diff,Logic
+2025_a6060f1c.diff,"Memory, Logic"
+2025_a6285b15.diff,"NullCheck, Memory, Logic"
+2025_a6c0bf93.diff,"NullCheck, Memory, Logic"
+2025_a93e2a1e.diff,Logic
+2025_a95393ec.diff,Logic
+2025_a98ccf72.diff,Logic
+2025_aa39b4e3.diff,Logic
+2025_abc2b713.diff,Logic
+2025_b102c8c4.diff,"Memory, Logic"
+2025_b237f542.diff,Logic
+2025_b46efe90.diff,"NullCheck, Memory, Logic"
+2025_b52a4a5f.diff,"NullCheck, Logic"
+2025_b63952a7.diff,"NullCheck, Logic"
+2025_b6463ea6.diff,"NullCheck, Logic"
+2025_b8926a5b.diff,"Logic, Assertion"
+2025_c09a0691.diff,Logic
+2025_c32e32f7.diff,Logic
+2025_c3cc2ab8.diff,"NullCheck, Memory, Logic, Concurrency"
+2025_c44c2d27.diff,Logic
+2025_c5ae07a9.diff,"Memory, Logic"
+2025_c5c74282.diff,"Memory, Logic, Concurrency"
+2025_c5d34f4a.diff,"Memory, Logic"
+2025_c754bdd8.diff,"NullCheck, Logic"
+2025_c989affb.diff,"NullCheck, Logic"
+2025_ca09ef3a.diff,Logic
+2025_ca3067cc.diff,"NullCheck, Logic, Assertion"
+2025_cbe04e5d.diff,Logic
+2025_d2ca16bb.diff,"NullCheck, Logic"
+2025_d2e70683.diff,Logic
+2025_d3111cb7.diff,Logic
+2025_d3917d8f.diff,Logic
+2025_d438515c.diff,"Memory, Logic"
+2025_d4baa327.diff,Logic
+2025_d4f79865.diff,"NullCheck, Logic"
+2025_d5845aa8.diff,"Memory, Logic"
+2025_d5b9b2d4.diff,Logic
+2025_d96c854d.diff,"Logic, Concurrency"
+2025_db19a506.diff,"NullCheck, Logic"
+2025_dc9a2d54.diff,"NullCheck, Memory, Logic"
+2025_dcc9820a.diff,Logic
+2025_dd766a44.diff,"NullCheck, Logic"
+2025_de9037d0.diff,"NullCheck, Logic"
+2025_df335618.diff,Logic
+2025_df53fa1c.diff,Logic
+2025_e03c9528.diff,"NullCheck, Memory, Logic"
+2025_e1c36548.diff,"NullCheck, Logic"
+2025_e2ceff13.diff,Logic
+2025_e41d954d.diff,"Logic, Assertion, Concurrency"
+2025_e4e496e8.diff,"Memory, Logic"
+2025_e557c827.diff,"NullCheck, Memory, Logic"
+2025_e596e077.diff,"NullCheck, Memory, Logic, Assertion"
+2025_e6dfd068.diff,"NullCheck, Logic"
+2025_ec4327d1.diff,Logic
+2025_ed073617.diff,"Memory, Logic"
+2025_eef4a33f.diff,Logic
+2025_f011acdd.diff,Logic
+2025_f0b7ab72.diff,Logic
+2025_f24605e2.diff,"NullCheck, Memory, Logic, Assertion"
+2025_f275afc9.diff,"NullCheck, Memory, Logic"
+2025_f5234599.diff,Logic
+2025_f5a987c0.diff,"NullCheck, Logic"
+2025_f8c115a6.diff,"NullCheck, Logic, Concurrency"
+2025_fa44b8b7.diff,"NullCheck, Memory, Logic, Assertion"
+2025_fb056564.diff,Logic
+2025_fc32be3c.diff,"Memory, Logic"
+2025_fdda78e3.diff,"Memory, Logic"
+2025_fe29b2a1.diff,"NullCheck, Logic"
+2025_ff030ebe.diff,"NullCheck, Memory, Logic"
+2025_ff0bcb24.diff,Logic
+2025_ff1975dd.diff,"NullCheck, Logic"
+2025_ff8aba65.diff,Logic

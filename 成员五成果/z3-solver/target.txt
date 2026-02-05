@@ -1,0 +1,624 @@
+🚀 成功锁定 5 个目标验证样本：
+
+============================================================
+【目标 32】 文件名: 2022_36e545cd.diff
+【模式分类】: NullCheck, Logic, Assertion
+【AST 逻辑特征】: No logic nodes
+------------------------------------------------------------
+commit 36e545cd051ffe58064c1f38faeb64f4feef4aec
+Author: Amit Kapila <akapila@postgresql.org>
+Date:   Thu Nov 10 16:56:49 2022 +0530
+
+    Fix comments atop ReorderBufferAddInvalidations.
+
+    The comments atop seem to indicate that we always accumulate invalidation
+    messages in a top-level transaction which is neither required nor matches
+    with the code.
+
+    Author: Amit Kapila
+    Reviewd by: Masahiko Sawada
+    Backpatch-through: 14, where it was introduced in commit c55040ccd0
+    Discussion: https://postgr.es/m/CAA4eK1LxGgnUroPz8STb6OfjVU1yaHoSA+T63URwmGCLdMJ0LA@mail.gmail.com
+
+diff --git a/src/backend/replication/logical/reorderbuffer.c b/src/backend/replication/logical/reorderbuffer.c
+index 22a15a482ab..31f7381f2d6 100644
+--- a/src/backend/replication/logical/reorderbuffer.c
++++ b/src/backend/replication/logical/reorderbuffer.c
+@@ -3206,20 +3206,21 @@ ReorderBufferAddNewTupleCids(ReorderBuffer *rb, TransactionId xid,
+        dlist_push_tail(&txn->tuplecids, &change->node);
+        txn->ntuplecids++;
+ }
+
+ /*
+- * Setup the invalidation of the toplevel transaction.
++ * Accumulate the invalidations for executing them later.
+  *
+  * This needs to be called for each XLOG_XACT_INVALIDATIONS message and
+- * accumulates all the invalidation messages in the toplevel transaction as
+- * well as in the form of change in reorder buffer.  We require to record it in
+- * form of the change so that we can execute only the required invalidations
+- * instead of executing all the invalidations on each CommandId increment.  We
+- * also need to accumulate these in the toplevel transaction because in some
+- * cases we skip processing the transaction (see ReorderBufferForget), we need
+- * to execute all the invalidations together.
++ * accumulates all the invalidation messages in the toplevel transaction, if
++ * available, otherwise in the current transaction, as well as in the form of
++ * change in reorder buffer.  We require to record it in form of the change
++ * so that we can execute only the required invalidations instead of executing
++ * all the invalidations on each CommandId increment.  We also need to
++ * accumulate these in the txn buffer because in some cases where we skip
++ * processing the transaction (see ReorderBufferForget), we need to execute
++ * all the invalidations together.
+  */
+ void
+ ReorderBufferAddInvalidations(ReorderBuffer *rb, TransactionId xid,
+                                                          XLogRecPtr lsn, Size nmsgs,
+                                                          SharedInvalidationMessage *msgs)
+@@ -3231,12 +3232,13 @@ ReorderBufferAddInvalidations(ReorderBuffer *rb, TransactionId xid,
+        txn = ReorderBufferTXNByXid(rb, xid, true, NULL, lsn, true);
+
+        oldcontext = MemoryContextSwitchTo(rb->context);
+
+        /*
+-        * Collect all the invalidations under the top transaction so that we can
+-        * execute them all together.  See comment atop this function
++        * Collect all the invalidations under the top transaction, if available,
++        * so that we can execute them all together.  See comments atop this
++        * function.
+         */
+        if (txn->toptxn)
+                txn = txn->toptxn;
+
+        Assert(nmsgs > 0);
+
+============================================================
+
+============================================================
+【目标 51】 文件名: 2022_503e3833.diff
+【模式分类】: Logic, Assertion
+【AST 逻辑特征】: No logic nodes
+------------------------------------------------------------
+commit 503e3833ef240c94e114be8703046d52f24da021
+Author: Peter Eisentraut <peter@eisentraut.org>
+Date:   Wed Jul 13 11:40:00 2022 +0200
+
+    Remove useless assertions
+
+    We don't need Assert(IsA(foo, String)) right before running
+    strVal(foo), since strVal() already does the assertion internally (via
+    castNode()).
+
+diff --git a/src/backend/commands/tablecmds.c b/src/backend/commands/tablecmds.c
+index ef5b34a3126..701bd73f5ee 100644
+--- a/src/backend/commands/tablecmds.c
++++ b/src/backend/commands/tablecmds.c
+@@ -8269,11 +8269,10 @@ ATExecSetStorage(Relation rel, const char *colName, Node *newValue, LOCKMODE loc
+        HeapTuple       tuple;
+        Form_pg_attribute attrtuple;
+        AttrNumber      attnum;
+        ObjectAddress address;
+
+-       Assert(IsA(newValue, String));
+        storagemode = strVal(newValue);
+
+        if (pg_strcasecmp(storagemode, "plain") == 0)
+                newstorage = TYPSTORAGE_PLAIN;
+        else if (pg_strcasecmp(storagemode, "external") == 0)
+@@ -16169,11 +16168,10 @@ ATExecSetCompression(AlteredTableInfo *tab,
+        AttrNumber      attnum;
+        char       *compression;
+        char            cmethod;
+        ObjectAddress address;
+
+-       Assert(IsA(newValue, String));
+        compression = strVal(newValue);
+
+        attrel = table_open(AttributeRelationId, RowExclusiveLock);
+
+        /* copy the cache entry so we can scribble on it below */
+diff --git a/src/backend/commands/typecmds.c b/src/backend/commands/typecmds.c
+index 4f5e7c7ccb2..a8757a90bf8 100644
+--- a/src/backend/commands/typecmds.c
++++ b/src/backend/commands/typecmds.c
+@@ -3575,11 +3575,10 @@ replace_domain_constraint_value(ParseState *pstate, ColumnRef *cref)
+        if (list_length(cref->fields) == 1)
+        {
+                Node       *field1 = (Node *) linitial(cref->fields);
+                char       *colname;
+
+-               Assert(IsA(field1, String));
+                colname = strVal(field1);
+                if (strcmp(colname, "value") == 0)
+                {
+                        CoerceToDomainValue *domVal = copyObject(pstate->p_ref_hook_state);
+
+diff --git a/src/backend/executor/functions.c b/src/backend/executor/functions.c
+index f9460ae506c..076226868f3 100644
+--- a/src/backend/executor/functions.c
++++ b/src/backend/executor/functions.c
+@@ -316,16 +316,14 @@ sql_fn_post_column_ref(ParseState *pstate, ColumnRef *cref, Node *var)
+
+        if (IsA(llast(cref->fields), A_Star))
+                nnames--;
+
+        field1 = (Node *) linitial(cref->fields);
+-       Assert(IsA(field1, String));
+        name1 = strVal(field1);
+        if (nnames > 1)
+        {
+                subfield = (Node *) lsecond(cref->fields);
+-               Assert(IsA(subfield, String));
+                name2 = strVal(subfield);
+        }
+
+        if (nnames == 3)
+        {
+diff --git a/src/backend/parser/parse_expr.c b/src/backend/parser/parse_expr.c
+index 1dbdba93daa..b1cc6a382f1 100644
+--- a/src/backend/parser/parse_expr.c
++++ b/src/backend/parser/parse_expr.c
+@@ -629,11 +629,10 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
+        {
+                case 1:
+                        {
+                                Node       *field1 = (Node *) linitial(cref->fields);
+
+-                               Assert(IsA(field1, String));
+                                colname = strVal(field1);
+
+                                /* Try to identify as an unqualified column */
+                                node = colNameToVar(pstate, colname, false, cref->location);
+
+@@ -662,11 +661,10 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
+                case 2:
+                        {
+                                Node       *field1 = (Node *) linitial(cref->fields);
+                                Node       *field2 = (Node *) lsecond(cref->fields);
+
+-                               Assert(IsA(field1, String));
+                                relname = strVal(field1);
+
+                                /* Locate the referenced nsitem */
+                                nsitem = refnameNamespaceItem(pstate, nspname, relname,
+                                                                                          cref->location,
+@@ -683,11 +681,10 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
+                                        node = transformWholeRowRef(pstate, nsitem, levels_up,
+                                                                                                cref->location);
+                                        break;
+                                }
+
+-                               Assert(IsA(field2, String));
+                                colname = strVal(field2);
+
+                                /* Try to identify as a column of the nsitem */
+                                node = scanNSItemForColumn(pstate, nsitem, levels_up, colname,
+                                                                                   cref->location);
+@@ -710,13 +707,11 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
+                        {
+                                Node       *field1 = (Node *) linitial(cref->fields);
+                                Node       *field2 = (Node *) lsecond(cref->fields);
+                                Node       *field3 = (Node *) lthird(cref->fields);
+
+-                               Assert(IsA(field1, String));
+                                nspname = strVal(field1);
+-                               Assert(IsA(field2, String));
+                                relname = strVal(field2);
+
+                                /* Locate the referenced nsitem */
+                                nsitem = refnameNamespaceItem(pstate, nspname, relname,
+                                                                                          cref->location,
+@@ -733,11 +728,10 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
+                                        node = transformWholeRowRef(pstate, nsitem, levels_up,
+                                                                                                cref->location);
+                                        break;
+                                }
+
+-                               Assert(IsA(field3, String));
+                                colname = strVal(field3);
+
+                                /* Try to identify as a column of the nsitem */
+                                node = scanNSItemForColumn(pstate, nsitem, levels_up, colname,
+                                                                                   cref->location);
+@@ -762,15 +756,12 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
+                                Node       *field2 = (Node *) lsecond(cref->fields);
+                                Node       *field3 = (Node *) lthird(cref->fields);
+                                Node       *field4 = (Node *) lfourth(cref->fields);
+                                char       *catname;
+
+-                               Assert(IsA(field1, String));
+                                catname = strVal(field1);
+-                               Assert(IsA(field2, String));
+                                nspname = strVal(field2);
+-                               Assert(IsA(field3, String));
+                                relname = strVal(field3);
+
+                                /*
+                                 * We check the catalog name and then ignore it.
+                                 */
+@@ -796,11 +787,10 @@ transformColumnRef(ParseState *pstate, ColumnRef *cref)
+                                        node = transformWholeRowRef(pstate, nsitem, levels_up,
+                                                                                                cref->location);
+                                        break;
+                                }
+
+-                               Assert(IsA(field4, String));
+                                colname = strVal(field4);
+
+                                /* Try to identify as a column of the nsitem */
+                                node = scanNSItemForColumn(pstate, nsitem, levels_up, colname,
+                                                                                   cref->location);
+diff --git a/src/pl/plpgsql/src/pl_comp.c b/src/pl/plpgsql/src/pl_comp.c
+index b791c23f066..61fbdf0686e 100644
+--- a/src/pl/plpgsql/src/pl_comp.c
++++ b/src/pl/plpgsql/src/pl_comp.c
+@@ -1211,22 +1211,20 @@ resolve_column_ref(ParseState *pstate, PLpgSQL_expr *expr,
+        {
+                case 1:
+                        {
+                                Node       *field1 = (Node *) linitial(cref->fields);
+
+-                               Assert(IsA(field1, String));
+                                name1 = strVal(field1);
+                                nnames_scalar = 1;
+                                nnames_wholerow = 1;
+                                break;
+                        }
+                case 2:
+                        {
+                                Node       *field1 = (Node *) linitial(cref->fields);
+                                Node       *field2 = (Node *) lsecond(cref->fields);
+
+-                               Assert(IsA(field1, String));
+                                name1 = strVal(field1);
+
+                                /* Whole-row reference? */
+                                if (IsA(field2, A_Star))
+                                {
+@@ -1234,11 +1232,10 @@ resolve_column_ref(ParseState *pstate, PLpgSQL_expr *expr,
+                                        name2 = "*";
+                                        nnames_wholerow = 1;
+                                        break;
+                                }
+
+-                               Assert(IsA(field2, String));
+                                name2 = strVal(field2);
+                                colname = name2;
+                                nnames_scalar = 2;
+                                nnames_wholerow = 2;
+                                nnames_field = 1;
+@@ -1248,13 +1245,11 @@ resolve_column_ref(ParseState *pstate, PLpgSQL_expr *expr,
+                        {
+                                Node       *field1 = (Node *) linitial(cref->fields);
+                                Node       *field2 = (Node *) lsecond(cref->fields);
+                                Node       *field3 = (Node *) lthird(cref->fields);
+
+-                               Assert(IsA(field1, String));
+                                name1 = strVal(field1);
+-                               Assert(IsA(field2, String));
+                                name2 = strVal(field2);
+
+                                /* Whole-row reference? */
+                                if (IsA(field3, A_Star))
+                                {
+@@ -1262,11 +1257,10 @@ resolve_column_ref(ParseState *pstate, PLpgSQL_expr *expr,
+                                        name3 = "*";
+                                        nnames_wholerow = 2;
+                                        break;
+                                }
+
+-                               Assert(IsA(field3, String));
+                                name3 = strVal(field3);
+                                colname = name3;
+                                nnames_field = 2;
+                                break;
+                        }
+
+============================================================
+
+============================================================
+【目标 54】 文件名: 2022_56b66252.diff
+【模式分类】: Memory, Logic, Assertion
+【AST 逻辑特征】: IF_CONDITION(needWal) | CALL(XLogBeginInsert) | CALL(XLogBeginInsert) | CALL(START_CRIT_SECTION)
+------------------------------------------------------------
+commit 56b662523fd49f75abe89d5bad54d377b2f36c24
+Author: Michael Paquier <michael@paquier.xyz>
+Date:   Thu Oct 13 09:31:57 2022 +0900
+
+    Fix ordering issue with WAL operations in GIN fast insert path
+
+    Contrary to what is documented in src/backend/access/transam/README,
+    ginHeapTupleFastInsert() had a few ordering issues with the way it does
+    its WAL operations when inserting items in its fast path.
+
+    First, when using a separate list, XLogBeginInsert() was being always
+    called before START_CRIT_SECTION(), and in this case a second thing was
+    wrong when merging lists, as an exclusive lock was taken on the tail
+    page *before* calling XLogBeginInsert().  Finally, when inserting items
+    into a tail page, the order of XLogBeginInsert() and
+    START_CRIT_SECTION() was reversed.  This commit addresses all these
+    issues by moving the calls of XLogBeginInsert() after all the pages
+    logged are locked and pinned, within a critical section.
+
+    Author:  Matthias van de Meent, Zhang Mingli
+    Discussion: https://postgr.es/m/CAEze2WhL8uLMqynnnCu1LAPwxD5RKEo0nHV+eXGg_N6ELU88HQ@mail.gmail.com
+
+diff --git a/src/backend/access/gin/ginfast.c b/src/backend/access/gin/ginfast.c
+index ab4bb67d4b4..f750b5ed9e9 100644
+--- a/src/backend/access/gin/ginfast.c
++++ b/src/backend/access/gin/ginfast.c
+@@ -283,13 +283,10 @@ ginHeapTupleFastInsert(GinState *ginstate, GinTupleCollector *collector)
+                GinMetaPageData sublist;
+
+                memset(&sublist, 0, sizeof(GinMetaPageData));
+                makeSublist(index, collector->tuples, collector->ntuples, &sublist);
+
+-               if (needWal)
+-                       XLogBeginInsert();
+-
+                /*
+                 * metapage was unlocked, see above
+                 */
+                LockBuffer(metabuffer, GIN_EXCLUSIVE);
+                metadata = GinPageGetMeta(metapage);
+@@ -305,10 +302,13 @@ ginHeapTupleFastInsert(GinState *ginstate, GinTupleCollector *collector)
+                        metadata->tail = sublist.tail;
+                        metadata->tailFreeSize = sublist.tailFreeSize;
+
+                        metadata->nPendingPages = sublist.nPendingPages;
+                        metadata->nPendingHeapTuples = sublist.nPendingHeapTuples;
++
++                       if (needWal)
++                               XLogBeginInsert();
+                }
+                else
+                {
+                        /*
+                         * Merge lists
+@@ -333,11 +333,14 @@ ginHeapTupleFastInsert(GinState *ginstate, GinTupleCollector *collector)
+
+                        metadata->nPendingPages += sublist.nPendingPages;
+                        metadata->nPendingHeapTuples += sublist.nPendingHeapTuples;
+
+                        if (needWal)
++                       {
++                               XLogBeginInsert();
+                                XLogRegisterBuffer(1, buffer, REGBUF_STANDARD);
++                       }
+                }
+        }
+        else
+        {
+                /*
+@@ -359,15 +362,15 @@ ginHeapTupleFastInsert(GinState *ginstate, GinTupleCollector *collector)
+
+                collectordata = ptr = (char *) palloc(collector->sumsize);
+
+                data.ntuples = collector->ntuples;
+
++               START_CRIT_SECTION();
++
+                if (needWal)
+                        XLogBeginInsert();
+
+-               START_CRIT_SECTION();
+-
+                /*
+                 * Increase counter of heap tuples
+                 */
+                Assert(GinPageGetOpaque(page)->maxoff <= metadata->nPendingHeapTuples);
+                GinPageGetOpaque(page)->maxoff++;
+
+============================================================
+
+============================================================
+【目标 88】 文件名: 2022_8c848cd4.diff
+【模式分类】: Logic, Assertion
+【AST 逻辑特征】: IF_CONDITION(expr != RI_TRIGGER_PK) | CALL(RI_FKey_trigger_type) | IF_CONDITION(expr != RI_TRIGGER_FK) | CALL(RI_FKey_trigger_type)
+------------------------------------------------------------
+commit 8c848cd4b8e9e0fee33eaad33cb44376b9e5b480
+Author: Álvaro Herrera <alvherre@alvh.no-ip.org>
+Date:   Fri Sep 9 12:22:20 2022 +0200
+
+    Fix GetForeignKey*Triggers for self-referential FKs
+
+    Because of inadequate filtering, the check triggers were confusing the
+    search for action triggers in GetForeignKeyActionTriggers and vice-versa
+    in GetForeignKeyCheckTriggers; this confusion results in seemingly
+    random assertion failures, and can have real impact in non-asserting
+    builds depending on catalog order.  Change these functions so that they
+    correctly ignore triggers that are not relevant to each side.
+
+    To reduce the odds of further problems, do not break out of the
+    searching loop in assertion builds.  This break is likely to hide bugs;
+    without it, we would have detected this bug immediately.
+
+    This problem was introduced by f4566345cf40, so backpatch to 15 where
+    that commit first appeared.
+
+    Author: Amit Langote <amitlangote09@gmail.com>
+    Discussion: https://postgr.es/m/20220908172029.sejft2ppckbo6oh5@awork3.anarazel.de
+    Discussion: https://postgr.es/m/4104619.1662663056@sss.pgh.pa.us
+
+diff --git a/src/backend/commands/tablecmds.c b/src/backend/commands/tablecmds.c
+index 53b0f3a9c1e..e3233a8f385 100644
+--- a/src/backend/commands/tablecmds.c
++++ b/src/backend/commands/tablecmds.c
+@@ -10579,22 +10579,28 @@ GetForeignKeyActionTriggers(Relation trigrel,
+
+                if (trgform->tgconstrrelid != conrelid)
+                        continue;
+                if (trgform->tgrelid != confrelid)
+                        continue;
++               /* Only ever look at "action" triggers on the PK side. */
++               if (RI_FKey_trigger_type(trgform->tgfoid) != RI_TRIGGER_PK)
++                       continue;
+                if (TRIGGER_FOR_DELETE(trgform->tgtype))
+                {
+                        Assert(*deleteTriggerOid == InvalidOid);
+                        *deleteTriggerOid = trgform->oid;
+                }
+                else if (TRIGGER_FOR_UPDATE(trgform->tgtype))
+                {
+                        Assert(*updateTriggerOid == InvalidOid);
+                        *updateTriggerOid = trgform->oid;
+                }
++#ifndef USE_ASSERT_CHECKING
++               /* In an assert-enabled build, continue looking to find duplicates */
+                if (OidIsValid(*deleteTriggerOid) && OidIsValid(*updateTriggerOid))
+                        break;
++#endif
+        }
+
+        if (!OidIsValid(*deleteTriggerOid))
+                elog(ERROR, "could not find ON DELETE action trigger of foreign key constraint %u",
+                         conoid);
+@@ -10634,22 +10640,28 @@ GetForeignKeyCheckTriggers(Relation trigrel,
+
+                if (trgform->tgconstrrelid != confrelid)
+                        continue;
+                if (trgform->tgrelid != conrelid)
+                        continue;
++               /* Only ever look at "check" triggers on the FK side. */
++               if (RI_FKey_trigger_type(trgform->tgfoid) != RI_TRIGGER_FK)
++                       continue;
+                if (TRIGGER_FOR_INSERT(trgform->tgtype))
+                {
+                        Assert(*insertTriggerOid == InvalidOid);
+                        *insertTriggerOid = trgform->oid;
+                }
+                else if (TRIGGER_FOR_UPDATE(trgform->tgtype))
+                {
+                        Assert(*updateTriggerOid == InvalidOid);
+                        *updateTriggerOid = trgform->oid;
+                }
++#ifndef USE_ASSERT_CHECKING
++               /* In an assert-enabled build, continue looking to find duplicates. */
+                if (OidIsValid(*insertTriggerOid) && OidIsValid(*updateTriggerOid))
+                        break;
++#endif
+        }
+
+        if (!OidIsValid(*insertTriggerOid))
+                elog(ERROR, "could not find ON INSERT check triggers of foreign key constraint %u",
+                         conoid);
+
+============================================================
+
+============================================================
+【目标 117】 文件名: 2022_afb529e6.diff
+【模式分类】: NullCheck, Memory, Logic, Assertion
+【AST 逻辑特征】: IF_CONDITION(expr < out_bound) | CALL(enlargeStringInfo) | IF_CONDITION(expr < footer_bound) | CALL(enlargeStringInfo)       
+------------------------------------------------------------
+commit afb529e6772b4e2b065644a2204697eeaf6c9a96
+Author: Robert Haas <rhaas@postgresql.org>
+Date:   Mon Apr 4 10:36:23 2022 -0400
+
+    pg_basebackup: Fix code that thinks about LZ4 buffer size.
+
+    Before this patch, there was some code that tried to make sure that the
+    buffer was always big enough at the start, and then asserted that it
+    didn't need to be enlarged later. However, the code to make sure it was
+    big enough at the start doesn't actually work, and therefore it was
+    possible to fail an assertion and crash later.
+
+    Remove the code that tries to make sure the buffer is always big enough
+    at the start in favor of enlarging the buffer as we go along whenever
+    that is necessary.
+
+    The mistake probably happened because, on the server side, we do
+    actually need to guarantee that the buffer is big enough at the start
+    to avoid subsequent resizings. However, in that case, the calling
+    code makes promises about how much data it will provide at once, but
+    here, that's not the case.
+
+    Report by Justin Pryzby. Analysis by me. Patch by Dipesh Pandit.
+
+    Discussion: http://postgr.es/m/20220330143536.GG28503@telsasoft.com
+
+diff --git a/src/bin/pg_basebackup/bbstreamer_lz4.c b/src/bin/pg_basebackup/bbstreamer_lz4.c
+index 67f841d96a9..2ffe2241b41 100644
+--- a/src/bin/pg_basebackup/bbstreamer_lz4.c
++++ b/src/bin/pg_basebackup/bbstreamer_lz4.c
+@@ -71,11 +71,10 @@ bbstreamer_lz4_compressor_new(bbstreamer *next, bc_specification *compress)
+ {
+ #ifdef USE_LZ4
+        bbstreamer_lz4_frame   *streamer;
+        LZ4F_errorCode_t                ctxError;
+        LZ4F_preferences_t         *prefs;
+-       size_t                                  compressed_bound;
+
+        Assert(next != NULL);
+
+        streamer = palloc0(sizeof(bbstreamer_lz4_frame));
+        *((const bbstreamer_ops **) &streamer->base.bbs_ops) =
+@@ -90,21 +89,10 @@ bbstreamer_lz4_compressor_new(bbstreamer *next, bc_specification *compress)
+        memset(prefs, 0, sizeof(LZ4F_preferences_t));
+        prefs->frameInfo.blockSizeID = LZ4F_max256KB;
+        if ((compress->options & BACKUP_COMPRESSION_OPTION_LEVEL) != 0)
+                prefs->compressionLevel = compress->level;
+
+-       /*
+-        * Find out the compression bound, it specifies the minimum destination
+-        * capacity required in worst case for the success of compression operation
+-        * (LZ4F_compressUpdate) based on a given source size and preferences.
+-        */
+-       compressed_bound = LZ4F_compressBound(streamer->base.bbs_buffer.maxlen, prefs);
+-
+-       /* Enlarge buffer if it falls short of compression bound. */
+-       if (streamer->base.bbs_buffer.maxlen < compressed_bound)
+-               enlargeStringInfo(&streamer->base.bbs_buffer, compressed_bound);
+-
+        ctxError = LZ4F_createCompressionContext(&streamer->cctx, LZ4F_VERSION);
+        if (LZ4F_isError(ctxError))
+                        pg_log_error("could not create lz4 compression context: %s",
+                                                 LZ4F_getErrorName(ctxError));
+
+@@ -168,18 +156,21 @@ bbstreamer_lz4_compressor_content(bbstreamer *streamer,
+         * Find out the compression bound and make sure that output buffer has the
+         * required capacity for the success of LZ4F_compressUpdate. If needed
+         * forward the content to next streamer and empty the buffer.
+         */
+        out_bound = LZ4F_compressBound(len, &mystreamer->prefs);
+-       Assert(mystreamer->base.bbs_buffer.maxlen >= out_bound);
+        if (avail_out < out_bound)
+        {
+                        bbstreamer_content(mystreamer->base.bbs_next, member,
+                                                           mystreamer->base.bbs_buffer.data,
+                                                           mystreamer->bytes_written,
+                                                           context);
+
++                       /* Enlarge buffer if it falls short of out bound. */
++                       if (mystreamer->base.bbs_buffer.maxlen < out_bound)
++                               enlargeStringInfo(&mystreamer->base.bbs_buffer, out_bound);
++
+                        avail_out = mystreamer->base.bbs_buffer.maxlen;
+                        mystreamer->bytes_written = 0;
+                        next_out = (uint8 *) mystreamer->base.bbs_buffer.data;
+        }
+
+@@ -216,19 +207,22 @@ bbstreamer_lz4_compressor_finalize(bbstreamer *streamer)
+
+        mystreamer = (bbstreamer_lz4_frame *) streamer;
+
+        /* Find out the footer bound and update the output buffer. */
+        footer_bound = LZ4F_compressBound(0, &mystreamer->prefs);
+-       Assert(mystreamer->base.bbs_buffer.maxlen >= footer_bound);
+        if ((mystreamer->base.bbs_buffer.maxlen - mystreamer->bytes_written) <
+                footer_bound)
+        {
+                        bbstreamer_content(mystreamer->base.bbs_next, NULL,
+                                                           mystreamer->base.bbs_buffer.data,
+                                                           mystreamer->bytes_written,
+                                                           BBSTREAMER_UNKNOWN);
+
++                       /* Enlarge buffer if it falls short of footer bound. */
++                       if (mystreamer->base.bbs_buffer.maxlen < footer_bound)
++                               enlargeStringInfo(&mystreamer->base.bbs_buffer, footer_bound);
++
+                        avail_out = mystreamer->base.bbs_buffer.maxlen;
+                        mystreamer->bytes_written = 0;
+                        next_out = (uint8 *) mystreamer->base.bbs_buffer.data;
+        }
+        else
+
+============================================================

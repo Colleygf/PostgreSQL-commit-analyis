@@ -1,0 +1,678 @@
+filename,ast_features
+2022_01effb13.diff,AST_PARSE_ERROR: :2:63: before: ;
+2022_0222be13.diff,AST_PARSE_ERROR: :4:43: before: msg
+2022_07daca53.diff,AST_PARSE_ERROR: :2:49: before: ;
+2022_08909e3a.diff,AST_PARSE_ERROR: :2:77: before: ;
+2022_091a971b.diff,AST_PARSE_ERROR: :2:12: before: will
+2022_0d5bd3a6.diff,AST_PARSE_ERROR: :4:12: before: despite
+2022_0e758ae8.diff,No logic nodes
+2022_0f47e833.diff,CALL(palloc)
+2022_14a737bf.diff,AST_PARSE_ERROR: :2:20: Invalid char constant 'user=md5_role'
+2022_163b0993.diff,AST_PARSE_ERROR: :5:33: before: PageGetItem
+2022_17ec5fa5.diff,CALL(ERR_clear_error) | CALL(ERR_clear_error) | CALL(ERR_clear_error)
+2022_19408aae.diff,AST_PARSE_ERROR: :2:11: before: :
+2022_1aa8dad4.diff,AST_PARSE_ERROR: :4:40: before: )
+2022_1d4be6be.diff,AST_PARSE_ERROR: :2:75: before: ;
+2022_1e085766.diff,AST_PARSE_ERROR: :2:3: before: [
+2022_1e731ed1.diff,AST_PARSE_ERROR: :2:19: before: )
+2022_1f0019de.diff,IF_CONDITION(IsUnderPostmaster) | IF_CONDITION(signal_fd != -1) | CALL(close) | CALL(ReleaseExternalFD)
+2022_1f655fdc.diff,No logic nodes
+2022_20b68471.diff,AST_PARSE_ERROR: :2:8: before: pg_attribute
+2022_21267b64.diff,AST_PARSE_ERROR: :2:3: before: else
+2022_2253f5b4.diff,AST_PARSE_ERROR: :2:3: before: <
+2022_2313a3ee.diff,No logic nodes
+2022_245e14e2.diff,AST_PARSE_ERROR: :2:37: before: buf
+2022_25f915b3.diff,AST_PARSE_ERROR: :3:47: before: ;
+2022_26ee7fb3.diff,AST_PARSE_ERROR: :4:9: before: ~
+2022_291ec6e4.diff,AST_PARSE_ERROR: :2:49: before: ;
+2022_2beb4acf.diff,AST_PARSE_ERROR: :7:11: before: $proc
+2022_2d7ead85.diff,AST_PARSE_ERROR: :2:23: before: as
+2022_335fa5a2.diff,IF_CONDITION(res < 0)
+2022_3390ef1b.diff,AST_PARSE_ERROR: :2:3: before: <
+2022_359d6010.diff,CALL(_dosmaperr) | CALL(GetLastError) | CALL(_dosmaperr) | CALL(GetLastError)
+2022_36e545cd.diff,No logic nodes
+2022_36f729e2.diff,AST_PARSE_ERROR: :4:6: before: $node2
+2022_376af686.diff,AST_PARSE_ERROR: :2:11: before: this
+2022_385da730.diff,AST_PARSE_ERROR: :2:8: before: name
+2022_387803d8.diff,"AST_PARSE_ERROR: :2:4: before: ,"
+2022_39b8c293.diff,No logic nodes
+2022_3d53b9ef.diff,"AST_PARSE_ERROR: :2:8: before: ""ret=$?; rm -rf /tmp/$$; exit $ret"""
+2022_3eae0cbf.diff,AST_PARSE_ERROR: :3:6: before: !
+2022_43a7dc96.diff,AST_PARSE_ERROR: :2:12: before: >
+2022_4517358e.diff,CALL(strlcpy) | CALL(S_ISLNK) | IF_CONDITION(++loops > 8) | CALL(readlink) | CALL(strcpy)
+2022_45d5ecab.diff,AST_PARSE_ERROR: :2:35: before: )
+2022_45edde03.diff,AST_PARSE_ERROR: :2:23: Invalid char constant '1 sec'
+2022_4667d97c.diff,AST_PARSE_ERROR: :2:60: before: UINT64_FORMAT
+2022_46d9bfb0.diff,CALL(SyncPreCheckpoint) | CALL(AbsorbSyncRequests)
+2022_4b4663fb.diff,AST_PARSE_ERROR: :2:79: before: ;
+2022_4cd8717a.diff,AST_PARSE_ERROR: :2:73: before: ;
+2022_4ddfbd2a.diff,AST_PARSE_ERROR: :8:10: before: trim_array
+2022_4f981df8.diff,AST_PARSE_ERROR: :3:23: before: ;
+2022_4fc6b6ee.diff,AST_PARSE_ERROR: :2:34: before: ;
+2022_503e3833.diff,No logic nodes
+2022_53823a06.diff,AST_PARSE_ERROR: :3:13: before: we
+2022_55b49663.diff,No logic nodes
+2022_56b66252.diff,IF_CONDITION(needWal) | CALL(XLogBeginInsert) | CALL(XLogBeginInsert) | CALL(START_CRIT_SECTION)
+2022_587de223.diff,No logic nodes
+2022_59176715.diff,AST_PARSE_ERROR: :3:24: before: wal_compress_method
+2022_5c7121bc.diff,AST_PARSE_ERROR: :4:16: before: ;
+2022_5dcebd10.diff,AST_PARSE_ERROR: :2:11: before: maintenance
+2022_5e26aa64.diff,AST_PARSE_ERROR: :2:3: before: else
+2022_5e9b1220.diff,No logic nodes
+2022_5ecd0183.diff,No logic nodes
+2022_6538be9e.diff,AST_PARSE_ERROR: :2:17: before: ;
+2022_664da2a3.diff,No logic nodes
+2022_670475b2.diff,No logic nodes
+2022_69298db8.diff,AST_PARSE_ERROR: :2:3: before: else
+2022_692df425.diff,CALL(LockBuffer) | CALL(BufferGetPage) | CALL(UnlockReleaseBuffer)
+2022_6af08272.diff,AST_PARSE_ERROR: :2:25: before: ;
+2022_6c07f9eb.diff,IF_CONDITION(expr) | CALL(memset)
+2022_6c46e8a5.diff,IF_CONDITION(expr) | CALL(RelationNeedsWAL) | CALL(smgrimmedsync) | CALL(RelationGetSmgr)
+2022_6d157e7c.diff,CALL(PQresultErrorField) | IF_CONDITION(sqlstate == NULL) | CALL(PQresultErrorField) | IF_CONDITION(message == NULL)
+2022_6f6943fc.diff,AST_PARSE_ERROR: :8:23: before: ;
+2022_701d918a.diff,No logic nodes
+2022_7057bf23.diff,AST_PARSE_ERROR: :2:3: before: else
+2022_71cb84ec.diff,AST_PARSE_ERROR: :2:71: before: ;
+2022_7201cd18.diff,AST_PARSE_ERROR: :2:50: before: )
+2022_7597cc30.diff,No logic nodes
+2022_75bfe743.diff,No logic nodes
+2022_7a08f78a.diff,CALL(GetLocalBufferDescriptor) | IF_CONDITION(LocalRefCount == 0) | IF_CONDITION(expr < BM_MAX_USAGE_COUNT) | CALL(BUF_STATE_GET_USAGECOUNT) | CALL(pg_atomic_unlocked_write_u32)
+2022_7b64e4b3.diff,CALL(pgstat_drop_subscription)
+2022_7beda87b.diff,AST_PARSE_ERROR: :2:103: before: ;
+2022_7e74aafc.diff,AST_PARSE_ERROR: :2:23: before: )
+2022_7fdbdf20.diff,AST_PARSE_ERROR: :2:12: before: permutation
+2022_8328a15f.diff,AST_PARSE_ERROR: :4:28: before: ;
+2022_83e42a00.diff,AST_PARSE_ERROR: :2:7: before: <
+2022_853c6400.diff,AST_PARSE_ERROR: :2:8: before: of
+2022_891624f0.diff,AST_PARSE_ERROR: :2:42: before: buf
+2022_8ab0ebb9.diff,AST_PARSE_ERROR: :6:8: before: rows
+2022_8c848cd4.diff,IF_CONDITION(expr != RI_TRIGGER_PK) | CALL(RI_FKey_trigger_type) | IF_CONDITION(expr != RI_TRIGGER_FK) | CALL(RI_FKey_trigger_type)
+2022_8c954168.diff,AST_PARSE_ERROR: :6:19: before: =
+2022_8cd7627c.diff,AST_PARSE_ERROR: :2:39: before: ;
+2022_8e053dc6.diff,AST_PARSE_ERROR: :2:37: before: ;
+2022_8e2b6d45.diff,AST_PARSE_ERROR: :4:7: before: Test
+2022_8f1537d1.diff,AST_PARSE_ERROR: :2:32: before: got_standby_delay_timeout
+2022_90a4b641.diff,AST_PARSE_ERROR: :2:9: before: by
+2022_914611ea.diff,AST_PARSE_ERROR: :3:28: before: )
+2022_91c0570a.diff,AST_PARSE_ERROR: :6:8: before: if
+2022_92007233.diff,AST_PARSE_ERROR: :7:22: before: /
+2022_92405897.diff,AST_PARSE_ERROR: :5:25: before: /
+2022_93759c66.diff,AST_PARSE_ERROR: :2:6: before: $psql_timeout
+2022_9520f8d9.diff,AST_PARSE_ERROR: :8:3: before: ^
+2022_99c75412.diff,IF_CONDITION(expr != NULL) | IF_CONDITION(expr != NULL) | IF_CONDITION(expr != NULL)
+2022_9c3d25e1.diff,AST_PARSE_ERROR: :3:56: before: ;
+2022_9cb5518b.diff,AST_PARSE_ERROR: :3:44: before: ;
+2022_9cd43f6c.diff,AST_PARSE_ERROR: :3:45: Illegal character '\\'
+2022_9d3444dc.diff,AST_PARSE_ERROR: :2:67: before: ;
+2022_9e6b7b45.diff,AST_PARSE_ERROR: :2:30: Invalid char constant 'postgresql.conf'
+2022_9ef2c655.diff,AST_PARSE_ERROR: :2:3: before: =
+2022_a2341779.diff,AST_PARSE_ERROR: :2:11: before: by
+2022_a62bff74.diff,AST_PARSE_ERROR: :2:14: before: 5178
+2022_a6434b95.diff,AST_PARSE_ERROR: :2:9: before: SET
+2022_a69959fa.diff,AST_PARSE_ERROR: :2:8: before: of
+2022_a9d58bfe.diff,CALL(guc_strdup) | IF_CONDITION(!ret) | CALL(pfree) | CALL(pfree) | CALL(guc_strdup) | IF_CONDITION(!ret) | CALL(pfree) | CALL(pfree)
+2022_ab810062.diff,AST_PARSE_ERROR: :2:21: before: text
+2022_ac0e2d38.diff,CALL(free_attrmap) | IF_CONDITION(expr) | CALL(free_attrmap) | IF_CONDITION(expr) | CALL(free_attrmap)
+2022_ac8be0cb.diff,AST_PARSE_ERROR: :2:6: before: a
+2022_aeebb8bf.diff,AST_PARSE_ERROR: :2:15: before: that
+2022_afb529e6.diff,IF_CONDITION(expr < out_bound) | CALL(enlargeStringInfo) | IF_CONDITION(expr < footer_bound) | CALL(enlargeStringInfo)
+2022_b447d607.diff,AST_PARSE_ERROR: :3:63: before: ;
+2022_b5607b07.diff,AST_PARSE_ERROR: :2:63: Illegal character '\\'
+2022_b5621b66.diff,AST_PARSE_ERROR: :2:46: before: ;
+2022_c67c2e2a.diff,AST_PARSE_ERROR: :2:15: before: ;
+2022_c6a43c25.diff,AST_PARSE_ERROR: :3:17: Invalid declaration
+2022_c6f2f016.diff,IF_CONDITION(!expr) | CALL(pgwin32_is_junction) | IF_CONDITION(expr != PGFILETYPE_LNK) | CALL(get_dirent_type)
+2022_c89f4097.diff,No logic nodes
+2022_cc7401d5.diff,AST_PARSE_ERROR: :6:68: before: ;
+2022_cd83cb95.diff,AST_PARSE_ERROR: :2:3: before: else
+2022_ce21a36c.diff,AST_PARSE_ERROR: :2:3: before: )
+2022_d0d62262.diff,AST_PARSE_ERROR: :2:25: before: ;
+2022_d1ce745d.diff,No logic nodes
+2022_d3117fc1.diff,AST_PARSE_ERROR: :2:3: before: else
+2022_d3609dd2.diff,AST_PARSE_ERROR: :2:18: before: startreadtime
+2022_d3c0cc44.diff,AST_PARSE_ERROR: :2:6: before: $stmt$
+2022_d5938392.diff,AST_PARSE_ERROR: :8:42: before: ;
+2022_d7744d50.diff,AST_PARSE_ERROR: :2:15: before: result
+2022_d8e34fa7.diff,AST_PARSE_ERROR: :3:46: before: )
+2022_dad9ba1c.diff,AST_PARSE_ERROR: :2:32: before: $
+2022_dafae970.diff,AST_PARSE_ERROR: :2:3: before: <
+2022_dea83493.diff,AST_PARSE_ERROR: :5:60: before: ;
+2022_df4a0566.diff,AST_PARSE_ERROR: :3:32: before: ;
+2022_e186f56f.diff,AST_PARSE_ERROR: :2:3: before: <
+2022_e243de03.diff,IF_CONDITION(expr) | CALL(VARATT_EXTERNAL_IS_COMPRESSED)
+2022_e61efafc.diff,AST_PARSE_ERROR: :2:6: before: $primary_archive
+2022_e848be60.diff,AST_PARSE_ERROR: :2:76: before: ;
+2022_eaa5ebe0.diff,AST_PARSE_ERROR: :2:56: Illegal character '@'
+2022_eb39610f.diff,"AST_PARSE_ERROR: :2:13: before: ""ERROR:  Useless use of sort in voi"
+2022_eb706fde.diff,IF_CONDITION(expr >= curBlocklistIdx)
+2022_eccb607e.diff,AST_PARSE_ERROR: :2:47: before: oproid
+2022_f0206d99.diff,AST_PARSE_ERROR: :2:8: Invalid char constant 'test_oat_hooks'
+2022_f1618021.diff,AST_PARSE_ERROR: :2:10: before: INDEX
+2022_f1e90859.diff,AST_PARSE_ERROR: :2:7: before: publish_insert
+2022_f2a2bf66.diff,AST_PARSE_ERROR: :2:93: before: ;
+2022_f3f467b8.diff,AST_PARSE_ERROR: :7:3: before: {
+2022_f453d684.diff,CALL(elog) | CALL(elog) | CALL(elog)
+2022_f4857082.diff,AST_PARSE_ERROR: :2:22: before: =
+2022_f49a9fc2.diff,AST_PARSE_ERROR: :4:37: before: ;
+2022_f5bfba54.diff,IF_CONDITION(receiver != NULL) | IF_CONDITION(receiver != NULL) | CALL(SetLatch)
+2022_f66885be.diff,CALL(dummy_assert)
+2022_f6b6a8fb.diff,AST_PARSE_ERROR: :2:3: before: <
+2022_f71007fb.diff,AST_PARSE_ERROR: :2:16: before: ;
+2022_f862d570.diff,AST_PARSE_ERROR: :3:21: before: =
+2022_f959bf9a.diff,AST_PARSE_ERROR: :2:19: before: it
+2022_fc36ac52.diff,IF_CONDITION(expr || unverifiedlen >= expr) | CALL(pg_encoding_max_length)
+2022_fccaf259.diff,AST_PARSE_ERROR: :2:31: Invalid char constant 'postgres'
+2022_fcdb35c3.diff,AST_PARSE_ERROR: :2:20: before: behavior_type
+2022_fdd8937c.diff,AST_PARSE_ERROR: :2:10: before: desiredAccess
+2022_fe12f2f8.diff,IF_CONDITION(expr == NIL)
+2022_fe20afae.diff,AST_PARSE_ERROR: :6:13: before: case
+2022_fe594abf.diff,AST_PARSE_ERROR: :4:28: before: ;
+2022_ffd1b6bb.diff,AST_PARSE_ERROR: :2:20: before: char
+2023_0174c2d2.diff,No logic nodes
+2023_01d56eec.diff,AST_PARSE_ERROR: :2:17: before: guaranteeing
+2023_05c82129.diff,"AST_PARSE_ERROR: :2:17: before: ""S 1"""
+2023_064eb89e.diff,AST_PARSE_ERROR: :2:3: before: else
+2023_06be01eb.diff,No logic nodes
+2023_0890f7d5.diff,AST_PARSE_ERROR: :2:5: before: published
+2023_09d465c3.diff,AST_PARSE_ERROR: :2:3: before: <
+2023_0b053e78.diff,AST_PARSE_ERROR: :2:25: before: =
+2023_0b5d1fb3.diff,AST_PARSE_ERROR: :6:78: before: ;
+2023_0bf62460.diff,AST_PARSE_ERROR: :3:12: before: >
+2023_126552c8.diff,AST_PARSE_ERROR: :4:34: before: ;
+2023_17935e1f.diff,CALL(isspace) | IF_CONDITION(expr) | CALL(isalpha) | CALL(isalpha) | CALL(isspace) | CALL(isspace) | CALL(strchr) | CALL(isspace) | CALL(isspace)
+2023_1d477a90.diff,AST_PARSE_ERROR: :2:41: before: ;
+2023_20847013.diff,AST_PARSE_ERROR: :2:10: before: TABLE
+2023_236f1ea8.diff,No logic nodes
+2023_237f8765.diff,CALL(MemoryContextReset) | CALL(ResetExprContext)
+2023_2c321cea.diff,AST_PARSE_ERROR: :3:3: before: BEGIN
+2023_2ed16aac.diff,AST_PARSE_ERROR: :2:12: before: in
+2023_30dbdbe7.diff,AST_PARSE_ERROR: :2:10: before: avg
+2023_318b1c0c.diff,AST_PARSE_ERROR: :2:73: before: ;
+2023_32bc0d02.diff,AST_PARSE_ERROR: :2:9: before: by
+2023_3850d4de.diff,AST_PARSE_ERROR: :5:10: before: CAST
+2023_39055cb4.diff,CALL(dummy_assert) | CALL(dummy_assert) | CALL(dummy_assert) | CALL(dummy_assert)
+2023_3ad5f07c.diff,AST_PARSE_ERROR: :2:79: before: )
+2023_3ec8a3bf.diff,IF_CONDITION(!expr && b_has_nulls)
+2023_3ef18a90.diff,AST_PARSE_ERROR: :2:3: before: <
+2023_4637a6ac.diff,No logic nodes
+2023_4766eef3.diff,AST_PARSE_ERROR: :2:11: before: variant
+2023_47ab5d2e.diff,AST_PARSE_ERROR: :2:10: Unmatched '
+2023_49c2c5fc.diff,AST_PARSE_ERROR: :2:36: before: =
+2023_4e465aac.diff,No logic nodes
+2023_4f3514f2.diff,AST_PARSE_ERROR: :2:25: before: char
+2023_50547a3f.diff,IF_CONDITION(expr) | CALL(XLogRecHasBlockData) | IF_CONDITION(expr) | CALL(XLogRecHasBlockData) | IF_CONDITION(expr) | CALL(XLogRecHasBlockData) | IF_CONDITION(expr && !isinit) | CALL(XLogRecHasBlockData) | IF_CONDITION(expr) | CALL(XLogRecHasBlockData) | IF_CONDITION(expr) | CALL(XLogRecHasBlockData)
+2023_541e8f14.diff,AST_PARSE_ERROR: :5:21: before: /
+2023_55484169.diff,AST_PARSE_ERROR: :4:23: before: ;
+2023_555b929b.diff,AST_PARSE_ERROR: :2:44: Illegal character '\\'
+2023_5cfba1ad.diff,AST_PARSE_ERROR: :4:16: before: ;
+2023_5d8aa8bc.diff,AST_PARSE_ERROR: :3:23: before: =
+2023_5dc456b7.diff,AST_PARSE_ERROR: :3:35: before: /
+2023_5ec69b71.diff,AST_PARSE_ERROR: :2:91: before: )
+2023_5f3aa309.diff,AST_PARSE_ERROR: :7:69: before: ;
+2023_6631363a.diff,No logic nodes
+2023_675fed4d.diff,No logic nodes
+2023_691594ac.diff,CALL(check_stack_depth) | CALL(check_stack_depth) | CALL(CHECK_FOR_INTERRUPTS)
+2023_6c14fb17.diff,No logic nodes
+2023_6c6d6ba3.diff,AST_PARSE_ERROR: :2:41: before: ;
+2023_7023207c.diff,AST_PARSE_ERROR: :2:7: before: error
+2023_714780dc.diff,AST_PARSE_ERROR: :7:23: before: /
+2023_720de00a.diff,CALL(pgstat_report_wait_start) | CALL(pg_usleep) | CALL(pgstat_report_wait_end) | IF_CONDITION(IsUnderPostmaster && !expr) | CALL(PostmasterIsAlive) | CALL(exit)
+2023_72740099.diff,AST_PARSE_ERROR: :2:13: before: ;
+2023_728015a4.diff,AST_PARSE_ERROR: :2:10: before: table
+2023_7ab1bc29.diff,AST_PARSE_ERROR: :2:30: before: /
+2023_7da51590.diff,AST_PARSE_ERROR: :2:69: before: ;
+2023_7e5f5177.diff,AST_PARSE_ERROR: :2:16: before: mapping
+2023_7fe1aa99.diff,AST_PARSE_ERROR: :2:12: before: snapshot
+2023_80a48e0f.diff,AST_PARSE_ERROR: :2:29: before: )
+2023_8427ce4c.diff,AST_PARSE_ERROR: :7:3: before: else
+2023_849172ff.diff,AST_PARSE_ERROR: :5:5: Invalid char constant '-178000000 years'
+2023_88199b9d.diff,AST_PARSE_ERROR: :2:12: before: exception
+2023_89be0b89.diff,AST_PARSE_ERROR: :2:8: before: /
+2023_8d7d2197.diff,IF_CONDITION(started_tx) | CALL(CommitTransactionCommand) | CALL(pgstat_report_stat) | CALL(StartTransactionCommand)
+2023_8dd43894.diff,No logic nodes
+2023_8e5eef50.diff,CALL(IndexTupleSize)
+2023_8f685806.diff,AST_PARSE_ERROR: :2:49: Invalid char constant 'pgsql'
+2023_902ecd3b.diff,No logic nodes
+2023_949e2e7c.diff,AST_PARSE_ERROR: :2:60: before: ;
+2023_97ff8dd0.diff,AST_PARSE_ERROR: :2:52: before: ;
+2023_98c6231d.diff,AST_PARSE_ERROR: :2:12: before: written
+2023_9c487efe.diff,AST_PARSE_ERROR: :2:3: before: <
+2023_9d49837d.diff,AST_PARSE_ERROR: :2:12: before: {
+2023_9f71e10d.diff,AST_PARSE_ERROR: :2:59: before: ;
+2023_a4cfeeca.diff,AST_PARSE_ERROR: :3:15: before: ;
+2023_a72d613b.diff,AST_PARSE_ERROR: :4:3: before: else
+2023_a734caa2.diff,AST_PARSE_ERROR: :2:21: before: SUBSCRIPTION
+2023_a8dd62ef.diff,AST_PARSE_ERROR: :2:10: before: index
+2023_a9781ae1.diff,IF_CONDITION(MyWorkerInfo && expr) | CALL(message_level_is_interesting)
+2023_a9f19c13.diff,AST_PARSE_ERROR: :2:10: before: tables
+2023_aa210e0c.diff,No logic nodes
+2023_b081fe41.diff,AST_PARSE_ERROR: :4:37: before: ;
+2023_b1307b8b.diff,AST_PARSE_ERROR: :2:85: before: ;
+2023_b3efa270.diff,AST_PARSE_ERROR: :2:70: before: )
+2023_b48af6d1.diff,AST_PARSE_ERROR: :2:59: before: ;
+2023_b5934bfd.diff,AST_PARSE_ERROR: :7:14: before: sent_ptr
+2023_b5c51737.diff,AST_PARSE_ERROR: :2:58: before: ;
+2023_b62381d9.diff,AST_PARSE_ERROR: :2:3: before: <
+2023_b762fed6.diff,AST_PARSE_ERROR: :2:19: before: t2
+2023_b7f315c9.diff,AST_PARSE_ERROR: :2:50: before: ;
+2023_b82557ec.diff,AST_PARSE_ERROR: :3:3: before: ||
+2023_bade01cb.diff,AST_PARSE_ERROR: :2:18: before: rec_blk_ref
+2023_bda97e47.diff,AST_PARSE_ERROR: :2:48: before: ;
+2023_becfbdd6.diff,AST_PARSE_ERROR: :4:31: before: ;
+2023_c181f2e2.diff,AST_PARSE_ERROR: :4:46: before: ;
+2023_c2891175.diff,IF_CONDITION(!expr) | CALL(rmtree) | CALL(rmtree) | IF_CONDITION(!expr) | CALL(rmtree) | CALL(rmtree)
+2023_c39f2f68.diff,AST_PARSE_ERROR: :2:38: before: ;
+2023_c7dc56bd.diff,AST_PARSE_ERROR: :2:10: before: to
+2023_c8bc807c.diff,AST_PARSE_ERROR: :3:23: before: ;
+2023_cb44a834.diff,AST_PARSE_ERROR: :2:48: before: ;
+2023_cb943054.diff,IF_CONDITION(status == PSQL_CMD_ERROR) | CALL(resetPQExpBuffer) | IF_CONDITION(status == PSQL_CMD_ERROR) | CALL(resetPQExpBuffer)
+2023_cccfa08c.diff,AST_PARSE_ERROR: :2:9: before: level
+2023_cd7cdc55.diff,No logic nodes
+2023_d38ad8e3.diff,AST_PARSE_ERROR: :2:15: before: ;
+2023_d43bd090.diff,AST_PARSE_ERROR: :2:54: before: ;
+2023_d6326ba8.diff,AST_PARSE_ERROR: :2:124: before: ;
+2023_d71e6055.diff,AST_PARSE_ERROR: :5:32: before: ;
+2023_d7c4830a.diff,AST_PARSE_ERROR: :2:3: before: <
+2023_dab5538f.diff,AST_PARSE_ERROR: :2:6: before: aggregation
+2023_dab889d6.diff,AST_PARSE_ERROR: :6:33: before: ;
+2023_de63f8da.diff,AST_PARSE_ERROR: :9:22: before: int
+2023_df38157d.diff,AST_PARSE_ERROR: :2:11: before: that
+2023_e0a09d4e.diff,AST_PARSE_ERROR: :2:3: before: else
+2023_e1f95ec8.diff,AST_PARSE_ERROR: :2:11: before: max_required
+2023_e221c0be.diff,CALL(pgstat_flush_wal) | CALL(pgstat_flush_io)
+2023_e5975c2d.diff,AST_PARSE_ERROR: :2:35: before: class
+2023_e8583126.diff,AST_PARSE_ERROR: :4:11: before: handling
+2023_e8e1f96c.diff,AST_PARSE_ERROR: :2:21: before: :
+2023_e9440632.diff,AST_PARSE_ERROR: :5:60: before: ;
+2023_e9718b4b.diff,AST_PARSE_ERROR: :2:23: before: ;
+2023_e9d12a5e.diff,AST_PARSE_ERROR: :2:12: before: classes
+2023_eae0e20d.diff,AST_PARSE_ERROR: :2:11: before: PHV
+2023_f026c16a.diff,AST_PARSE_ERROR: :5:8: before: MATCHED
+2023_f05b1fa1.diff,AST_PARSE_ERROR: :2:23: before: SyncRep
+2023_f483b209.diff,AST_PARSE_ERROR: :2:20: Invalid char constant 'postgres'
+2023_f5da3d85.diff,No logic nodes
+2023_f73fa5a4.diff,AST_PARSE_ERROR: :2:3: before: <
+2023_f7457396.diff,AST_PARSE_ERROR: :2:3: before: <
+2023_fb5a7d84.diff,AST_PARSE_ERROR: :2:6: before: Windows
+2023_fbed4bc5.diff,AST_PARSE_ERROR: :3:11: before: repeated
+2024_028b4b21.diff,AST_PARSE_ERROR: :2:62: before: ;
+2024_03b08c8f.diff,AST_PARSE_ERROR: :8:63: before: ;
+2024_089aac63.diff,AST_PARSE_ERROR: :2:64: before: ;
+2024_0960ae19.diff,AST_PARSE_ERROR: :4:3: before: else
+2024_09d09d42.diff,AST_PARSE_ERROR: :2:10: before: domnotnull
+2024_0b84f5c4.diff,No logic nodes
+2024_0f92b230.diff,AST_PARSE_ERROR: :2:15: before: scankey
+2024_12d6c727.diff,AST_PARSE_ERROR: :2:3: before: .
+2024_141752bb.diff,No logic nodes
+2024_165d921c.diff,AST_PARSE_ERROR: :2:17: before: oldest_xid
+2024_18404ea6.diff,AST_PARSE_ERROR: :2:10: Invalid declaration
+2024_1a43de5e.diff,IF_CONDITION(!expr || expr) | CALL(TransactionIdIsValid) | CALL(TransactionIdPrecedes) | CALL(LWLockRelease)
+2024_1b00fe30.diff,AST_PARSE_ERROR: 
+2024_1e666fd7.diff,CALL(strerror_r) | CALL(ERR_GET_REASON)
+2024_1fed234f.diff,IF_CONDITION(braces_open > 0) | CALL(remove_typedefs) | CALL(remove_variables) | IF_CONDITION(--braces_open == 0) | CALL(free) | IF_CONDITION(expr != ECPGt_array) | CALL(mmfatal)
+2024_21ac38f4.diff,AST_PARSE_ERROR: :2:99: before: ;
+2024_2364f614.diff,AST_PARSE_ERROR: :2:12: before: are
+2024_24a36f91.diff,CALL(strsep) | IF_CONDITION(v == NULL) | CALL(strsep) | IF_CONDITION(v == NULL) | CALL(strsep) | IF_CONDITION(v == NULL) | CALL(strsep) | IF_CONDITION(v == NULL)
+2024_25799850.diff,AST_PARSE_ERROR: :2:38: before: const
+2024_28328ec8.diff,AST_PARSE_ERROR: :2:11: before: start
+2024_2a67b5a6.diff,AST_PARSE_ERROR: :2:11: before: max_buckets
+2024_2b03cfee.diff,No logic nodes
+2024_2b065fc5.diff,AST_PARSE_ERROR: :2:9: before: query
+2024_2b520860.diff,No logic nodes
+2024_2ea4b292.diff,No logic nodes
+2024_310cd8ab.diff,No logic nodes
+2024_31a98934.diff,No logic nodes
+2024_33ee2550.diff,AST_PARSE_ERROR: :2:17: before: convert_case
+2024_341e9a05.diff,AST_PARSE_ERROR: :4:78: before: ;
+2024_3639d08e.diff,AST_PARSE_ERROR: :3:83: before: ;
+2024_37c6923c.diff,AST_PARSE_ERROR: :2:17: before: degree_c_thirty
+2024_398d3e3b.diff,AST_PARSE_ERROR: :2:12: before: >
+2024_3a974609.diff,AST_PARSE_ERROR: :2:26: before: ;
+2024_3cb19f45.diff,No logic nodes
+2024_400928b8.diff,AST_PARSE_ERROR: :2:44: before: PgXmlErrorPtr
+2024_4019285c.diff,AST_PARSE_ERROR: :3:23: before: ;
+2024_41b98ddb.diff,CALL(__attribute__) | CALL(target) | CALL(__attribute__) | CALL(target) | CALL(__attribute__) | CALL(target) | CALL(pg_attribute_target) | CALL(pg_attribute_target)
+2024_4331a11c.diff,No logic nodes
+2024_4372adfa.diff,AST_PARSE_ERROR: :2:3: before: else
+2024_46778187.diff,AST_PARSE_ERROR: :2:6: before: $
+2024_480bc6e3.diff,No logic nodes
+2024_486c2ea2.diff,AST_PARSE_ERROR: :2:51: before: )
+2024_49a23441.diff,AST_PARSE_ERROR: :2:74: before: ;
+2024_4a044b94.diff,AST_PARSE_ERROR: :2:11: before: compression
+2024_4af123ad.diff,AST_PARSE_ERROR: :3:22: before: expression
+2024_4b652692.diff,CALL(strsep) | CALL(pg_strdup) | CALL(free)
+2024_4c2eda67.diff,No logic nodes
+2024_4c48c0fe.diff,CALL(elog) | CALL(elog) | CALL(elog) | CALL(elog) | CALL(elog)
+2024_4dd30873.diff,No logic nodes
+2024_4e5d6c40.diff,AST_PARSE_ERROR: :2:7: before: search_path
+2024_50b797dc.diff,AST_PARSE_ERROR: :5:9: before: roleid
+2024_54562c9c.diff,AST_PARSE_ERROR: :8:18: before: phs_locator
+2024_571f7f70.diff,IF_CONDITION(flushptr < targetPagePtr + reqLen)
+2024_57a36e89.diff,No logic nodes
+2024_58445651.diff,AST_PARSE_ERROR: :2:13: Illegal character '`'
+2024_5869aef9.diff,AST_PARSE_ERROR: :2:3: before: <
+2024_591cf626.diff,AST_PARSE_ERROR: :2:12: before: rewritten
+2024_5bc7b33b.diff,IF_CONDITION(expr && !result) | CALL(jspStrictAbsenceOfErrors) | IF_CONDITION(expr) | CALL(jspStrictAbsenceOfErrors) | IF_CONDITION(expr) | CALL(jspStrictAbsenceOfErrors) | IF_CONDITION(!expr) | CALL(jspStrictAbsenceOfErrors)
+2024_5bcbe981.diff,No logic nodes
+2024_5c5bccef.diff,No logic nodes
+2024_5c9f35fc.diff,AST_PARSE_ERROR: :2:3: before: <
+2024_5cd72cc0.diff,AST_PARSE_ERROR: :2:15: before: startbufferusage
+2024_5d6187d2.diff,AST_PARSE_ERROR: :2:30: before: INT64_MODIFIER
+2024_5d6c64d2.diff,IF_CONDITION(expr) | CALL(pstrdup) | IF_CONDITION(expr) | CALL(pstrdup) | IF_CONDITION(expr) | CALL(pstrdup) | IF_CONDITION(expr) | CALL(pstrdup) | IF_CONDITION(expr) | CALL(pstrdup)
+2024_5ddf9973.diff,AST_PARSE_ERROR: :2:21: before: ;
+2024_5eac8cef.diff,AST_PARSE_ERROR: :2:3: before: else
+2024_5fce30e7.diff,AST_PARSE_ERROR: :2:3: before: <
+2024_61f352ec.diff,IF_CONDITION(expr != 0) | CALL(strcmp)
+2024_631db1d4.diff,AST_PARSE_ERROR: :2:10: before: FOREIGN
+2024_64740853.diff,No logic nodes
+2024_67bab53d.diff,AST_PARSE_ERROR: :2:70: before: ;
+2024_686db12d.diff,AST_PARSE_ERROR: :2:15: before: $ret
+2024_68ad9816.diff,AST_PARSE_ERROR: :2:59: before: )
+2024_6a5bcf7f.diff,AST_PARSE_ERROR: :3:18: before: si
+2024_6a6b7f5d.diff,No logic nodes
+2024_6ee26c6a.diff,AST_PARSE_ERROR: :2:18: before: :
+2024_6f38c43e.diff,AST_PARSE_ERROR: :5:24: before: ;
+2024_6f97ef05.diff,AST_PARSE_ERROR: :2:24: Invalid char constant 'postgresql.conf'
+2024_6fd144e3.diff,AST_PARSE_ERROR: :3:18: before: ;
+2024_71cb3529.diff,No logic nodes
+2024_7229ebe0.diff,AST_PARSE_ERROR: :2:9: before: mem_freed
+2024_75159826.diff,AST_PARSE_ERROR: :2:10: before: PROCEDURE
+2024_75240f65.diff,IF_CONDITION(!new_prediction) | IF_CONDITION(!new_fnames) | CALL(REALLOC) | IF_CONDITION(!new_fnull)
+2024_763d65ae.diff,AST_PARSE_ERROR: :7:17: before: dir
+2024_768f0c3e.diff,AST_PARSE_ERROR: :2:35: before: volatile
+2024_7829f85a.diff,AST_PARSE_ERROR: :2:15: before: locale
+2024_78e4841c.diff,"AST_PARSE_ERROR: :2:12: before: ""ago"""
+2024_7a424ece.diff,AST_PARSE_ERROR: :2:102: before: ;
+2024_7a65cc07.diff,No logic nodes
+2024_7e187a73.diff,AST_PARSE_ERROR: :2:17: before: tenk1
+2024_7e65ad19.diff,AST_PARSE_ERROR: :3:29: before: )
+2024_7e85d1c7.diff,No logic nodes
+2024_7eb9a820.diff,AST_PARSE_ERROR: :2:3: before: <
+2024_7f97b473.diff,No logic nodes
+2024_8285b484.diff,AST_PARSE_ERROR: :2:9: before: relid
+2024_82b07eba.diff,AST_PARSE_ERROR: :4:11: before: )
+2024_846cfe0d.diff,CALL(dummy_assert) | CALL(BTScanPosIsValid)
+2024_84a67725.diff,AST_PARSE_ERROR: :4:23: before: ;
+2024_85551730.diff,AST_PARSE_ERROR: :2:66: Illegal character '\\'
+2024_87f81a55.diff,AST_PARSE_ERROR: :4:15: before: num_exprs
+2024_884d791b.diff,AST_PARSE_ERROR: :2:33: before: /
+2024_8b9cbf49.diff,CALL(getpid) | CALL(getpid)
+2024_8ba34c69.diff,AST_PARSE_ERROR: :2:12: before: of
+2024_8cb653b2.diff,No logic nodes
+2024_8d148bb8.diff,AST_PARSE_ERROR: :7:21: before: )
+2024_8f4ee962.diff,AST_PARSE_ERROR: :2:29: before: ;
+2024_915de706.diff,AST_PARSE_ERROR: :2:10: before: varno
+2024_91cbb4b4.diff,AST_PARSE_ERROR: :2:15: before: buf
+2024_91e7115b.diff,AST_PARSE_ERROR: :4:23: before: ;
+2024_91fe092a.diff,AST_PARSE_ERROR: :4:36: before: void
+2024_927332b9.diff,AST_PARSE_ERROR: :2:20: before: ;
+2024_93660d1c.diff,AST_PARSE_ERROR: :2:68: before: ;
+2024_94131cd5.diff,AST_PARSE_ERROR: :2:26: before: ;
+2024_945ec4c4.diff,AST_PARSE_ERROR: :5:23: before: ;
+2024_94bb6c44.diff,AST_PARSE_ERROR: :2:11: before: start
+2024_95d14b7a.diff,AST_PARSE_ERROR: :2:3: before: <
+2024_97e5b002.diff,AST_PARSE_ERROR: :2:57: before: )
+2024_98c7c715.diff,AST_PARSE_ERROR: :10:36: before: ;
+2024_991f8cf8.diff,AST_PARSE_ERROR: :2:40: before: ;
+2024_995e0fbc.diff,AST_PARSE_ERROR: :2:51: Illegal character '@'
+2024_9bc1eee9.diff,AST_PARSE_ERROR: :2:27: before: ;
+2024_9c40db3b.diff,No logic nodes
+2024_9d9ece4c.diff,AST_PARSE_ERROR: :2:8: before: a
+2024_9ecbf540.diff,AST_PARSE_ERROR: :2:9: before: nbytes
+2024_9f34cae1.diff,AST_PARSE_ERROR: :2:41: before: )
+2024_9fd8b331.diff,No logic nodes
+2024_a39297ec.diff,AST_PARSE_ERROR: :3:23: before: ;
+2024_a3a836fb.diff,AST_PARSE_ERROR: :2:10: before: t1
+2024_a41106da.diff,AST_PARSE_ERROR: :2:3: before: <
+2024_a62d90f2.diff,CALL(_configthreadlocale) | IF_CONDITION(expr == -1) | CALL(ecpg_do_epilogue) | CALL(_configthreadlocale)
+2024_a79ed10e.diff,No logic nodes
+2024_a7e5237f.diff,AST_PARSE_ERROR: :2:66: Illegal character '\\'
+2024_a7f2f6ad.diff,AST_PARSE_ERROR: :2:13: before: ;
+2024_a8395677.diff,No logic nodes
+2024_a9ed7d94.diff,AST_PARSE_ERROR: :6:67: before: ;
+2024_aa1e898d.diff,AST_PARSE_ERROR: :2:11: before: all
+2024_aa79bde7.diff,AST_PARSE_ERROR: :2:15: before: ;
+2024_b181062a.diff,AST_PARSE_ERROR: :2:11: before: abs_size
+2024_b199eb89.diff,AST_PARSE_ERROR: :2:9: before: error
+2024_b1ffe3ff.diff,CALL(AbsorbSyncRequests) | CALL(AbsorbSyncRequests) | IF_CONDITION(CritSectionCount > 0)
+2024_b2be5cb2.diff,AST_PARSE_ERROR: :5:58: before: ;
+2024_b2d6b4c7.diff,AST_PARSE_ERROR: :10:40: before: :
+2024_b3bd1829.diff,AST_PARSE_ERROR: :2:58: before: uint32
+2024_b631d014.diff,AST_PARSE_ERROR: :2:13: before: error
+2024_b9e5249c.diff,AST_PARSE_ERROR: :5:19: before: InjectionPointsCtl
+2024_babb3993.diff,AST_PARSE_ERROR: :2:57: before: ;
+2024_bb5604ba.diff,AST_PARSE_ERROR: :2:38: before: >
+2024_bb812ab0.diff,AST_PARSE_ERROR: :3:11: before: for
+2024_bcd5b4bc.diff,AST_PARSE_ERROR: :3:16: before: ;
+2024_bd06cc33.diff,AST_PARSE_ERROR: :2:17: Missing type in declaration
+2024_bd8fc167.diff,AST_PARSE_ERROR: :2:4: before: {
+2024_be2f0731.diff,CALL(SimpleLruGetBankLock) | CALL(LWLockAcquire) | CALL(SimpleLruZeroPage) | IF_CONDITION(firstZeroPage == targetPage) | CALL(LWLockRelease) | CALL(LWLockAcquire)
+2024_c03d91d9.diff,AST_PARSE_ERROR: :2:10: before: TABLE
+2024_c1664544.diff,AST_PARSE_ERROR: :2:9: before: functions
+2024_c1ff2d8b.diff,AST_PARSE_ERROR: :2:6: before: $cancel
+2024_c7301c3b.diff,No logic nodes
+2024_c899c683.diff,AST_PARSE_ERROR: :6:58: before: ;
+2024_c95d2159.diff,No logic nodes
+2024_c9e24573.diff,AST_PARSE_ERROR: :2:60: before: ;
+2024_cc0e7ebd.diff,AST_PARSE_ERROR: :2:45: before: =
+2024_ccc8194e.diff,IF_CONDITION(expr > expr) | CALL(TidStoreMemoryUsage) | IF_CONDITION(expr > 0) | CALL(TidStoreSetBlockOffsets) | CALL(TidStoreMemoryUsage) | CALL(TidStoreDestroy) | CALL(TidStoreDestroy) | CALL(dsa_get_handle) | CALL(TidStoreGetDSA) | CALL(TidStoreGetHandle)
+2024_cd2624fd.diff,AST_PARSE_ERROR: :2:16: before: {
+2024_d12b4ba1.diff,AST_PARSE_ERROR: :2:8: before: WHEN
+2024_d2129572.diff,CALL(ResourceOwnerEnlarge)
+2024_d22d98c3.diff,AST_PARSE_ERROR: :3:71: before: ;
+2024_d35cd061.diff,AST_PARSE_ERROR: :2:20: before: escontext
+2024_d4d11940.diff,AST_PARSE_ERROR: :3:9: before: thousand
+2024_d802ff06.diff,AST_PARSE_ERROR: :2:6: before: =
+2024_d82ab9fc.diff,AST_PARSE_ERROR: :2:7: before: operations
+2024_d8f5acbd.diff,AST_PARSE_ERROR: :2:38: before: )
+2024_d9e225f2.diff,AST_PARSE_ERROR: :2:22: Invalid char constant 'debug2'
+2024_da4017a6.diff,AST_PARSE_ERROR: :2:3: before: <
+2024_db22b900.diff,AST_PARSE_ERROR: :2:12: before: index
+2024_dbf3f974.diff,IF_CONDITION(expr == LOCKTAG_TUPLE && !allLocks) | CALL(LOCALLOCK_LOCKTAG) | CALL(elog)
+2024_dc26ff2f.diff,No logic nodes
+2024_e116b703.diff,AST_PARSE_ERROR: :2:7: before: File
+2024_e1724af4.diff,No logic nodes
+2024_e3584258.diff,AST_PARSE_ERROR: :3:75: before: ;
+2024_e468ec0f.diff,AST_PARSE_ERROR: :4:8: before: ;
+2024_e882bcae.diff,CALL(fopen) | IF_CONDITION(fp == NULL) | IF_CONDITION(expr != 0) | CALL(fstat) | CALL(fileno)
+2024_e89f4c66.diff,AST_PARSE_ERROR: :3:9: before: TABLE
+2024_e9b7aee2.diff,AST_PARSE_ERROR: :2:69: before: ;
+2024_ea792bfd.diff,CALL(dummy_assert) | CALL(FreeTupleDesc) | CALL(dummy_assert) | CALL(FreeTupleDesc)
+2024_ed1e0a65.diff,AST_PARSE_ERROR: :2:72: before: )
+2024_ed52df3b.diff,AST_PARSE_ERROR: :2:3: before: .
+2024_ee937f04.diff,AST_PARSE_ERROR: :2:15: before: relsize
+2024_eecd9138.diff,No logic nodes
+2024_ef744ebb.diff,AST_PARSE_ERROR: :2:3: before: |
+2024_ef7fa900.diff,AST_PARSE_ERROR: :4:20: before: ;
+2024_f0c569d7.diff,AST_PARSE_ERROR: :2:53: before: ;
+2024_f56a9def.diff,AST_PARSE_ERROR: :5:3: before: else
+2024_f5a465f1.diff,AST_PARSE_ERROR: :2:23: before: ;
+2024_f6ab942f.diff,AST_PARSE_ERROR: :2:3: before: <
+2024_f762d99c.diff,AST_PARSE_ERROR: :2:10: before: >
+2024_fc1b2ce0.diff,AST_PARSE_ERROR: :3:11: before: remaining
+2024_fce2ce79.diff,AST_PARSE_ERROR: :6:14: before: ;
+2024_fe093994.diff,AST_PARSE_ERROR: :2:66: before: )
+2025_00066aa1.diff,AST_PARSE_ERROR: :2:24: before: /
+2025_00d61a08.diff,AST_PARSE_ERROR: :5:51: before: ;
+2025_02c4bc88.diff,AST_PARSE_ERROR: :2:10: before: usecs
+2025_03366b61.diff,AST_PARSE_ERROR: :3:37: before: /
+2025_039bfc45.diff,AST_PARSE_ERROR: :2:88: before: ;
+2025_03bf7a12.diff,AST_PARSE_ERROR: :6:3: Invalid declaration
+2025_04396eac.diff,AST_PARSE_ERROR: :3:106: before: )
+2025_0839fbe4.diff,No logic nodes
+2025_086b9a33.diff,AST_PARSE_ERROR: :2:3: before: <
+2025_09fcc652.diff,AST_PARSE_ERROR: :2:10: before: to
+2025_0c2b7174.diff,AST_PARSE_ERROR: :2:10: before: set_val_in_shmem
+2025_0de5f0d8.diff,AST_PARSE_ERROR: :2:9: before: PUBLICATION
+2025_0e5b1441.diff,AST_PARSE_ERROR: :2:63: before: ;
+2025_0f21db36.diff,CALL(CHECK_FOR_INTERRUPTS) | IF_CONDITION(extra_data == NULL && expr < 100)
+2025_0fc33b00.diff,AST_PARSE_ERROR: :2:27: before: ;
+2025_117f9f32.diff,AST_PARSE_ERROR: :2:3: before: <
+2025_12efa489.diff,AST_PARSE_ERROR: :4:3: before: else
+2025_1469e312.diff,AST_PARSE_ERROR: :5:9: before: num
+2025_166b4f45.diff,AST_PARSE_ERROR: :4:3: before: else
+2025_167cb267.diff,AST_PARSE_ERROR: :2:31: before: ;
+2025_1681a70d.diff,AST_PARSE_ERROR: :2:17: before: oldCtx
+2025_18cdf593.diff,No logic nodes
+2025_1d7b00dc.diff,AST_PARSE_ERROR: :2:8: before: extension
+2025_1dbe6f76.diff,AST_PARSE_ERROR: :2:64: Illegal character '\\'
+2025_1fc34036.diff,IF_CONDITION(expr == 0) | CALL(appendPQExpBuffer)
+2025_23100645.diff,AST_PARSE_ERROR: :4:9: before: coltype
+2025_246ec4a5.diff,AST_PARSE_ERROR: :2:22: before: class
+2025_26eadf4d.diff,No logic nodes
+2025_2817525f.diff,AST_PARSE_ERROR: :2:21: before: latestXid
+2025_2a083ab8.diff,AST_PARSE_ERROR: :4:58: before: ;
+2025_2ad6e80d.diff,AST_PARSE_ERROR: :3:3: before: ^
+2025_2c7b4ad2.diff,AST_PARSE_ERROR: :5:19: before: :
+2025_2d756ebb.diff,AST_PARSE_ERROR: :2:30: before: =
+2025_2ef57908.diff,AST_PARSE_ERROR: :5:6: Illegal character '\\'
+2025_2fcc5a71.diff,IF_CONDITION(readBytes == sizeofcrc) | CALL(memcpy)
+2025_3191a593.diff,CALL(pgstat_fetch_stat_backend) | IF_CONDITION(!backend_stats) | IF_CONDITION(bktype)
+2025_33b06a20.diff,AST_PARSE_ERROR: :2:20: before: cattr
+2025_33eec809.diff,AST_PARSE_ERROR: :2:36: before: /
+2025_3811ca36.diff,AST_PARSE_ERROR: :2:41: before: *
+2025_3943f5cf.diff,AST_PARSE_ERROR: :2:27: before: >
+2025_39e3bcae.diff,AST_PARSE_ERROR: :2:85: before: ;
+2025_39f67d9b.diff,AST_PARSE_ERROR: :3:35: before: )
+2025_3a661580.diff,CALL(PG_RETURN_TEXT_P) | CALL(BITMAPSET_TO_TEXT)
+2025_3b35f9a4.diff,IF_CONDITION(expr) | IF_CONDITION(expr == NULL) | CALL(foreach_node) | IF_CONDITION(!expr) | CALL(bms_is_member)
+2025_3fae25cb.diff,CALL(appendPQExpBufferStr) | CALL(appendPQExpBufferStr) | CALL(appendPQExpBufferStr) | CALL(appendPQExpBufferStr) | CALL(appendPQExpBufferChar) | CALL(appendPQExpBufferStr) | CALL(PQerrorMessage) | CALL(appendPQExpBufferStr) | CALL(PQerrorMessage) | CALL(appendPQExpBufferStr) | CALL(PQerrorMessage) | CALL(appendPQExpBufferChar) | CALL(appendPQExpBufferChar) | CALL(appendPQExpBufferChar)
+2025_43830ecb.diff,AST_PARSE_ERROR: :4:11: before: schema
+2025_45f50c99.diff,AST_PARSE_ERROR: :4:31: before: ;
+2025_46b4ba53.diff,AST_PARSE_ERROR: :2:7: before: to
+2025_47da1989.diff,AST_PARSE_ERROR: :4:11: before: my
+2025_49fe1c83.diff,AST_PARSE_ERROR: :2:85: before: )
+2025_4c08ecd1.diff,AST_PARSE_ERROR: :5:49: before: ;
+2025_4cb560b5.diff,AST_PARSE_ERROR: :2:6: before: not
+2025_4f15759b.diff,AST_PARSE_ERROR: :2:54: before: ;
+2025_500b6176.diff,AST_PARSE_ERROR: :6:25: before: ;
+2025_51a0382e.diff,AST_PARSE_ERROR: :2:3: Invalid declaration
+2025_52382feb.diff,AST_PARSE_ERROR: :2:7: before: performance
+2025_530cfa8e.diff,IF_CONDITION(!IsUnderPostmaster) | CALL(LWLockNewTrancheId) | CALL(LWLockNewTrancheId)
+2025_5457ea46.diff,AST_PARSE_ERROR: :2:18: before: /
+2025_5a4eba55.diff,AST_PARSE_ERROR: :6:43: before: ;
+2025_5b8f2ccc.diff,AST_PARSE_ERROR: :2:25: before: /
+2025_5b94e275.diff,CALL(PQfreemem) | CALL(PQfreemem) | CALL(PQfreemem) | CALL(PQfreemem) | CALL(PQfreemem) | CALL(PQfreemem) | CALL(PQfreemem) | CALL(PQfreemem) | CALL(PQfreemem) | CALL(PQfreemem) | CALL(PQfreemem) | CALL(PQfreemem) | CALL(PQfreemem)
+2025_5ee75e32.diff,AST_PARSE_ERROR: :2:50: before: ;
+2025_615ff828.diff,AST_PARSE_ERROR: :5:30: before: )
+2025_62ec3e1f.diff,AST_PARSE_ERROR: :2:11: before: old_pss_pid
+2025_64e7fa43.diff,AST_PARSE_ERROR: :2:25: before: ;
+2025_69ab4465.diff,AST_PARSE_ERROR: :5:11: before: nbanks
+2025_6aa33afe.diff,IF_CONDITION(expr) | CALL(unlikely) | CALL(VALGRIND_MAKE_MEM_NOACCESS) | CALL(MemoryContextAllocationFailure) | CALL(VALGRIND_MAKE_MEM_DEFINED) | CALL(memcpy) | CALL(Min)
+2025_6c05ef57.diff,AST_PARSE_ERROR: :3:53: before: contrib
+2025_6e153530.diff,AST_PARSE_ERROR: :2:77: before: ;
+2025_6e91b9c1.diff,No logic nodes
+2025_6f22a82a.diff,CALL(dummy_assert) | CALL(dummy_assert) | CALL(dummy_assert) | CALL(dummy_assert) | CALL(dummy_assert) | CALL(dummy_assert) | CALL(dummy_assert) | CALL(dummy_assert) | CALL(dummy_assert) | CALL(dummy_assert) | CALL(dummy_assert)
+2025_706cbed3.diff,AST_PARSE_ERROR: :2:43: before: total
+2025_7195c804.diff,IF_CONDITION(expr != expr) | IF_CONDITION(last_saved_restart_lsn_updated) | CALL(ReplicationSlotsComputeRequiredLSN)
+2025_783cbb6d.diff,AST_PARSE_ERROR: :2:10: before: loopback
+2025_798b19d2.diff,CALL(Py_XDECREF) | CALL(Py_DECREF)
+2025_7afca7ed.diff,AST_PARSE_ERROR: :2:70: before: ;
+2025_7bbc4621.diff,AST_PARSE_ERROR: :2:22: Illegal character '@'
+2025_7bc88c3d.diff,IF_CONDITION(expr) | IF_CONDITION(expr) | IF_CONDITION(expr) | IF_CONDITION(expr) | IF_CONDITION(!expr)
+2025_7c2061bd.diff,AST_PARSE_ERROR: :2:6: before: $out
+2025_7fcb32ad.diff,No logic nodes
+2025_81f72115.diff,AST_PARSE_ERROR: :2:64: before: ;
+2025_837cc73a.diff,AST_PARSE_ERROR: :2:10: before: alias
+2025_847bbb21.diff,AST_PARSE_ERROR: :2:9: before: functions
+2025_84914e96.diff,AST_PARSE_ERROR: :2:10: before: commands
+2025_84fd3bc1.diff,No logic nodes
+2025_85ccd7e3.diff,AST_PARSE_ERROR: :5:9: before: $inputfile
+2025_86b276a4.diff,No logic nodes
+2025_8741e48e.diff,AST_PARSE_ERROR: :5:12: before: permutation
+2025_898c131b.diff,AST_PARSE_ERROR: :9:17: before: cannot
+2025_89d57c1f.diff,AST_PARSE_ERROR: :4:3: before: else
+2025_8ab6ef2b.diff,AST_PARSE_ERROR: :2:19: before: ;
+2025_8ae0a379.diff,AST_PARSE_ERROR: :2:56: before: ;
+2025_8b18ed6d.diff,AST_PARSE_ERROR: :2:3: before: <
+2025_8b3e2c62.diff,AST_PARSE_ERROR: :2:10: Invalid declaration
+2025_8c8f7b19.diff,CALL(smgrdestroyall) | CALL(smgrdestroyall)
+2025_8e5b9292.diff,AST_PARSE_ERROR: :2:43: before: ;
+2025_8ec97e78.diff,AST_PARSE_ERROR: :2:25: before: ;
+2025_8ede692d.diff,AST_PARSE_ERROR: :2:6: before: $oldpid
+2025_90260e2e.diff,AST_PARSE_ERROR: :4:3: before: .
+2025_905e932f.diff,AST_PARSE_ERROR: :4:12: before: permutation
+2025_92cf557f.diff,AST_PARSE_ERROR: :2:62: before: ;
+2025_94512623.diff,AST_PARSE_ERROR: :3:58: before: ;
+2025_969ab9d4.diff,AST_PARSE_ERROR: :2:36: before: ;
+2025_9790affc.diff,AST_PARSE_ERROR: :2:22: before: /
+2025_990c8db1.diff,IF_CONDITION(expr == NULL) | CALL(first_dir_separator)
+2025_991974bb.diff,AST_PARSE_ERROR: :2:3: before: else
+2025_99780da7.diff,AST_PARSE_ERROR: :2:58: before: ;
+2025_9e345415.diff,No logic nodes
+2025_9e63f83a.diff,AST_PARSE_ERROR: :4:12: before: detach
+2025_9ec0b299.diff,AST_PARSE_ERROR: :2:84: before: )
+2025_9fc7f6ab.diff,No logic nodes
+2025_9fd29d7f.diff,AST_PARSE_ERROR: :2:15: before: heapBlk
+2025_a4fd971c.diff,AST_PARSE_ERROR: :3:37: Invalid char constant 'postgres'
+2025_a6060f1c.diff,AST_PARSE_ERROR: :13:10: before: INDEX
+2025_a6285b15.diff,AST_PARSE_ERROR: :2:6: before: $batch_start_sql
+2025_a6c0bf93.diff,AST_PARSE_ERROR: :2:94: before: ;
+2025_a93e2a1e.diff,AST_PARSE_ERROR: :2:51: before: )
+2025_a95393ec.diff,AST_PARSE_ERROR: :3:14: before: /
+2025_a98ccf72.diff,No logic nodes
+2025_aa39b4e3.diff,"AST_PARSE_ERROR: :2:7: before: ,"
+2025_abc2b713.diff,No logic nodes
+2025_b102c8c4.diff,CALL(MemoryContextSwitchTo) | CALL(PlanCacheComputeResultDesc) | IF_CONDITION(expr) | CALL(MemoryContextSwitchTo) | CALL(CreateTupleDescCopy) | CALL(MemoryContextSwitchTo) | CALL(PlanCacheComputeResultDesc)
+2025_b237f542.diff,AST_PARSE_ERROR: :2:3: before: <
+2025_b46efe90.diff,AST_PARSE_ERROR: :3:10: Invalid declaration
+2025_b52a4a5f.diff,AST_PARSE_ERROR: :5:59: before: ;
+2025_b63952a7.diff,AST_PARSE_ERROR: :2:20: Invalid char constant 'postgres'
+2025_b6463ea6.diff,AST_PARSE_ERROR: :2:47: before: ;
+2025_b8926a5b.diff,AST_PARSE_ERROR: :2:12: before: ;
+2025_c09a0691.diff,AST_PARSE_ERROR: :2:83: before: ;
+2025_c32e32f7.diff,AST_PARSE_ERROR: :2:3: before: <
+2025_c3cc2ab8.diff,AST_PARSE_ERROR: :2:36: before: *
+2025_c44c2d27.diff,AST_PARSE_ERROR: :2:9: before: conrelid
+2025_c5ae07a9.diff,"AST_PARSE_ERROR: :5:53: before: ,"
+2025_c5c74282.diff,AST_PARSE_ERROR: :2:10: Invalid declaration
+2025_c5d34f4a.diff,AST_PARSE_ERROR: :2:5: Illegal character '\\'
+2025_c754bdd8.diff,AST_PARSE_ERROR: :2:26: Invalid char constant 'otherdb_slot'
+2025_c989affb.diff,AST_PARSE_ERROR: :3:23: before: ;
+2025_ca09ef3a.diff,AST_PARSE_ERROR: :2:23: Illegal character '\\'
+2025_ca3067cc.diff,AST_PARSE_ERROR: :10:32: before: /
+2025_cbe04e5d.diff,AST_PARSE_ERROR: :3:10: before: extension
+2025_d2ca16bb.diff,AST_PARSE_ERROR: :2:11: before: is
+2025_d2e70683.diff,No logic nodes
+2025_d3111cb7.diff,AST_PARSE_ERROR: :2:10: before: fpi_bytes
+2025_d3917d8f.diff,AST_PARSE_ERROR: :3:51: before: ;
+2025_d438515c.diff,AST_PARSE_ERROR: :2:6: before: discover
+2025_d4baa327.diff,CALL(__attribute__)
+2025_d4f79865.diff,AST_PARSE_ERROR: :2:29: before: )
+2025_d5845aa8.diff,AST_PARSE_ERROR: :4:3: before: else
+2025_d5b9b2d4.diff,AST_PARSE_ERROR: :2:45: before: )
+2025_d96c854d.diff,AST_PARSE_ERROR: :2:6: before: placed
+2025_db19a506.diff,AST_PARSE_ERROR: :2:66: before: )
+2025_dc9a2d54.diff,AST_PARSE_ERROR: :3:25: before: )
+2025_dcc9820a.diff,AST_PARSE_ERROR: :3:18: before: )
+2025_dd766a44.diff,AST_PARSE_ERROR: :2:48: before: ;
+2025_de9037d0.diff,AST_PARSE_ERROR: :2:47: before: ;
+2025_df335618.diff,AST_PARSE_ERROR: :2:29: Invalid char constant 'postgres'
+2025_df53fa1c.diff,AST_PARSE_ERROR: :2:9: before: PUBLICATION
+2025_e03c9528.diff,AST_PARSE_ERROR: :2:22: before: volatile
+2025_e1c36548.diff,AST_PARSE_ERROR: :2:40: before: )
+2025_e2ceff13.diff,IF_CONDITION(expr) | CALL(pg_add_size_overflow) | IF_CONDITION(expr) | CALL(pg_mul_size_overflow)
+2025_e41d954d.diff,CALL(pqsignal) | CALL(logicalrep_worker_stop_internal)
+2025_e4e496e8.diff,No logic nodes
+2025_e557c827.diff,AST_PARSE_ERROR: :3:3: before: else
+2025_e596e077.diff,CALL(dummy_assert) | CALL(dummy_assert)
+2025_e6dfd068.diff,AST_PARSE_ERROR: :2:47: before: ;
+2025_ec4327d1.diff,No logic nodes
+2025_ed073617.diff,CALL(free)
+2025_eef4a33f.diff,AST_PARSE_ERROR: :2:5: before: ;
+2025_f011acdd.diff,AST_PARSE_ERROR: :2:43: before: )
+2025_f0b7ab72.diff,AST_PARSE_ERROR: :5:21: before: ;
+2025_f24605e2.diff,AST_PARSE_ERROR: :2:14: before: oldroot
+2025_f275afc9.diff,No logic nodes
+2025_f5234599.diff,AST_PARSE_ERROR: :2:22: before: ;
+2025_f5a987c0.diff,AST_PARSE_ERROR: :3:77: Illegal character '\\'
+2025_f8c115a6.diff,AST_PARSE_ERROR: :2:14: before: that
+2025_fa44b8b7.diff,AST_PARSE_ERROR: :2:54: before: *
+2025_fb056564.diff,IF_CONDITION(prev_chars > chars) | CALL(fprintf) | CALL(fputc) | IF_CONDITION(prev_chars > chars) | CALL(fprintf) | CALL(fputc)
+2025_fc32be3c.diff,AST_PARSE_ERROR: :2:88: before: ;
+2025_fdda78e3.diff,AST_PARSE_ERROR: :3:9: before: PLAN
+2025_fe29b2a1.diff,AST_PARSE_ERROR: :2:3: before: else
+2025_ff030ebe.diff,AST_PARSE_ERROR: :3:74: before: ;
+2025_ff0bcb24.diff,AST_PARSE_ERROR: :2:3: before: else
+2025_ff1975dd.diff,AST_PARSE_ERROR: :6:3: before: else
+2025_ff8aba65.diff,AST_PARSE_ERROR: :2:10: before: subpath
