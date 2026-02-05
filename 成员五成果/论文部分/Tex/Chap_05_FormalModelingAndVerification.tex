@@ -1,13 +1,37 @@
 \chapter{形式化建模与修复正确性验证}\label{chap:formal}
 
 \section{Z3 建模对象与状态抽象}
-本章将关键修复逻辑抽象为可判定约束系统，使用 Z3 对输入状态、路径条件和错误触发条件建模，建立“修复前/修复后”可比较模型。
+本章基于成员五提交的 \texttt{verify\_config\_logic.py} 与 \texttt{verify\_fix.py}，将第四章动态复现得到的缺陷抽象为可判定约束问题。模型变量定义如下：
+\begin{itemize}
+    \item \texttt{FileType}：文件类型（0=Unknown, 1=C, 2=H, 3=Python）；
+    \item \texttt{Attribute}：属性类型（0=None, 1=FilterIndent, 2=Other）；
+    \item \texttt{OutputAction}：动作（0=DoNothing, 1=GenCConfig, 2=GenPyConfig）。
+\end{itemize}
+
+验证规约（Specification）统一设定为：当 \texttt{FileType=3} 且 \texttt{Attribute=1} 时，系统必须满足 \texttt{OutputAction=2}。若存在满足输入条件但不满足输出条件的模型，即判定逻辑存在漏洞。
 
 \section{修复前模型：反例可满足性（SAT）}
-在修复前模型中，求解器可找到满足约束的反例（SAT），说明存在输入组合会触发异常行为，验证缺陷确实存在且可形式化描述。
+在修复前模型中，核心逻辑为：C/H 文件输出 C 配置，其余类型默认 \texttt{DoNothing}。该实现天然缺失 Python 分支。将“违规条件”加入求解器后，理论上可得到 SAT：
+\begin{quote}
+存在一组输入使得 \texttt{FileType=3 \land Attribute=1 \land OutputAction\neq 2} 成立。
+\end{quote}
+
+这与第四章的动态反例一致：Python 文件在需要缩进规则时未被正确处理，形成“成功返回 + 语义失败”的静默缺陷。
 
 \section{修复后模型：反例不可满足性（UNSAT）}
-在修复后模型中，将同类反例目标加入约束后得到 UNSAT，表明对应缺陷路径在约束空间内已不可达，为修复有效性提供证明级证据。
+修复后模型显式加入 \texttt{FileType=3 -> OutputAction=2} 的分支约束，逻辑结构变为 C/H 分支、Python 分支与默认分支三级映射。此时对同一违规条件求解，理论结果为 UNSAT：
+\begin{quote}
+在修复后约束系统中，不存在满足违规条件的输入赋值。
+\end{quote}
+
+因此，修复后模型不仅“通过测试”，更在给定抽象域内达成“无反例”证明。
 
 \section{从“测试发现”到“证明正确”的方法提升}
-与仅依赖测试相比，形式化验证可覆盖更多输入空间并给出可解释结论，实现从“经验性发现问题”到“可证明修复正确”的方法学升级。
+本章体现的方法提升可概括为三点：
+\begin{enumerate}
+    \item \textbf{证据层级提升}：从经验性测试（样本输入）提升到约束空间证明（输入域）；
+    \item \textbf{可解释性提升}：反例由具体日志提升为可读的逻辑赋值（变量取值可复现）；
+    \item \textbf{闭环完整性提升}：形成“动态复现 Bug $\rightarrow$ 形式化反例 SAT $\rightarrow$ 修复后 UNSAT”的可追踪链路。
+\end{enumerate}
+
+需要说明的是，形式化结论依赖于抽象边界：若后续引入新属性类型或更复杂路径规则，应同步扩展状态空间与规约集合，以维持证明有效性。

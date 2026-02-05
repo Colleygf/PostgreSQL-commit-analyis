@@ -1,18 +1,43 @@
 \chapter{数据集构建与 Bug 修复识别}\label{chap:dataset}
 
 \section{PostgreSQL 提交数据范围与来源（2022--2025）}
-本章数据来源于 PostgreSQL 官方代码仓库提交记录，时间窗口设定为 2022 年 1 月至 2025 年 12 月。通过统一脚本抽取提交元数据、变更文件、提交说明和测试相关信号，形成原始样本池。
-
-\section{Bug 修复提交识别规则（关键词/结构/测试信号）}
-识别规则由三类特征组成：
+本研究的数据来自仓库中已整理的提交级 CSV 文件与汇总报告，时间范围覆盖 2022--2025 年。核心数据资产包括：
 \begin{itemize}
-    \item 文本关键词：如 \texttt{fix}、\texttt{bug}、\texttt{regression}；
-    \item 结构信号：条件判断新增、错误分支增强、边界检查补全；
-    \item 测试信号：回归测试新增或断言强化。
+    \item \texttt{raw\_enhanced.csv}：提交哈希、作者、时间、提交信息与信息密度；
+    \item \texttt{final\_summary\_report.csv}：年度修复提交规模与代码 churn 汇总；
+    \item \texttt{bug\_fixes\_detailed\_2023.csv}：2023 年细粒度增删行与模块字段。
 \end{itemize}
 
+依据 \texttt{final\_summary\_report.csv}，2022--2025 年的修复提交数量分别为 692、619、820、829；对应年度 churn 分别为 41610、30477、34469、36852 行。四年合计修复提交 2960 次，显示 2024--2025 年活跃度显著提升。
+
+\section{Bug 修复提交识别规则（关键词/结构/测试信号）}
+本研究采用成员二制定的三类信号联合识别策略：
+\begin{enumerate}
+    \item \textbf{关键词信号}：优先使用强关键词（\texttt{fix/bug/crash/segfault/assert/regress/leak}），弱关键词（\texttt{check/boundary/timeout/retry}）仅作为候选补充；
+    \item \textbf{结构信号}：检查是否出现条件与边界检查新增、错误处理 API（\texttt{ereport/elog}）强化、锁与资源管理收紧；
+    \item \textbf{测试信号}：观察是否同步修改 \texttt{src/test/**} 或 \texttt{contrib/*/sql|expected}，以及提交信息是否提及 regression/backpatch/CVE。
+\end{enumerate}
+
+在 \texttt{raw\_enhanced.csv} 中进行消息级统计，\texttt{fix} 相关关键词命中 2422 次，\texttt{error} 412 次，\texttt{assert} 157 次，\texttt{regression} 107 次，说明“显式修复语义”在提交文本中占主导地位。
+
 \section{标注流程与质量控制（Y/M/N 与复核机制）}
-采用三级标注：Y（明确 Bug 修复）、M（疑似修复）、N（非修复）。流程包括初标、交叉复核和冲突仲裁，确保标注一致性。针对争议样本保留复核意见与决议依据。
+标注流程遵循“规则筛查 + 人工复核”两阶段：
+\begin{itemize}
+    \item 第一步：通过 \texttt{git log --grep} 按关键词生成候选集合；
+    \item 第二步：对候选逐条 \texttt{git show -U3}，按 \textbf{Y/M/N} 标注（明确修复/疑似修复/非修复）；
+    \item 第三步：对 \texttt{storage/replication/WAL/locking} 等高风险模块执行二人复核，保留冲突裁决记录。
+\end{itemize}
+
+标注字段建议包含 \texttt{is\_bugfix, signals, modules, reason, loc\_add, loc\_del, date, author}，以便后续做时间、作者、模块和规模四维交叉分析。
 
 \section{描述性统计（时间、作者、模块、规模）}
-统计维度覆盖时间分布、作者贡献、模块归属（如 \texttt{storage}/\texttt{replication}/\texttt{WAL}）和变更规模。通过描述性统计识别高风险区域与修复密集阶段，为后续章节分析提供采样基础。
+\subsection*{时间分布}
+从 \texttt{raw\_enhanced.csv} 统计得到：2022--2025 年样本量分别为 724、644、840、847（总计 3055 条）；月度峰值集中在 2025-04（109 条）与 2024-04（104 条），与版本开发活跃窗口基本一致。
+
+\subsection*{作者分布}
+Top-3 作者分别为 Tom Lane（497）、Michael Paquier（463）、Peter Eisentraut（309），前三位合计约占 41.2\%，显示核心维护者在修复活动中承担了主要工作量。
+
+\subsection*{模块与规模}
+在 677 条静态分析样本（\texttt{static\_analysis\_diffs}）中，路径聚合显示 \texttt{replication} 与 \texttt{storage} 各 45 条，\texttt{wal} 相关 13 条，验证了高风险底层模块的持续修复压力。以 2023 年细粒度样本为例，中位新增/删除行为为 7/3 行，新增行 P90 约为 79 行，说明多数修复为“小步快修”，但仍存在少量大规模补丁。
+
+本章得到的数据与标注结果，为第三章静态结构分析和第四、五章案例验证提供了统一样本基础。

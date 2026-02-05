@@ -7,34 +7,34 @@
 \contentsline {section}{\numberline {2.1}PostgreSQL 提交数据范围与来源（2022--2025）}{2}{section.2.1}%
 \contentsline {section}{\numberline {2.2}Bug 修复提交识别规则（关键词/结构/测试信号）}{2}{section.2.2}%
 \contentsline {section}{\numberline {2.3}标注流程与质量控制（Y/M/N 与复核机制）}{2}{section.2.3}%
-\contentsline {section}{\numberline {2.4}描述性统计（时间、作者、模块、规模）}{2}{section.2.4}%
-\contentsline {chapter}{\numberline {第3章\hspace {.3em}}Bug 修复结构演化分析（静态）}{3}{chapter.3}%
-\contentsline {section}{\numberline {3.1}AST 与 libcst 分析方法}{3}{section.3.1}%
-\contentsline {section}{\numberline {3.2}典型修复模式：前置条件显式化与错误路径显式化}{3}{section.3.2}%
-\contentsline {section}{\numberline {3.3}控制流与条件复杂度变化}{3}{section.3.3}%
-\contentsline {section}{\numberline {3.4}静态分析小结}{3}{section.3.4}%
-\contentsline {chapter}{\numberline {第4章\hspace {.3em}}动态执行轨迹与案例复现}{4}{chapter.4}%
-\contentsline {section}{\numberline {4.1}动态分析对象与实验环境}{4}{section.4.1}%
-\contentsline {section}{\numberline {4.2}\texttt {generate\_editorconfig.py} 的异常定位（Silent Failure）}{4}{section.4.2}%
-\contentsline {section}{\numberline {4.3}修复策略与回归测试结果}{4}{section.4.3}%
-\contentsline {section}{\numberline {4.4}动态证据对静态结论的补充价值}{4}{section.4.4}%
-\contentsline {chapter}{\numberline {第5章\hspace {.3em}}形式化建模与修复正确性验证}{5}{chapter.5}%
-\contentsline {section}{\numberline {5.1}Z3 建模对象与状态抽象}{5}{section.5.1}%
-\contentsline {section}{\numberline {5.2}修复前模型：反例可满足性（SAT）}{5}{section.5.2}%
-\contentsline {section}{\numberline {5.3}修复后模型：反例不可满足性（UNSAT）}{5}{section.5.3}%
-\contentsline {section}{\numberline {5.4}从“测试发现”到“证明正确”的方法提升}{5}{section.5.4}%
-\contentsline {chapter}{\numberline {第6章\hspace {.3em}}综合讨论}{6}{chapter.6}%
-\contentsline {section}{\numberline {6.1}三类证据链（静态--动态--形式化）的互证关系}{6}{section.6.1}%
-\contentsline {section}{\numberline {6.2}高风险模块治理启示（storage/replication/WAL）}{6}{section.6.2}%
-\contentsline {section}{\numberline {6.3}方法局限与有效性威胁}{6}{section.6.3}%
-\contentsline {chapter}{\numberline {第7章\hspace {.3em}}结论与未来工作}{7}{chapter.7}%
-\contentsline {section}{\numberline {7.1}主要研究结论}{7}{section.7.1}%
-\contentsline {section}{\numberline {7.2}工程实践建议}{7}{section.7.2}%
-\contentsline {section}{\numberline {7.3}后续工作（自动检测、自动修复、CI 集成）}{7}{section.7.3}%
-\contentsline {chapter}{\numberline {附录 A\hspace {.3em}}大学学位论文撰写要求}{8}{appendix.A}%
-\contentsline {section}{\numberline {A.1}论文无附录者无需附录部分}{8}{section.A.1}%
-\contentsline {section}{\numberline {A.2}测试公式编号 $\mitLambda ,\mitlambda ,\mittheta ,\bar {\mitLambda },\sqrt {S_{NN}}$}{8}{section.A.2}%
-\contentsline {section}{\numberline {A.3}测试生僻字}{9}{section.A.3}%
-\contentsline {chapter}{参考文献}{10}{section*.14}%
-\contentsline {chapter}{致谢}{10}{appendix*.15}%
-\contentsline {chapter}{作者简历及攻读学位期间发表的学术论文与研究成果}{11}{appendix*.16}%
+\contentsline {section}{\numberline {2.4}描述性统计（时间、作者、模块、规模）}{3}{section.2.4}%
+\contentsline {chapter}{\numberline {第3章\hspace {.3em}}Bug 修复结构演化分析（静态）}{4}{chapter.3}%
+\contentsline {section}{\numberline {3.1}AST 与 libcst 分析方法}{4}{section.3.1}%
+\contentsline {section}{\numberline {3.2}典型修复模式：前置条件显式化与错误路径显式化}{4}{section.3.2}%
+\contentsline {section}{\numberline {3.3}控制流与条件复杂度变化}{4}{section.3.3}%
+\contentsline {section}{\numberline {3.4}静态分析小结}{4}{section.3.4}%
+\contentsline {chapter}{\numberline {第4章\hspace {.3em}}动态执行轨迹与案例复现}{5}{chapter.4}%
+\contentsline {section}{\numberline {4.1}动态分析对象与实验环境}{5}{section.4.1}%
+\contentsline {section}{\numberline {4.2}\texttt {generate\_editorconfig.py} 的异常定位（Silent Failure）}{5}{section.4.2}%
+\contentsline {section}{\numberline {4.3}修复策略与回归测试结果}{5}{section.4.3}%
+\contentsline {section}{\numberline {4.4}动态证据对静态结论的补充价值}{5}{section.4.4}%
+\contentsline {chapter}{\numberline {第5章\hspace {.3em}}形式化建模与修复正确性验证}{6}{chapter.5}%
+\contentsline {section}{\numberline {5.1}Z3 建模对象与状态抽象}{6}{section.5.1}%
+\contentsline {section}{\numberline {5.2}修复前模型：反例可满足性（SAT）}{6}{section.5.2}%
+\contentsline {section}{\numberline {5.3}修复后模型：反例不可满足性（UNSAT）}{6}{section.5.3}%
+\contentsline {section}{\numberline {5.4}从“测试发现”到“证明正确”的方法提升}{7}{section.5.4}%
+\contentsline {chapter}{\numberline {第6章\hspace {.3em}}综合讨论}{8}{chapter.6}%
+\contentsline {section}{\numberline {6.1}三类证据链（静态--动态--形式化）的互证关系}{8}{section.6.1}%
+\contentsline {section}{\numberline {6.2}高风险模块治理启示（storage/replication/WAL）}{8}{section.6.2}%
+\contentsline {section}{\numberline {6.3}方法局限与有效性威胁}{8}{section.6.3}%
+\contentsline {chapter}{\numberline {第7章\hspace {.3em}}结论与未来工作}{9}{chapter.7}%
+\contentsline {section}{\numberline {7.1}主要研究结论}{9}{section.7.1}%
+\contentsline {section}{\numberline {7.2}工程实践建议}{9}{section.7.2}%
+\contentsline {section}{\numberline {7.3}后续工作（自动检测、自动修复、CI 集成）}{9}{section.7.3}%
+\contentsline {chapter}{\numberline {附录 A\hspace {.3em}}大学学位论文撰写要求}{10}{appendix.A}%
+\contentsline {section}{\numberline {A.1}论文无附录者无需附录部分}{10}{section.A.1}%
+\contentsline {section}{\numberline {A.2}测试公式编号 $\mitLambda ,\mitlambda ,\mittheta ,\bar {\mitLambda },\sqrt {S_{NN}}$}{10}{section.A.2}%
+\contentsline {section}{\numberline {A.3}测试生僻字}{11}{section.A.3}%
+\contentsline {chapter}{参考文献}{12}{section*.17}%
+\contentsline {chapter}{致谢}{12}{appendix*.18}%
+\contentsline {chapter}{作者简历及攻读学位期间发表的学术论文与研究成果}{13}{appendix*.19}%
