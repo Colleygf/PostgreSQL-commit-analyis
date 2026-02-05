@@ -1,0 +1,18 @@
+\chapter{数据集构建与 Bug 修复识别}\label{chap:dataset}
+
+\section{PostgreSQL 提交数据范围与来源（2022--2025）}
+本章数据来源于 PostgreSQL 官方代码仓库提交记录，时间窗口设定为 2022 年 1 月至 2025 年 12 月。通过统一脚本抽取提交元数据、变更文件、提交说明和测试相关信号，形成原始样本池。
+
+\section{Bug 修复提交识别规则（关键词/结构/测试信号）}
+识别规则由三类特征组成：
+\begin{itemize}
+    \item 文本关键词：如 \texttt{fix}、\texttt{bug}、\texttt{regression}；
+    \item 结构信号：条件判断新增、错误分支增强、边界检查补全；
+    \item 测试信号：回归测试新增或断言强化。
+\end{itemize}
+
+\section{标注流程与质量控制（Y/M/N 与复核机制）}
+采用三级标注：Y（明确 Bug 修复）、M（疑似修复）、N（非修复）。流程包括初标、交叉复核和冲突仲裁，确保标注一致性。针对争议样本保留复核意见与决议依据。
+
+\section{描述性统计（时间、作者、模块、规模）}
+统计维度覆盖时间分布、作者贡献、模块归属（如 \texttt{storage}/\texttt{replication}/\texttt{WAL}）和变更规模。通过描述性统计识别高风险区域与修复密集阶段，为后续章节分析提供采样基础。
