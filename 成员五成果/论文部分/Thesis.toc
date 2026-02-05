@@ -31,10 +31,10 @@
 \contentsline {section}{\numberline {7.1}主要研究结论}{7}{section.7.1}%
 \contentsline {section}{\numberline {7.2}工程实践建议}{7}{section.7.2}%
 \contentsline {section}{\numberline {7.3}后续工作（自动检测、自动修复、CI 集成）}{7}{section.7.3}%
-\contentsline {chapter}{\numberline {附录 A\hspace {.3em}}中国科学院大学学位论文撰写要求}{8}{appendix.A}%
+\contentsline {chapter}{\numberline {附录 A\hspace {.3em}}大学学位论文撰写要求}{8}{appendix.A}%
 \contentsline {section}{\numberline {A.1}论文无附录者无需附录部分}{8}{section.A.1}%
 \contentsline {section}{\numberline {A.2}测试公式编号 $\mitLambda ,\mitlambda ,\mittheta ,\bar {\mitLambda },\sqrt {S_{NN}}$}{8}{section.A.2}%
 \contentsline {section}{\numberline {A.3}测试生僻字}{9}{section.A.3}%
-\contentsline {chapter}{参考文献}{10}{section*.16}%
-\contentsline {chapter}{致谢}{10}{appendix*.17}%
-\contentsline {chapter}{作者简历及攻读学位期间发表的学术论文与研究成果}{11}{appendix*.18}%
+\contentsline {chapter}{参考文献}{10}{section*.14}%
+\contentsline {chapter}{致谢}{10}{appendix*.15}%
+\contentsline {chapter}{作者简历及攻读学位期间发表的学术论文与研究成果}{11}{appendix*.16}%
