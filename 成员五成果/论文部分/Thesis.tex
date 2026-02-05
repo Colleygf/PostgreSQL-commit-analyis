@@ -67,7 +67,6 @@
 \intobmk*{\cleardoublepage}{\listtablename}% add link to bookmark
 % \listoftables% table catalog
 }
-\input{Tex/Prematter}% symbol list, preface content
 %-
 %-> Mainmatter
 %-
@@ -82,14 +81,7 @@
 %-
 %-> Backmatter: bibliography, glossary, index
 %-
-\backmatter% initialize the environment
-\intotoc*{\cleardoublepage}{\bibname}% add link to toc
-\artxifstreq{\artxbib}{bibtex}{% enable bibtex
-    \bibliography{Biblio/ref}% bibliography
-}{%
-    \printbibliography% bibliography
-}
-\input{Tex/Backmatter}% other information
+
 \end{document}
 %---------------------------------------------------------------------------%
 

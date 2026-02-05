@@ -22,7 +22,7 @@
 Git 提交历史
    ├── 提交元数据分析（时间 / 作者 / 模块 / 频率）
    ├── Bug 修复提交识别（关键词 / issue / patch 特征）
-   ├── 静态代码分析（AST / libcst）
+   ├── 静态代码分析（AST / pycparser）
    ├── 动态分析（pysnooper）
    └── 形式化建模（z3-solver）
 ```
@@ -45,7 +45,6 @@ Git 提交历史
 - 提交频率（年/月/周）
 - 作者贡献度（Top N 贡献者）
 - 模块活跃度（backend / optimizer / storage 等）
-- 提交规模（LOC 增删）
 
 ### 2. Bug 修复规律分析
 - Bug 修复比例
@@ -72,7 +71,7 @@ Git 提交历史
 
 ### 成员三（屈向明）：静态分析（AST / libcst）负责人
 - **职责**：选取典型 Bug 修复、进行 AST / libcst 结构分析
-- **工具**：Python `ast`、`libcst`、自定义 AST visitor
+- **工具**：`pycparser`、自定义 AST visitor
 
 ### 成员四（李霄冲）：动态分析（pysnooper）与案例复现
 - **职责**：选择 Python 工具脚本 Bug、跟踪执行路径、对比修复前后行为
@@ -80,7 +79,7 @@ Git 提交历史
 
 ### 成员五（王虹景）：形式化分析与报告整合（z3-solver）
 - **职责**：抽象 Bug 为逻辑模型、使用 Z3 验证修复有效性、撰写报告
-- **工具**：z3-solver、LaTeX / Word
+- **工具**：z3-solver、LaTeX 
 
 ---
 
@@ -100,7 +99,7 @@ Git 提交历史
 - 所有脚本、数据与报告均需统一归档至项目仓库。
 - 建议使用 Python 3.8+ 环境，并安装相关依赖：
   ```bash
-  pip install pandas matplotlib libcst pysnooper z3-solver
+  pip install pandas matplotlib pycparser pysnooper z3-solver
   ```
 
 --- 

@@ -1,0 +1,49 @@
+\contentsline {chapter}{\numberline {第1章\hspace {.3em}}绪论}{1}{chapter.1}%
+\contentsline {section}{\numberline {1.1}研究背景与问题定义}{1}{section.1.1}%
+\contentsline {section}{\numberline {1.2}研究目标与贡献}{1}{section.1.2}%
+\contentsline {section}{\numberline {1.3}研究方法与技术路线}{1}{section.1.3}%
+\contentsline {section}{\numberline {1.4}论文结构}{1}{section.1.4}%
+\contentsline {chapter}{\numberline {第2章\hspace {.3em}}数据集构建与 Bug 修复识别}{2}{chapter.2}%
+\contentsline {section}{\numberline {2.1}数据概览与初步量化分析}{2}{section.2.1}%
+\contentsline {section}{\numberline {2.2}Bug 修复识别规则与标注流程}{2}{section.2.2}%
+\contentsline {subsection}{\numberline {2.2.1}识别规则}{2}{subsection.2.2.1}%
+\contentsline {subsection}{\numberline {2.2.2}标注流程与质量控制}{2}{subsection.2.2.2}%
+\contentsline {section}{\numberline {2.3}描述性统计分析}{3}{section.2.3}%
+\contentsline {subsection}{\numberline {2.3.1}修复复杂度分析}{3}{subsection.2.3.1}%
+\contentsline {subsection}{\numberline {2.3.2}作者贡献度分布}{3}{subsection.2.3.2}%
+\contentsline {subsection}{\numberline {2.3.3}模块分布特征}{4}{subsection.2.3.3}%
+\contentsline {chapter}{\numberline {第3章\hspace {.3em}}Bug 修复结构演化分析（静态）}{5}{chapter.3}%
+\contentsline {section}{\numberline {3.1}AST 与 libcst 分析方法}{5}{section.3.1}%
+\contentsline {section}{\numberline {3.2}典型修复模式：前置条件显式化与错误路径显式化}{5}{section.3.2}%
+\contentsline {section}{\numberline {3.3}控制流与条件复杂度变化}{6}{section.3.3}%
+\contentsline {section}{\numberline {3.4}静态分析小结}{7}{section.3.4}%
+\contentsline {chapter}{\numberline {第4章\hspace {.3em}}动态执行轨迹与案例复现}{8}{chapter.4}%
+\contentsline {section}{\numberline {4.1}动态分析对象与实验环境}{8}{section.4.1}%
+\contentsline {section}{\numberline {4.2}\texttt {generate\_editorconfig.py} 的异常定位（Silent Failure）}{8}{section.4.2}%
+\contentsline {section}{\numberline {4.3}修复策略与回归测试结果}{9}{section.4.3}%
+\contentsline {section}{\numberline {4.4}动态证据对静态结论的补充价值}{10}{section.4.4}%
+\contentsline {section}{\numberline {4.5}本章小结}{10}{section.4.5}%
+\contentsline {chapter}{\numberline {第5章\hspace {.3em}}形式化建模与修复正确性验证}{11}{chapter.5}%
+\contentsline {section}{\numberline {5.1}验证目标与 Z3 环境配置}{11}{section.5.1}%
+\contentsline {section}{\numberline {5.2}核心实验一：C 源码逻辑修复的符号化验证}{11}{section.5.2}%
+\contentsline {subsection}{\numberline {5.2.1}算术溢出防护验证（基于 2025\_e2ceff13.diff）}{11}{subsection.5.2.1}%
+\contentsline {subsection}{\numberline {5.2.2}缓冲区边界动态加固（基于 2022\_a405908f.diff）}{11}{subsection.5.2.2}%
+\contentsline {subsection}{\numberline {5.2.3}进程清理状态机验证}{12}{subsection.5.2.3}%
+\contentsline {section}{\numberline {5.3}核心实验二：配置同步逻辑的 Python 脚本验证}{12}{section.5.3}%
+\contentsline {subsection}{\numberline {5.3.1}变量定义与状态抽象}{12}{subsection.5.3.1}%
+\contentsline {subsection}{\numberline {5.3.2}安全规约与修复验证}{12}{subsection.5.3.2}%
+\contentsline {section}{\numberline {5.4}本章小结}{12}{section.5.4}%
+\contentsline {chapter}{\numberline {第6章\hspace {.3em}}综合讨论}{13}{chapter.6}%
+\contentsline {section}{\numberline {6.1}从需求驱动到工程实现的全生命周期分析}{13}{section.6.1}%
+\contentsline {subsection}{\numberline {6.1.1}需求识别：从缺陷反馈到逻辑规约}{13}{subsection.6.1.1}%
+\contentsline {subsection}{\numberline {6.1.2}系统设计与模式选择}{13}{subsection.6.1.2}%
+\contentsline {subsection}{\numberline {6.1.3}实现与验证：三类证据链的协同互证}{13}{subsection.6.1.3}%
+\contentsline {section}{\numberline {6.2}高风险模块治理启示：以 storage/replication/WAL 为例}{14}{section.6.2}%
+\contentsline {section}{\numberline {6.3}方法局限与有效性威胁}{14}{section.6.3}%
+\contentsline {chapter}{\numberline {第7章\hspace {.3em}}结论与未来工作}{15}{chapter.7}%
+\contentsline {section}{\numberline {7.1}主要研究结论}{15}{section.7.1}%
+\contentsline {section}{\numberline {7.2}工程实践建议}{15}{section.7.2}%
+\contentsline {section}{\numberline {7.3}后续工作展望}{15}{section.7.3}%
+\contentsline {chapter}{\numberline {附录 A\hspace {.3em}}项目资源与源代码说明}{16}{appendix.A}%
+\contentsline {section}{\numberline {A.1}开源项目地址}{16}{section.A.1}%
+\contentsline {section}{\numberline {A.2}项目结构说明}{16}{section.A.2}%
