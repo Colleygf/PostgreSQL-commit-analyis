@@ -1,13 +1,73 @@
 \chapter{动态执行轨迹与案例复现}\label{chap:dynamic}
 
 \section{动态分析对象与实验环境}
-本章选择具有代表性的修复样本进行动态复现，记录输入、路径、日志与输出状态。实验环境包含固定版本解释器、依赖与测试脚本，以保证结果可重复。
+如果第三章回答的是“结构怎么变”，那么本章回答的是“这些结构变化在运行时是否真正改变了系统行为”。为此，本章选取仓库中最具代表性的 Python 工具链案例进行动态追踪与回归复现，重点对象如下：
+\begin{itemize}
+    \item 案例 A：\texttt{generate\_editorconfig.py}（2025），负责将 \texttt{.gitattributes} 规则同步到 \texttt{.editorconfig}；
+    \item 案例 B：\texttt{generate\_unaccent\_rules.py}（2022），用于规则文件生成与参数验证。
+\end{itemize}
+
+实验材料来自 \texttt{dynamic\_analyze} 目录，包括：
+\texttt{da\_editorconfig\_sync.log}、\texttt{da\_unaccent\_rules.log}、\texttt{test\_validation.log}、\texttt{test\_validation\_fixed.log}、\texttt{test\_editorconfig\_sync.py} 与修复脚本 \texttt{generate\_editorconfig\_fixed.py}。分析工具链为 \texttt{pysnooper + pytest + subprocess}，用于同时捕捉语句级轨迹和测试级可观测行为。
+
+\subsection*{环境与可重复性说明}
+日志显示实验环境为 Windows + Python 3.10。路径与子进程调用记录表明：脚本可以稳定启动、路径解析正常、stdout/stderr 可被捕获。该前提非常关键，因为它排除了“环境不兼容导致失败”的干扰，使我们能够聚焦逻辑本身。
 
 \section{\texttt{generate\_editorconfig.py} 的异常定位（Silent Failure）}
-针对 \texttt{generate\_editorconfig.py} 的 Silent Failure 问题，构造触发输入并复现实验。通过执行轨迹定位异常传播链路，识别“错误被吞没但无显式告警”的关键节点。
+该案例暴露的是一种比崩溃更隐蔽的问题：\textbf{返回成功但语义失败}。
+
+\subsection*{现象层证据}
+在 \texttt{test\_validation.log} 中，测试集共 2 项，其中 1 项失败。失败断言为：
+\begin{quote}
+\texttt{assert "[*.py]" in content}
+\end{quote}
+这意味着脚本虽然执行成功（\texttt{returncode=0}），却未把 Python 规则正确写入输出配置，表现为“状态看似健康、结果实则错误”。
+
+\subsection*{轨迹层证据}
+结合 \texttt{da\_editorconfig\_sync.log}，可观察到 subprocess 调用与输出捕获流程均正常，问题并非出在进程调度或 I/O。进一步对照测试断言与脚本逻辑可定位到：属性映射路径未完整覆盖 Python 分支，导致满足 \texttt{filter=indent} 的输入回退为全局默认路径。
+
+\subsection*{为何属于 Silent Failure}
+该缺陷满足 silent failure 的三个判据：
+\begin{enumerate}
+    \item 程序无崩溃、无异常退出；
+    \item 返回码显示成功，容易被 CI 误判为通过；
+    \item 业务语义目标（Python 专用规则）未达成。
+\end{enumerate}
+
+这类问题仅靠“进程是否成功”无法发现，必须结合语义断言或轨迹比对。
 
 \section{修复策略与回归测试结果}
-依据定位结果提出修复策略：补充显式检查、增强异常分支与日志，并将修复纳入回归测试集合。测试结果显示目标缺陷可稳定复现与消除，且无新增失败用例。
+针对缺陷根因，仓库提供了修复版 \texttt{generate\_editorconfig\_fixed.py}。修复思想不是“大改逻辑”，而是补全映射状态机：在原有 C/H 分支之外新增 Python 分支，并保留默认兜底。
+
+\subsection*{回归测试结果}
+\texttt{test\_validation\_fixed.log} 显示同一测试集从“1 fail + 1 pass”提升为“2 pass”。关键改进点如下：
+\begin{itemize}
+    \item 语义断言 \texttt{[*.py]} 成立，说明目标规则成功落盘；
+    \item 未引入新增失败用例，回归稳定；
+    \item 样本日志显示耗时由 0.11s 下降到 0.06s（仅作为样本观测，不作性能结论外推）。
+\end{itemize}
+
+\subsection*{修复有效性的工程解释}
+本次修复的有效性并不只体现在“测试变绿”，更体现在输出语义被恢复：从“仅全局配置”变为“全局 + Python 特化配置”。这说明补丁真正改变了业务行为，而非仅规避触发条件。
 
 \section{动态证据对静态结论的补充价值}
-动态分析补充了静态分析难以覆盖的运行时上下文，证明“前置条件显式化”和“错误路径显式化”能够在真实执行路径上降低静默失败风险。
+动态分析对第三章静态结论提供了四个层面的补充：
+\begin{enumerate}
+    \item \textbf{把结构模式映射到运行结果}：静态上“错误路径显式化”，动态上体现为测试可观察的失败/成功切换；
+    \item \textbf{把条件增强映射到行为约束}：静态上“新增分支”，动态上体现为 Python 输入不再回退到默认分支；
+    \item \textbf{提供反例最小化场景}：\texttt{FileType=Python, Attribute=indent} 直接成为第五章 SMT 规约输入；
+    \item \textbf{形成证据闭环}：日志轨迹（过程）+ 测试断言（结果）共同支撑“修复确实生效”。
+\end{enumerate}
+
+\subsection*{对案例 B 的补充说明}
+\texttt{generate\_unaccent\_rules.py} 的日志则体现了另一类动态价值：参数缺失时系统给出明确错误信息并安全退出，说明其错误路径已较为显式化。这与案例 A 形成对照，进一步说明“是否显式建模错误路径”会直接决定缺陷可见性。
+
+\section{本章小结}
+本章通过动态复现证明：
+\begin{itemize}
+    \item 静态结构变化可以转化为可观测的运行时行为差异；
+    \item silent failure 必须依赖语义断言与轨迹协同才能稳定识别；
+    \item 修复后的行为改进可通过回归测试闭环确认，并可直接转译为形式化规约。
+\end{itemize}
+
+因此，动态分析在本研究中承担“\textbf{从结构推断走向行为验证}”的关键桥梁角色。

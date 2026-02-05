@@ -1,4 +1,4 @@
-This is XeTeX, Version 3.141592653-2.6-0.999997 (TeX Live 2025) (preloaded format=xelatex 2026.2.4)  5 FEB 2026 14:01
+This is XeTeX, Version 3.141592653-2.6-0.999997 (TeX Live 2025) (preloaded format=xelatex 2026.2.4)  5 FEB 2026 14:08
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
@@ -1580,23 +1580,28 @@ Overfull \hbox (1.45605pt too wide) in paragraph at lines 17--18
 
 ]) (./Tex/Chap_03_StaticEvolutionAnalysis.tex [3]
 第3章
-) (./Tex/Chap_04_DynamicTraceAndCaseStudy.tex [4
+[4
 
-]
+] [5]) (./Tex/Chap_04_DynamicTraceAndCaseStudy.tex [6]
 第4章
-) (./Tex/Chap_05_FormalModelingAndVerification.tex [5
 
-]
+Overfull \hbox (65.14082pt too wide) in paragraph at lines 10--12
+[]\TU/SimSun(1)/m/n/12.045 实 验 材 料 来 自 \TU/entexttt/m/n/12.045 dynamic_analyze \TU/SimSun(1)/m/n/12.045 目 录，|  包 括：| \TU/entexttt/m/n/12.045 da_editorconfig_sync.log\TU/SimSun(1)/m/n/12.045 、| \TU/entexttt/m/n/12.045 da_unaccent_rules.log\TU/SimSun(1)/m/n/12.045 、|
+ []
+
+[7
+
+] [8]) (./Tex/Chap_05_FormalModelingAndVerification.tex [9]
 第5章
-[6
+[10
 
-]) (./Tex/Chap_06_Discussion.tex [7]
+]) (./Tex/Chap_06_Discussion.tex [11]
 第6章
-) (./Tex/Chap_07_ConclusionAndFutureWork.tex [8
+) (./Tex/Chap_07_ConclusionAndFutureWork.tex [12
 
 ]
 第7章
-)) [9
+)) [13
 
 ] (./Tex/Appendix.tex
 附录 A
@@ -1634,18 +1639,18 @@ Overfull \hbox (30.26967pt too wide) in paragraph at lines 36--37
 []\TU/entexttt/m/n/12.045 mathcal: $[][] [][] [][] [][] [][] [][] []$, mathscr: $[][] [][] [][] [][] [][] [][] []$, boldsymbol: $[][] [][] [][] [][] [][] [][] []$. 
  []
 
-) [10
+) [14
 
 
-] [11]
+] [15]
 No file Thesis.bbl.
-(./Tex/Backmatter.tex [12
+(./Tex/Backmatter.tex [16
 
 
 
-] [13
+] [17
 
-]) [14
+]) [18
 
 ] (./Thesis.aux)
  ***********
@@ -1657,15 +1662,15 @@ L3 programming layer <2022/08/05>
 LaTeX Font Warning: Some font shapes were not available, defaults substituted.
 
 Package rerunfilecheck Info: File `Thesis.out' has not changed.
-(rerunfilecheck)             Checksum: 7E02ACD4959DE21C7E66884A77DEA7CB;7673.
+(rerunfilecheck)             Checksum: E580FC1D462EDD00D99CBFBDD2A313AC;7783.
  ) 
 Here is how much of TeX's memory you used:
- 38289 strings out of 468174
- 789883 string characters out of 5436369
- 1306514 words of memory out of 5000000
- 66347 multiletter control sequences out of 15000+600000
- 637150 words of font info for 143 fonts, out of 8000000 for 9000
+ 38337 strings out of 468174
+ 792919 string characters out of 5436369
+ 1306652 words of memory out of 5000000
+ 66394 multiletter control sequences out of 15000+600000
+ 637158 words of font info for 144 fonts, out of 8000000 for 9000
  1348 hyphenation exceptions out of 8191
  118i,20n,125p,1676b,2936s stack positions out of 10000i,1000n,20000p,200000b,200000s
 
-Output written on Thesis.pdf (24 pages).
+Output written on Thesis.pdf (28 pages).
